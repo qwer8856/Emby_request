@@ -10369,8 +10369,18 @@ def handle_kk_kick(callback_id, chat_id, message_id, target_user_id, target_user
     
     # 1. 在数据库中封禁用户
     existing_user = User.query.filter_by(telegram_id=target_user_id).first()
+    if not existing_user:
+        # 兼容：telegram_id 未绑定的用户，尝试用 tg 主键查找
+        existing_user = db.session.get(User, target_user_id)
     if existing_user:
+        existing_user.ban_prev_lv = existing_user.lv
+        existing_user.ban_prev_ex = existing_user.ex
+        existing_user.ban_time = datetime.now()
+        existing_user.ban_reason = f'被管理员 {operator_name} 通过 /kk 踢出封禁'
         existing_user.lv = 'c'  # 封禁状态
+        # 禁用Emby账号
+        if existing_user.embyid and emby_client.is_enabled():
+            emby_client.disable_user(existing_user.embyid)
         db.session.commit()
         app.logger.info(f'[/kk kick] 已封禁用户 {existing_user.name} (tg_id={target_user_id})')
     
@@ -10498,9 +10508,14 @@ def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
     
     # 检查用户是否已有账号
     existing_user = User.query.filter_by(telegram_id=telegram_user_id).first()
+    if not existing_user:
+        # 兼容：telegram_id 未绑定的用户，尝试用 tg 主键查找
+        existing_user = db.session.get(User, telegram_user_id)
     
-    if existing_user and existing_user.lv in ['a', 'b']:
-        # 用户已有账号，直接增加订阅天数
+    if existing_user and existing_user.lv in ['a', 'b', 'c', 'd']:
+        # 用户已有账号
+        was_banned = (existing_user.lv == 'c')  # 记录是否是被禁用用户
+        
         if existing_user.lv == 'a':
             # 白名单用户
             send_telegram_reply(chat_id, f"""✅ <b>领取成功！</b>
@@ -10510,12 +10525,21 @@ def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
 
 👤 账号: <b>{existing_user.name}</b>""")
         else:
-            # 普通用户，增加天数
+            # 普通用户 / 被禁用用户 / 无账号用户，先赠送天数
+            if existing_user.lv == 'd':
+                existing_user.lv = 'b'  # 激活无账号用户
+            
             start_date = datetime.now()
-            if existing_user.ex and existing_user.ex > datetime.now():
-                existing_user.ex = existing_user.ex + timedelta(days=days)
+            
+            if was_banned:
+                # 被禁用用户：从领取时间开始往后推算，不看封禁前的到期时间
+                existing_user.ex = start_date + timedelta(days=days)
             else:
-                existing_user.ex = datetime.now() + timedelta(days=days)
+                # 普通用户：如果还有剩余订阅就在此基础上叠加
+                if existing_user.ex and existing_user.ex > start_date:
+                    existing_user.ex = existing_user.ex + timedelta(days=days)
+                else:
+                    existing_user.ex = start_date + timedelta(days=days)
             
             # 创建订阅记录
             subscription = Subscription(
@@ -10530,9 +10554,23 @@ def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
                 source='gift'
             )
             db.session.add(subscription)
+            
+            # 赠送完成后再解禁
+            if was_banned:
+                existing_user.lv = 'b'
+                existing_user.ban_prev_lv = None
+                existing_user.ban_prev_ex = None
+                existing_user.ban_time = None
+                existing_user.ban_reason = None
+                # 恢复Emby账号
+                if existing_user.embyid and emby_client.is_enabled():
+                    emby_client.enable_user(existing_user.embyid)
+                app.logger.info(f'[Gift] 被禁用用户 {existing_user.name} (tg={existing_user.tg}) 领取赠送后自动解禁')
+            
             db.session.commit()
             
-            app.logger.info(f'[Gift] 为已有用户 {existing_user.name} (tg={existing_user.tg}) 创建赠送订阅记录: {days}天')
+            ban_note = '\n🔓 您的账号已自动解除禁用！' if was_banned else ''
+            app.logger.info(f'[Gift] 为已有用户 {existing_user.name} (tg={existing_user.tg}) 创建赠送订阅记录: {days}天{" (原被禁用)" if was_banned else ""}')
             
             send_telegram_reply(chat_id, f"""✅ <b>领取成功！</b>
 
@@ -10540,7 +10578,7 @@ def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
 感谢 {inviter_text} 的赠送 🎉
 
 👤 账号: <b>{existing_user.name}</b>
-📅 新到期时间: <b>{existing_user.ex.strftime('%Y-%m-%d %H:%M')}</b>""")
+📅 新到期时间: <b>{existing_user.ex.strftime('%Y-%m-%d %H:%M')}</b>{ban_note}""")
         
         # 标记赠送码为已使用
         gift_data['used'] = True
@@ -16762,7 +16800,8 @@ def admin_get_users():
             query = query.filter(
                 or_(
                     User.name.ilike(f'%{search}%'),
-                    cast(User.tg, String).ilike(f'%{search}%')
+                    cast(User.tg, String).ilike(f'%{search}%'),
+                    cast(User.telegram_id, String).ilike(f'%{search}%')
                 )
             )
         
