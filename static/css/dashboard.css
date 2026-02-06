@@ -6945,6 +6945,17 @@
     .subscription-hero-content {
         flex-direction: column;
         text-align: center;
+        align-items: center;
+    }
+    
+    .hero-left {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .hero-badge {
+        align-self: center;
     }
     
     .hero-title h2 {
@@ -14109,7 +14120,7 @@
    ============================================================ */
 
 /* ---- 平板端 (≤1024px) ---- */
-@media (max-width: 1024px) {
+@media (max-width: 1024px) and (min-width: 769px) {
     .sidebar {
         width: 220px;
     }
@@ -14166,6 +14177,7 @@
     
     /* 主内容区 iOS 安全区域 */
     .main-content {
+        margin-left: 0 !important;
         padding-top: calc(56px + env(safe-area-inset-top) + 16px);
         padding-bottom: calc(16px + env(safe-area-inset-bottom));
         padding-left: calc(16px + env(safe-area-inset-left));
