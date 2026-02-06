@@ -9904,17 +9904,22 @@ def telegram_webhook():
 · 🚨 到期时间 | 已过期"""
         
         # 创建内联按钮 - 水平排列赠送和踢出，删除消息单独一行
-        # callback_data 格式: kk_action_targetUserId_targetUsername_targetFirstName
-        # 注意：first_name 可能包含特殊字符，需要编码处理
-        target_first_name_safe = (target_first_name or '').replace('_', ' ')[:20]  # 限制长度，替换下划线
+        # callback_data 只传 user_id，避免超过 Telegram 64字节限制
+        # 将目标用户信息存入缓存，回调时查询
+        kk_cache_key = f'kk_target_{target_user_id}'
+        set_db_config(kk_cache_key, {
+            'username': target_username or '',
+            'first_name': target_first_name or '',
+            'cached_at': datetime.now().isoformat()
+        })
         reply_markup = {
             'inline_keyboard': [
                 [
-                    {'text': '🎁 赠送资格', 'callback_data': f'kk_gift_{target_user_id}_{target_username or ""}_{target_first_name_safe}'},
-                    {'text': '🚫 踢出并封禁', 'callback_data': f'kk_kick_{target_user_id}_{target_username or ""}_{target_first_name_safe}'}
+                    {'text': '🎁 赠送资格', 'callback_data': f'kk_gift_{target_user_id}'},
+                    {'text': '🚫 踢出并封禁', 'callback_data': f'kk_kick_{target_user_id}'}
                 ],
                 [
-                    {'text': '🗑️ 删除消息', 'callback_data': f'kk_delete_0'}
+                    {'text': '🗑️ 删除消息', 'callback_data': 'kk_delete_0'}
                 ]
             ]
         }
@@ -9961,19 +9966,23 @@ def handle_callback_query(callback_query):
                 answer_callback_query(callback_id, "❌ 请不要以下犯上 ok？", show_alert=True)
                 return jsonify({'ok': True})
             
-            parts = callback_data.split('_', 4)  # kk_action_targetUserId_targetUsername_targetFirstName
+            parts = callback_data.split('_')  # kk_action_targetUserId
             if len(parts) < 3:
                 answer_callback_query(callback_id, "❌ 参数错误", show_alert=True)
                 return jsonify({'ok': True})
             
             action = parts[1]
             target_user_id = parts[2] if parts[2] else None
-            target_username = parts[3] if len(parts) > 3 and parts[3] else None
-            target_first_name = parts[4] if len(parts) > 4 and parts[4] else None
             
+            # 从缓存获取目标用户信息
+            target_username = None
+            target_first_name = None
             if target_user_id and target_user_id != 'None':
                 try:
                     target_user_id = int(target_user_id)
+                    kk_cache = get_db_config(f'kk_target_{target_user_id}', {})
+                    target_username = kk_cache.get('username') or None
+                    target_first_name = kk_cache.get('first_name') or None
                 except ValueError:
                     target_user_id = None
             else:
