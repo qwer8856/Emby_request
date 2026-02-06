@@ -7232,29 +7232,47 @@ select.custom-select:focus,
         background: #ffffff;
         border: 1px solid #e2e8f0;
         border-radius: 12px;
-        padding: 14px;
+        padding: 16px;
         position: relative;
-        gap: 8px;
+        gap: 0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
     
     .request-table td,
     .admin-table td {
         display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 6px 0;
-        border-bottom: none;
+        align-items: baseline;
+        justify-content: flex-start;
+        gap: 0;
+        padding: 7px 0;
+        border-bottom: 1px solid #f8f9fa;
         font-size: 14px;
+        flex-wrap: wrap;
+    }
+
+    .request-table td:last-child,
+    .admin-table td:last-child {
+        border-bottom: none;
     }
     
     .request-table td::before,
     .admin-table td::before {
         content: attr(data-label);
+        display: block;
         font-weight: 600;
         color: #64748b;
         font-size: 12px;
         flex-shrink: 0;
         min-width: 80px;
+        margin-right: 12px;
+    }
+
+    /* 没有 data-label 或为空的 td 不显示伪元素 */
+    .request-table td:not([data-label])::before,
+    .admin-table td:not([data-label])::before,
+    .request-table td[data-label=""]::before,
+    .admin-table td[data-label=""]::before {
+        display: none;
     }
     
     .request-table td[data-label="选择"],
@@ -7280,16 +7298,34 @@ select.custom-select:focus,
     
     .request-table td[data-label="操作"],
     .admin-table td[data-label="操作"] {
-        flex-direction: column;
-        align-items: stretch;
-        padding-top: 8px;
-        border-top: 1px solid #f1f5f9;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        padding-top: 10px;
+        border-top: 1px solid #e2e8f0;
+        border-bottom: none;
         margin-top: 4px;
     }
     
     .request-table td[data-label="操作"]::before,
     .admin-table td[data-label="操作"]::before {
         display: none;
+    }
+
+    /* 操作按钮和 select 在卡片底部的布局 */
+    .admin-table td[data-label="操作"] button,
+    .admin-table td[data-label="操作"] select,
+    .admin-table td[data-label="操作"] .btn,
+    .admin-table td[data-label="操作"] .btn-action {
+        flex: 1;
+        min-width: calc(50% - 6px);
+        text-align: center;
+        justify-content: center;
+    }
+
+    .admin-table td[data-label="操作"] .level-select {
+        min-width: 100%;
     }
     
     .action-buttons {

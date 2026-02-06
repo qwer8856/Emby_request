@@ -1614,13 +1614,13 @@ function renderSubscriptions(subscriptions) {
         
         return `
             <tr>
-                <td>${sub.user_name || '未知用户'}</td>
-                <td><code>${sub.user_tg_id || '-'}</code></td>
-                <td><span class="plan-badge ${sub.plan_type}">${sub.plan_name || '-'}</span></td>
-                <td>${sub.start_date ? new Date(sub.start_date).toLocaleDateString() : '-'}</td>
-                <td>${endDateText}</td>
-                <td><span class="status-badge ${sub.status}">${getSubscriptionStatusText(sub.status)}</span></td>
-                <td>
+                <td data-label="用户名">${sub.user_name || '未知用户'}</td>
+                <td data-label="TG ID"><code>${sub.user_tg_id || '-'}</code></td>
+                <td data-label="用户类型"><span class="plan-badge ${sub.plan_type}">${sub.plan_name || '-'}</span></td>
+                <td data-label="注册时间">${sub.start_date ? new Date(sub.start_date).toLocaleDateString() : '-'}</td>
+                <td data-label="到期时间">${endDateText}</td>
+                <td data-label="状态"><span class="status-badge ${sub.status}">${getSubscriptionStatusText(sub.status)}</span></td>
+                <td data-label="操作">
                     <button class="btn-action view" onclick="viewSubscription(${sub.user_tg_id})">查看</button>
                     ${sub.status === 'active' && sub.plan_type !== 'whitelist' ? `<button class="btn-action edit" onclick="extendSubscription(${sub.user_tg_id})">延期</button>` : ''}
                 </td>
@@ -1694,14 +1694,14 @@ function renderOrders(orders) {
     
     tbody.innerHTML = orders.map(order => `
         <tr>
-            <td><code>${order.order_no}</code></td>
-            <td>${order.user_name || order.user_tg_id || '未知用户'}</td>
-            <td>${order.plan_name || order.plan_type || '-'}</td>
-            <td>¥${(order.final_price || order.original_price || 0).toFixed(2)}</td>
-            <td>${getPaymentMethodText(order.payment_method)}</td>
-            <td><span class="status-badge ${order.payment_status}">${getOrderStatusText(order.payment_status)}</span></td>
-            <td>${order.created_at ? new Date(order.created_at).toLocaleString() : '-'}</td>
-            <td>
+            <td data-label="订单号"><code>${order.order_no}</code></td>
+            <td data-label="用户">${order.user_name || order.user_tg_id || '未知用户'}</td>
+            <td data-label="套餐">${order.plan_name || order.plan_type || '-'}</td>
+            <td data-label="金额">¥${(order.final_price || order.original_price || 0).toFixed(2)}</td>
+            <td data-label="支付方式">${getPaymentMethodText(order.payment_method)}</td>
+            <td data-label="状态"><span class="status-badge ${order.payment_status}">${getOrderStatusText(order.payment_status)}</span></td>
+            <td data-label="创建时间">${order.created_at ? new Date(order.created_at).toLocaleString() : '-'}</td>
+            <td data-label="操作">
                 <button class="btn-action view" onclick="viewOrder('${order.order_no}')">查看</button>
                 ${order.payment_status === 'pending' ? `<button class="btn-action edit" onclick="markOrderPaid('${order.order_no}')">标记已付</button>` : ''}
             </td>
@@ -1961,14 +1961,14 @@ function renderTickets(tickets) {
     
     tbody.innerHTML = tickets.map(ticket => `
         <tr>
-            <td><code>${ticket.ticket_no}</code></td>
-            <td>${ticket.user_name || ticket.user_tg_id || '未知用户'}</td>
-            <td>${getCategoryText(ticket.category)}</td>
-            <td>${ticket.subject || '-'}</td>
-            <td><span class="priority-badge ${ticket.priority}">${getPriorityText(ticket.priority)}</span></td>
-            <td><span class="status-badge ${ticket.status}">${getTicketStatusText(ticket.status)}</span></td>
-            <td>${ticket.created_at ? new Date(ticket.created_at).toLocaleString() : '-'}</td>
-            <td>
+            <td data-label="工单号"><code>${ticket.ticket_no}</code></td>
+            <td data-label="用户">${ticket.user_name || ticket.user_tg_id || '未知用户'}</td>
+            <td data-label="分类">${getCategoryText(ticket.category)}</td>
+            <td data-label="主题">${ticket.subject || '-'}</td>
+            <td data-label="优先级"><span class="priority-badge ${ticket.priority}">${getPriorityText(ticket.priority)}</span></td>
+            <td data-label="状态"><span class="status-badge ${ticket.status}">${getTicketStatusText(ticket.status)}</span></td>
+            <td data-label="创建时间">${ticket.created_at ? new Date(ticket.created_at).toLocaleString() : '-'}</td>
+            <td data-label="操作">
                 <button class="btn-action view" onclick="openTicketDetail(${ticket.id})">处理</button>
             </td>
         </tr>
@@ -2199,13 +2199,13 @@ function renderInviteRecords(records) {
     
     tbody.innerHTML = records.map(record => `
         <tr>
-            <td>${record.inviter_name || record.inviter_tg || '-'}</td>
-            <td>${record.invitee_name || record.invitee_tg || '-'}</td>
-            <td><code>${record.invite_code || '-'}</code></td>
-            <td>${record.reward_type || '-'}</td>
-            <td>¥${(record.reward_value || 0).toFixed(2)}</td>
-            <td><span class="status-badge ${record.reward_claimed ? 'paid' : 'pending'}">${record.reward_claimed ? '已领取' : '待领取'}</span></td>
-            <td>${record.created_at ? new Date(record.created_at).toLocaleString() : '-'}</td>
+            <td data-label="邀请人">${record.inviter_name || record.inviter_tg || '-'}</td>
+            <td data-label="被邀请人">${record.invitee_name || record.invitee_tg || '-'}</td>
+            <td data-label="邀请码"><code>${record.invite_code || '-'}</code></td>
+            <td data-label="奖励类型">${record.reward_type || '-'}</td>
+            <td data-label="奖励金额">¥${(record.reward_value || 0).toFixed(2)}</td>
+            <td data-label="状态"><span class="status-badge ${record.reward_claimed ? 'paid' : 'pending'}">${record.reward_claimed ? '已领取' : '待领取'}</span></td>
+            <td data-label="时间">${record.created_at ? new Date(record.created_at).toLocaleString() : '-'}</td>
         </tr>
     `).join('');
 }
@@ -2335,16 +2335,16 @@ function renderUsers(users) {
         
         return `
         <tr>
-            <td class="hide-mobile">${user.id}</td>
-            <td>${user.name || '-'}</td>
-            <td class="hide-mobile">${user.telegram_id ? user.telegram_id : '<span style="color:#999;">未绑定</span>'}</td>
-            <td>
+            <td class="hide-mobile" data-label="ID">${user.id}</td>
+            <td data-label="用户名">${user.name || '-'}</td>
+            <td class="hide-mobile" data-label="Telegram">${user.telegram_id ? user.telegram_id : '<span style="color:#999;">未绑定</span>'}</td>
+            <td data-label="角色">
                 <span class="status-badge ${roleClass}">${roleDisplay}</span>
             </td>
-            <td>${subscriptionDisplay}</td>
-            <td class="hide-mobile">${user.request_count || 0}</td>
-            <td class="hide-mobile">${user.created_at ? new Date(user.created_at).toLocaleString('zh-CN') : '-'}</td>
-            <td>
+            <td data-label="订阅">${subscriptionDisplay}</td>
+            <td class="hide-mobile" data-label="求片数">${user.request_count || 0}</td>
+            <td class="hide-mobile" data-label="注册时间">${user.created_at ? new Date(user.created_at).toLocaleString('zh-CN') : '-'}</td>
+            <td data-label="操作">
                 <button class="btn-action view" onclick="showUserDetail(${user.id})">详情</button>
                 <select class="level-select" onchange="setUserType(${user.id}, this.value, '${currentType}')">
                     <option value="" disabled selected>设置类型</option>
@@ -4780,15 +4780,15 @@ function renderRedeemCodesTable() {
         
         return `
             <tr data-code-id="${code.id}">
-                <td><input type="checkbox" class="redeem-checkbox" value="${code.id}" onchange="updateSelectedRedeemCount()"></td>
-                <td><code style="background:#f3f4f6;padding:4px 8px;border-radius:4px;font-size:13px;">${code.code}</code></td>
-                <td><span class="badge ${codeTypeClass}">${codeTypeText}</span></td>
-                <td>${code.plan_name || code.plan_type}</td>
-                <td>${durationText}</td>
-                <td><span class="badge ${statusClass}">${statusText}</span></td>
-                <td>${usedInfo}</td>
-                <td>${usedTime}</td>
-                <td>
+                <td data-label="选择"><input type="checkbox" class="redeem-checkbox" value="${code.id}" onchange="updateSelectedRedeemCount()"></td>
+                <td data-label="兑换码"><code style="background:#f3f4f6;padding:4px 8px;border-radius:4px;font-size:13px;">${code.code}</code></td>
+                <td data-label="类型"><span class="badge ${codeTypeClass}">${codeTypeText}</span></td>
+                <td data-label="套餐">${code.plan_name || code.plan_type}</td>
+                <td data-label="天数">${durationText}</td>
+                <td data-label="状态"><span class="badge ${statusClass}">${statusText}</span></td>
+                <td data-label="使用者">${usedInfo}</td>
+                <td data-label="使用时间">${usedTime}</td>
+                <td data-label="操作">
                     ${!code.is_used ? `
                         <button class="btn-action ${code.is_active !== false ? 'btn-warning' : 'btn-success'}" onclick="toggleRedeemCode(${code.id})" title="${code.is_active !== false ? '禁用' : '启用'}">
                             ${code.is_active !== false ? '禁用' : '启用'}
@@ -5515,13 +5515,13 @@ async function loadAdminDevices(page = 1) {
             
             return `
                 <tr>
-                    <td><strong>${escapeHtml(d.user_name)}</strong></td>
-                    <td>${escapeHtml(d.device_name)}</td>
-                    <td>${escapeHtml(d.client)}</td>
-                    <td>${lastActive}</td>
-                    <td>${d.last_ip || '-'}</td>
-                    <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                    <td class="action-cell">
+                    <td data-label="用户"><strong>${escapeHtml(d.user_name)}</strong></td>
+                    <td data-label="设备名称">${escapeHtml(d.device_name)}</td>
+                    <td data-label="客户端">${escapeHtml(d.client)}</td>
+                    <td data-label="最后活跃">${lastActive}</td>
+                    <td data-label="最后IP">${d.last_ip || '-'}</td>
+                    <td data-label="状态"><span class="status-badge ${statusClass}">${statusText}</span></td>
+                    <td data-label="操作" class="action-cell">
                         <button class="btn btn-sm ${d.is_blocked ? 'btn-success' : 'btn-warning'}" onclick="toggleAdminDevice(${d.id}, ${d.is_blocked})">
                             ${d.is_blocked ? '启用' : '禁用'}
                         </button>
@@ -5632,12 +5632,12 @@ async function loadAdminHistory(page = 1) {
             
             return `
                 <tr>
-                    <td><strong>${escapeHtml(r.user_name)}</strong></td>
-                    <td class="nowrap" title="${escapeHtml(r.display_name)}">${escapeHtml(r.display_name?.length > 25 ? r.display_name.slice(0, 25) + '...' : r.display_name)}</td>
-                    <td>${typeText}</td>
-                    <td>${escapeHtml(r.device_name) || '-'}</td>
-                    <td>${progress}</td>
-                    <td>${startTime}</td>
+                    <td data-label="用户"><strong>${escapeHtml(r.user_name)}</strong></td>
+                    <td data-label="媒体" class="nowrap" title="${escapeHtml(r.display_name)}">${escapeHtml(r.display_name?.length > 25 ? r.display_name.slice(0, 25) + '...' : r.display_name)}</td>
+                    <td data-label="类型">${typeText}</td>
+                    <td data-label="设备">${escapeHtml(r.device_name) || '-'}</td>
+                    <td data-label="进度">${progress}</td>
+                    <td data-label="开始时间">${startTime}</td>
                 </tr>
             `;
         }).join('');
@@ -5726,21 +5726,21 @@ function renderBlacklist(rules) {
     
     tbody.innerHTML = rules.map(rule => `
         <tr>
-            <td><strong>${escapeHtml(rule.rule_name)}</strong></td>
-            <td><code>${rule.client_pattern || '*'}</code></td>
-            <td><code>${rule.device_name_pattern || '*'}</code></td>
-            <td>
+            <td data-label="规则名称"><strong>${escapeHtml(rule.rule_name)}</strong></td>
+            <td data-label="客户端匹配"><code>${rule.client_pattern || '*'}</code></td>
+            <td data-label="设备匹配"><code>${rule.device_name_pattern || '*'}</code></td>
+            <td data-label="处理方式">
                 <span class="status-badge ${rule.action === 'stop_and_ban' ? 'danger' : 'warning'}">
                     ${rule.action === 'stop_and_ban' ? '🚫 停止+禁号' : '⚠️ 仅停止播放'}
                 </span>
             </td>
-            <td>
+            <td data-label="状态">
                 <span class="status-badge ${rule.is_enabled ? 'active' : 'disabled'}">
                     ${rule.is_enabled ? '✅ 已启用' : '⏸️ 已禁用'}
                 </span>
             </td>
-            <td>${rule.created_at ? new Date(rule.created_at).toLocaleString() : '-'}</td>
-            <td>
+            <td data-label="创建时间">${rule.created_at ? new Date(rule.created_at).toLocaleString() : '-'}</td>
+            <td data-label="操作">
                 <button class="btn-action edit" onclick="editBlacklistRule(${rule.id})">编辑</button>
                 <button class="btn-action delete" onclick="deleteBlacklistRule(${rule.id}, '${escapeHtml(rule.rule_name)}')">删除</button>
             </td>
