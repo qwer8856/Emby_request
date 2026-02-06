@@ -11976,7 +11976,7 @@
 /* 设备网格 */
 .devices-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
     gap: 16px;
 }
 
@@ -12003,18 +12003,22 @@
     align-items: center;
     justify-content: space-between;
     margin-bottom: 16px;
+    gap: 8px;
 }
 
 .device-header-right {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-shrink: 0;
 }
 
 .device-info {
     display: flex;
     align-items: center;
     gap: 12px;
+    min-width: 0;
+    flex: 1;
 }
 
 .device-icon {
@@ -12030,17 +12034,28 @@
     font-size: 20px;
 }
 
+.device-details {
+    min-width: 0;
+    flex: 1;
+}
+
 .device-details h4 {
     font-size: 15px;
     font-weight: 600;
     color: #1f2937;
     margin: 0 0 4px 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .device-details p {
     font-size: 12px;
     color: #6b7280;
     margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .device-delete-btn {
@@ -12056,6 +12071,7 @@
     justify-content: center;
     opacity: 0;
     transition: all 0.2s ease;
+    flex-shrink: 0;
 }
 
 .device-card:hover .device-delete-btn {
@@ -12065,6 +12081,13 @@
 .device-delete-btn:hover {
     background: #fecaca;
     color: #b91c1c;
+}
+
+/* 触摸设备始终显示删除按钮 */
+@media (hover: none) and (pointer: coarse) {
+    .device-delete-btn {
+        opacity: 1;
+    }
 }
 
 .device-ip {
@@ -12181,21 +12204,24 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
 }
 
 .progress-bar {
     flex: 1;
-    height: 4px;
+    height: 6px;
     background: #e5e7eb;
-    border-radius: 2px;
+    border-radius: 3px;
     overflow: hidden;
+    min-width: 60px;
 }
 
 .progress-fill {
     height: 100%;
     background: #3b82f6;
-    border-radius: 2px;
+    border-radius: 3px;
     transition: width 0.3s ease;
+    min-width: 2px;
 }
 
 .progress-time {
@@ -12581,7 +12607,7 @@
 
 .my-devices-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
     gap: 12px;
 }
 
@@ -12592,6 +12618,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 12px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     border: 1px solid #e5e7eb;
     transition: all 0.2s ease;
@@ -12605,6 +12632,8 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    min-width: 0;
+    flex: 1;
 }
 
 .device-icon-large {
@@ -12623,12 +12652,18 @@
     font-size: 14px;
     color: #1f2937;
     margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .device-details .device-client {
     font-size: 12px;
     color: #6b7280;
     margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .device-details .device-meta {
@@ -12669,7 +12704,7 @@
 /* ==================== 播放历史卡片样式 ==================== */
 .history-cards-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr));
     gap: 16px;
 }
 
@@ -12884,11 +12919,36 @@
         padding: 14px;
     }
     
+    .history-progress-bar {
+        height: 10px;
+        border-radius: 5px;
+    }
+    
+    .history-progress-fill {
+        min-width: 4px;
+    }
+    
     .history-card-footer {
         padding: 10px 14px;
         flex-direction: column;
         align-items: flex-start;
         gap: 8px;
+    }
+    
+    .device-card {
+        padding: 14px;
+    }
+    
+    .device-header {
+        flex-wrap: wrap;
+    }
+    
+    .now-playing-title {
+        white-space: normal;
+        -webkit-line-clamp: 2;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
     }
 }
 
