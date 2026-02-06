@@ -8662,12 +8662,28 @@ def emby_playback_webhook():
     episode_number = item_info.get('IndexNumber')
     total_ticks = item_info.get('RunTimeTicks', 0)
     
-    # 播放进度信息
-    play_state = session_info.get('PlayState', {}) or data.get('PlayState', {})
-    position_ticks = play_state.get('PositionTicks', 0)
-    play_method = play_state.get('PlayMethod', '') or session_info.get('PlayMethod', '')
+    # 播放进度信息 - 从多个可能的位置获取 PositionTicks
+    play_state = session_info.get('PlayState', {}) or {}
+    playback_info = data.get('PlaybackInfo', {}) or {}
+    
+    # 优先级: PlaybackInfo > Session.PlayState > 顶层PlayState > NowPlayingItem.UserData
+    position_ticks = (
+        playback_info.get('PositionTicks', 0) or
+        play_state.get('PositionTicks', 0) or
+        (data.get('PlayState', {}) or {}).get('PositionTicks', 0) or
+        session_info.get('NowPlayingItem', {}).get('UserData', {}).get('PlaybackPositionTicks', 0) or
+        item_info.get('UserData', {}).get('PlaybackPositionTicks', 0) or
+        0
+    )
+    # RunTimeTicks 也可能在 NowPlayingItem 中
+    if not total_ticks:
+        now_playing_item = session_info.get('NowPlayingItem', {})
+        total_ticks = now_playing_item.get('RunTimeTicks', 0)
+    
+    play_method = play_state.get('PlayMethod', '') or playback_info.get('PlayMethod', '') or session_info.get('PlayMethod', '')
     
     app.logger.info(f'播放检测: 用户={emby_user_name}, 设备={device_name}, 客户端={client}, 事件={event_type}')
+    app.logger.info(f'播放进度调试: position_ticks={position_ticks}, total_ticks={total_ticks}, PlayState={play_state}, PlaybackInfo keys={list(playback_info.keys()) if playback_info else "无"}, data顶层keys={[k for k in data.keys() if k not in ("Session","User","Item")]}')
     
     # 查找用户
     emby_user = None
