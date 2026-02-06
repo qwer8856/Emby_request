@@ -1672,14 +1672,63 @@ body.page-admin {
 @media (max-width: 768px) {
     .stats {
         grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
+        gap: 6px;
+    }
+    
+    .stat-card {
+        padding: 10px 8px;
+        min-height: 80px;
+        border-radius: 12px;
+    }
+    
+    .stat-icon {
+        width: 32px;
+        height: 32px;
+        font-size: 16px;
+        margin-bottom: 6px;
+    }
+    
+    .stat-content h3 {
+        font-size: 18px;
+        margin-bottom: 2px;
+    }
+    
+    .stat-content p {
+        font-size: 11px;
     }
 }
 
 @media (max-width: 480px) {
     .stats {
         grid-template-columns: repeat(3, 1fr);
-        gap: 6px;
+        gap: 4px;
+    }
+    
+    .stat-card {
+        padding: 8px 6px;
+        min-height: 70px;
+        border-radius: 10px;
+    }
+    
+    .stat-icon {
+        width: 28px;
+        height: 28px;
+        font-size: 14px;
+        margin-bottom: 4px;
+    }
+    
+    .stat-content h3 {
+        font-size: 16px;
+        margin-bottom: 1px;
+    }
+    
+    .stat-content p {
+        font-size: 10px;
+    }
+    
+    .stat-card::after {
+        font-size: 9px;
+        bottom: 4px;
     }
 }
 
@@ -8125,21 +8174,23 @@ select.custom-select:focus,
     /* 快捷操作保持2列 */
     .quick-actions {
         grid-template-columns: repeat(2, 1fr);
-        gap: 8px;
+        gap: 6px;
+        margin-bottom: 12px;
     }
 
     .action-item {
-        padding: 12px 10px;
+        padding: 10px 8px;
+        border-radius: 12px;
     }
 
     .action-icon {
-        width: 36px;
-        height: 36px;
-        font-size: 18px;
+        width: 32px;
+        height: 32px;
+        font-size: 16px;
     }
 
     .action-info h4 {
-        font-size: 16px;
+        font-size: 14px;
     }
 
     .action-info p {
@@ -8165,7 +8216,12 @@ select.custom-select:focus,
 
     /* 内容区 - 考虑顶部栏高度 */
     .admin-content {
-        padding: 70px 12px 12px 12px;
+        padding: 70px 8px 8px 8px;
+    }
+    
+    /* 减小section内边距 */
+    .admin-section {
+        padding: 0 4px;
     }
 
     /* 表格滚动提示 */
@@ -8436,8 +8492,8 @@ select.custom-select:focus,
     .table-wrapper {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
-        margin: 0 -16px;
-        padding: 0 16px;
+        margin: 0 -8px;
+        padding: 0 8px;
     }
 
     .admin-table {
@@ -8446,8 +8502,8 @@ select.custom-select:focus,
 
     .admin-table th,
     .admin-table td {
-        padding: 8px 6px;
-        font-size: 11px;
+        padding: 6px 4px;
+        font-size: 10px;
         white-space: nowrap;
     }
     
@@ -8631,19 +8687,26 @@ select.custom-select:focus,
     .settings-card-header h3 {
         font-size: 13px;
     }
+    
+    /* 表格容器进一步减小边距 */
+    .table-container,
+    .table-wrapper {
+        margin: 0 -4px;
+        padding: 0 4px;
+    }
 
     .admin-table th,
     .admin-table td {
-        padding: 6px 4px;
-        font-size: 10px;
+        padding: 5px 3px;
+        font-size: 9px;
     }
     
     /* 进一步缩小用户ID列 */
     .admin-table th:first-child,
     .admin-table td:first-child {
-        max-width: 40px;
-        font-size: 9px;
-        padding: 6px 2px;
+        max-width: 35px;
+        font-size: 8px;
+        padding: 5px 2px;
     }
     
     /* 用户名和Telegram ID列 */
@@ -8665,18 +8728,18 @@ select.custom-select:focus,
     
     /* 操作列按钮进一步优化 */
     .admin-table .btn-action {
-        padding: 5px 6px;
-        font-size: 10px;
+        padding: 4px 5px;
+        font-size: 9px;
         margin: 1px;
-        min-width: 40px;
+        min-width: 36px;
         display: inline-block;
     }
     
     /* 下拉选择器超小屏优化 */
     .admin-table .level-select {
-        padding: 5px 2px;
-        font-size: 9px;
-        min-width: 80px;
+        padding: 4px 2px;
+        font-size: 8px;
+        min-width: 75px;
         margin: 1px 0;
         display: block;
         width: 100%;
@@ -8684,8 +8747,8 @@ select.custom-select:focus,
     
     /* 状态徽章字体更小 */
     .admin-table .status-badge {
-        font-size: 9px;
-        padding: 2px 4px;
+        font-size: 8px;
+        padding: 2px 3px;
     }
 
     .btn-sm {
@@ -9658,7 +9721,7 @@ select.custom-select:focus,
     .quick-actions {
         display: grid !important;
         grid-template-columns: repeat(2, 1fr) !important;
-        gap: 12px !important;
+        gap: 8px !important;
     }
 
     /* 2. 修复卡片内容布局：强制横向排列 (左图标 右文字) */
@@ -9669,7 +9732,7 @@ select.custom-select:focus,
         width: 100% !important;
         min-width: 0 !important;
         margin-bottom: 0 !important;
-        min-height: 60px !important;
+        min-height: 55px !important;
         /* Reduce min-height requirement */
 
         /* Flex row layout */
@@ -9677,9 +9740,10 @@ select.custom-select:focus,
         flex-direction: row !important;
         align-items: center !important;
         justify-content: flex-start !important;
-        padding: 12px !important;
-        gap: 12px !important;
+        padding: 10px !important;
+        gap: 10px !important;
         text-align: left !important;
+        border-radius: 12px !important;
     }
 
     /* 3. 图标样式统一 */
@@ -9687,9 +9751,9 @@ select.custom-select:focus,
     .stats .stat-icon,
     .quick-actions .action-icon {
         margin-bottom: 0 !important;
-        width: 40px !important;
-        height: 40px !important;
-        font-size: 20px !important;
+        width: 36px !important;
+        height: 36px !important;
+        font-size: 18px !important;
         flex-shrink: 0 !important;
         display: flex !important;
         align-items: center !important;
@@ -9712,7 +9776,7 @@ select.custom-select:focus,
     /* 5. 标题和副标题文字大小 */
     .stat-content h3,
     .action-info h4 {
-        font-size: 16px !important;
+        font-size: 15px !important;
         margin: 0 0 2px 0 !important;
         line-height: 1.2 !important;
         display: block !important;
@@ -9720,7 +9784,7 @@ select.custom-select:focus,
 
     .stat-content p,
     .action-info p {
-        font-size: 11px !important;
+        font-size: 10px !important;
         margin: 0 !important;
         display: block !important;
         white-space: nowrap !important;

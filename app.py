@@ -10511,12 +10511,28 @@ def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
 👤 账号: <b>{existing_user.name}</b>""")
         else:
             # 普通用户，增加天数
+            start_date = datetime.now()
             if existing_user.ex and existing_user.ex > datetime.now():
                 existing_user.ex = existing_user.ex + timedelta(days=days)
             else:
                 existing_user.ex = datetime.now() + timedelta(days=days)
             
+            # 创建订阅记录
+            subscription = Subscription(
+                user_tg=existing_user.tg,
+                plan_type='gift',
+                plan_name=f'管理员赠送 {days}天',
+                duration_months=0,  # 按天赠送，不按月计
+                price=0,
+                start_date=start_date,
+                end_date=existing_user.ex,
+                status='active',
+                source='gift'
+            )
+            db.session.add(subscription)
             db.session.commit()
+            
+            app.logger.info(f'[Gift] 为已有用户 {existing_user.name} (tg={existing_user.tg}) 创建赠送订阅记录: {days}天')
             
             send_telegram_reply(chat_id, f"""✅ <b>领取成功！</b>
 
@@ -10585,9 +10601,24 @@ def create_gift_account(chat_id, telegram_user_id, username, gift_code, gift_dat
         )
         
         db.session.add(new_user)
+        db.session.flush()  # 先flush以获取用户ID
+        
+        # 创建订阅记录
+        subscription = Subscription(
+            user_tg=new_user.tg,
+            plan_type='gift',
+            plan_name=f'管理员赠送 {days}天',
+            duration_months=0,  # 按天赠送，不按月计
+            price=0,
+            start_date=new_user.cr,
+            end_date=new_user.ex,
+            status='active',
+            source='gift'
+        )
+        db.session.add(subscription)
         db.session.commit()
         
-        app.logger.info(f'[Gift] 成功创建账号: {username}, 赠送 {days} 天')
+        app.logger.info(f'[Gift] 成功创建账号: {username}, 赠送 {days} 天，已创建订阅记录')
         
         # 标记赠送码为已使用
         gift_key = f'gift_{gift_code}'

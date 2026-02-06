@@ -3338,6 +3338,24 @@ async function unbindTelegramId() {
                         
                         const priceText = price > 0 ? `¥${price}` : '免费';
                         
+                        // 计算持续时间：赠送类型显示天数，其他显示月数
+                        let durationText = '';
+                        if (source === 'gift' && sub.duration_months === 0) {
+                            // 赠送类型且duration_months为0，计算实际天数
+                            const startDate = new Date(sub.start_date);
+                            const endDate = new Date(sub.end_date);
+                            const days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+                            durationText = `${days}天`;
+                        } else if (sub.duration_months > 0) {
+                            durationText = `${sub.duration_months}个月`;
+                        } else {
+                            // 其他情况也计算天数
+                            const startDate = new Date(sub.start_date);
+                            const endDate = new Date(sub.end_date);
+                            const days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+                            durationText = `${days}天`;
+                        }
+                        
                         return `
                             <div class="history-item-new ${sourceClass}-item">
                                 <div class="history-dot ${sourceClass}"></div>
@@ -3348,7 +3366,7 @@ async function unbindTelegramId() {
                                     </div>
                                     <div class="history-item-meta">
                                         ${new Date(sub.start_date).toLocaleDateString('zh-CN')} ~ ${new Date(sub.end_date).toLocaleDateString('zh-CN')}
-                                        <span class="duration-tag">${sub.duration_months}个月</span>
+                                        <span class="duration-tag">${durationText}</span>
                                         <span class="price-tag">${priceText}</span>
                                         <span class="status-tag ${sub.status}">${sub.status === 'active' ? '有效' : (sub.status === 'pending' ? '待生效' : '已过期')}</span>
                                     </div>
