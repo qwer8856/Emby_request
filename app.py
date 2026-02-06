@@ -18492,7 +18492,10 @@ def auto_close_inactive_tickets():
                 db.session.commit()
                 app.logger.info(f'自动关闭了 {closed_count} 个超时工单')
     except Exception as e:
+        db.session.rollback()
         app.logger.error(f'自动关闭工单失败: {e}', exc_info=True)
+    finally:
+        db.session.remove()
 
 
 # 工单自动关闭检查的时间戳
@@ -18550,6 +18553,9 @@ def check_expired_subscriptions():
             
             if not expired_users:
                 return
+            
+            # 立即提交/结束查询事务，释放行锁，避免后续慢操作持锁
+            db.session.commit()
             
             app.logger.info(f'[订阅检查] 发现 {len(expired_users)} 个无有效订阅用户')
             
@@ -18628,6 +18634,7 @@ def check_expired_subscriptions():
                             app.logger.info(f'[订阅检查] 已禁用过期用户Emby账号: {user.name} (过期时间: {user.ex})')
                             
                 except Exception as e:
+                    db.session.rollback()
                     app.logger.error(f'[订阅检查] 处理用户 {user.name} 失败: {e}')
             
             if disabled_count > 0:
@@ -18638,7 +18645,10 @@ def check_expired_subscriptions():
                 app.logger.info(f'[订阅检查] 本次共删除 {web_deleted_count} 个网站账号')
                 
     except Exception as e:
+        db.session.rollback()
         app.logger.error(f'[订阅检查] 检查过期订阅失败: {e}')
+    finally:
+        db.session.remove()
 
 
 @app.before_request
