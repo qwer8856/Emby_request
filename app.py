@@ -593,7 +593,7 @@ PROXY_SESSION = get_proxied_session()
 _proxy_config = get_proxy_config()
 if _proxy_config:
     http_session.proxies.update(_proxy_config)
-    print(f"[CONFIG] 代理已配置: {list(_proxy_config.values())[0][:30]}...")
+    print("[CONFIG] 代理已配置")
 else:
     print("[CONFIG] 未配置代理，直连外网")
 
@@ -1057,7 +1057,7 @@ def update_global_download_config():
                 priority=20
             )
             pt_manager.register(moviepilot_client)
-            print(f"[CONFIG] MoviePilot 客户端已重新初始化: {MOVIEPILOT_URL}")
+            print("[CONFIG] MoviePilot 客户端已重新初始化")
         
         # 重新初始化 qBittorrent 客户端
         qbit_client = QbitClient(QBITTORRENT_BASE_URL, QBITTORRENT_USERNAME, QBITTORRENT_PASSWORD)
@@ -1065,7 +1065,7 @@ def update_global_download_config():
         # 首次调用时 pt_manager 还未创建，忽略
         pass
     
-    print(f"[CONFIG] 下载配置已更新: MP={MOVIEPILOT_URL}, QB={QBITTORRENT_BASE_URL}")
+    print(f"[CONFIG] 下载配置已更新: MP={'已配置' if MOVIEPILOT_URL else '未配置'}, QB={'已配置' if QBITTORRENT_BASE_URL else '未配置'}")
 
 # 初始化加载下载配置
 update_global_download_config()
@@ -1470,7 +1470,7 @@ def update_global_system_config():
         emby_client.api_key = EMBY_API_KEY
         emby_client.session.headers.update({'X-Emby-Token': EMBY_API_KEY})
     
-    print(f"[CONFIG] 系统配置已更新: EMBY={EMBY_URL}, TG={bool(TELEGRAM_BOT_TOKEN)}, TMDB={bool(TMDB_API_KEY)}")
+    print(f"[CONFIG] 系统配置已更新: EMBY={'已配置' if EMBY_URL else '未配置'}, TG={'已配置' if TELEGRAM_BOT_TOKEN else '未配置'}, TMDB={'已配置' if TMDB_API_KEY else '未配置'}")
 
 # 初始化加载系统配置
 update_global_system_config()
@@ -13690,7 +13690,9 @@ def save_download_config_api():
             # 更新全局变量
             update_global_download_config()
             
-            app.logger.info(f'下载配置已更新: MP={current_config["moviepilot"]["url"]}, QB={current_config["qbittorrent"]["url"]}')
+            mp_status = '已配置' if current_config["moviepilot"]["url"] else '未配置'
+            qb_status = '已配置' if current_config["qbittorrent"]["url"] else '未配置'
+            app.logger.info(f'下载配置已更新: MP={mp_status}, QB={qb_status}')
             
             return jsonify({
                 'success': True,
