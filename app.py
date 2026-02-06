@@ -7898,7 +7898,8 @@ def admin_panel():
                          current_status=status_filter,
                          tmdb_image_base=tmdb_image_base,
                          plans=plans_data,
-                         mp_enabled=mp_enabled)
+                         mp_enabled=mp_enabled,
+                         site_config=site_config)
 
 
 @app.route('/admin/update-request/<int:request_id>', methods=['POST'])
