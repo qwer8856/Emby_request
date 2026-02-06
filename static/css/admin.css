@@ -9569,56 +9569,161 @@ select.custom-select:focus,
     }
 }
 
-/* ==================== 修复统计卡片移动端显示问题 ==================== */
+/* ==================== 移动端卡片布局统一修复 ==================== */
 @media (max-width: 900px) {
 
-    /* 强制统计卡片网格为2列，防止被挤压且只有一条缝隙 */
+    /* 1. 强制所有统计类网格为2列 */
     .admin-stats-grid,
-    .stats {
+    .stats,
+    .quick-actions {
         display: grid !important;
         grid-template-columns: repeat(2, 1fr) !important;
         gap: 12px !important;
     }
 
-    /* 修复卡片在移动端的尺寸 */
+    /* 2. 修复卡片内容布局：强制横向排列 (左图标 右文字) */
     .admin-stats-grid .stat-card,
-    .stats .stat-card {
+    .stats .stat-card,
+    .quick-actions .action-item {
+        /* Reset any conflicting styles */
         width: 100% !important;
         min-width: 0 !important;
         margin-bottom: 0 !important;
-        /* 改为横向布局，图标在左文字在右，避免垂直空间不足导致内容隐藏 */
+        min-height: 60px !important;
+        /* Reduce min-height requirement */
+
+        /* Flex row layout */
+        display: flex !important;
         flex-direction: row !important;
         align-items: center !important;
+        justify-content: flex-start !important;
         padding: 12px !important;
+        gap: 12px !important;
+        text-align: left !important;
+    }
+
+    /* 3. 图标样式统一 */
+    .admin-stats-grid .stat-icon,
+    .stats .stat-icon,
+    .quick-actions .action-icon {
+        margin-bottom: 0 !important;
+        width: 40px !important;
+        height: 40px !important;
+        font-size: 20px !important;
+        flex-shrink: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    /* 4. 文字内容区域 */
+    .admin-stats-grid .stat-content,
+    .stats .stat-content,
+    .quick-actions .action-info {
+        flex: 1 !important;
+        min-width: 0 !important;
+        align-items: flex-start !important;
+        text-align: left !important;
+    }
+
+    /* 5. 标题和副标题文字大小 */
+    .stat-content h3,
+    .action-info h4 {
+        font-size: 16px !important;
+        margin: 0 0 2px 0 !important;
+        line-height: 1.2 !important;
+    }
+
+    .stat-content p,
+    .action-info p {
+        font-size: 11px !important;
+        margin: 0 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    /* ==================== 
+       新增移动端适配规则 
+       ==================== */
+
+    /* 1. 播放监控 (.admin-session-card) */
+    .admin-session-card {
+        padding: 12px !important;
+    }
+
+    .session-header {
+        margin-bottom: 8px !important;
+    }
+
+    .now-playing-title {
+        font-size: 14px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    .session-user .user-info .device-info {
+        font-size: 11px !important;
+        flex-wrap: wrap !important;
+    }
+
+    /* 2. 套餐配置 (.plan-config-grid) */
+    .plan-config-grid,
+    .plan-prices-grid {
+        grid-template-columns: 1fr !important;
         gap: 12px !important;
     }
 
-    .admin-stats-grid .stat-icon,
-    .stats .stat-icon {
-        margin-bottom: 0 !important;
-        width: 36px !important;
-        height: 36px !important;
-        font-size: 18px !important;
-        flex-shrink: 0 !important;
+    .price-field {
+        width: 100% !important;
     }
 
-    .admin-stats-grid .stat-content,
-    .stats .stat-content {
-        align-items: flex-start !important;
-        text-align: left !important;
+    .price-input-wrapper input {
+        width: 100% !important;
+    }
+
+    /* 3. 线路管理 (.line-item-compact) */
+    .line-item-compact {
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+        height: auto !important;
+        padding: 12px !important;
+    }
+
+    .line-item-info {
+        width: 100% !important;
+        margin-bottom: 4px !important;
+    }
+
+    .line-item-details {
         min-width: 0 !important;
-        /* Allow text truncation */
+        flex: 1 !important;
     }
 
-    .admin-stats-grid .stat-content h3,
-    .stats .stat-content h3 {
-        font-size: 16px !important;
-        /* Adjust font size */
-        margin-bottom: 2px !important;
+    .line-item-badges {
+        margin-left: 0 !important;
+        margin-right: auto !important;
     }
 
-    .admin-stats-grid .stat-content p,
-    .stats .stat-content p {
-        font-size: 12px !important;
+    .line-item-actions {
+        width: 100% !important;
+        justify-content: flex-end !important;
+        margin-top: 8px !important;
+        gap: 8px !important;
+    }
+
+    /* 4. 分类策略 (.category-item) */
+    .category-item-header,
+    .condition-row {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 8px !important;
+    }
+
+    .category-item-header input,
+    .condition-row input {
+        width: 100% !important;
+        max-width: none !important;
     }
 }
