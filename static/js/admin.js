@@ -116,7 +116,10 @@ let currentRequestId = null;
                 const dailyData = await dailyRes.json();
                 
                 if (dailyData.success) {
-                    const ctx = document.getElementById('dailyChart').getContext('2d');
+                    const dailyCanvas = document.getElementById('dailyChart');
+                    const existingDaily = Chart.getChart(dailyCanvas);
+                    if (existingDaily) existingDaily.destroy();
+                    const ctx = dailyCanvas.getContext('2d');
                     new Chart(ctx, {
                         type: 'line',
                         data: {
@@ -163,7 +166,10 @@ let currentRequestId = null;
                 const typeData = await typeRes.json();
                 
                 if (typeData.success) {
-                    const ctx = document.getElementById('typeChart').getContext('2d');
+                    const typeCanvas = document.getElementById('typeChart');
+                    const existingType = Chart.getChart(typeCanvas);
+                    if (existingType) existingType.destroy();
+                    const ctx = typeCanvas.getContext('2d');
                     new Chart(ctx, {
                         type: 'doughnut',
                         data: {
@@ -2249,6 +2255,10 @@ function renderInviteRankList(rankings) {
 function renderInviteTrendChart(trendData) {
     const canvas = document.getElementById('inviteTrendChart');
     if (!canvas || !window.Chart) return;
+    
+    // 销毁已有的图表实例，避免 "Canvas is already in use" 错误
+    const existingChart = Chart.getChart(canvas);
+    if (existingChart) existingChart.destroy();
     
     const ctx = canvas.getContext('2d');
     new Chart(ctx, {
