@@ -18768,5 +18768,13 @@ if __name__ == '__main__':
     host = os.getenv('FLASK_HOST', '0.0.0.0')
     port = int(os.getenv('FLASK_PORT', 5000))
     
-    app.logger.info(f'启动服务器: {host}:{port} (Debug={debug_mode})')
+    app.logger.info(f'启动开发服务器: {host}:{port} (Debug={debug_mode})')
     app.run(debug=debug_mode, host=host, port=port)
+else:
+    # Gunicorn 等 WSGI 服务器启动时的初始化
+    init_db()
+    admin_config = init_admin_config()
+    secret_path = admin_config.get('admin', {}).get('secret_path')
+    if secret_path:
+        print(f"[INFO] 管理后台入口: /{secret_path}")
+    bootstrap_background_tasks()
