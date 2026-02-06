@@ -1,4 +1,4 @@
-// admin.js v30 - 添加批量操作和批量筛选功能
+// admin.js v31 - 增加批量赠送订阅/批量设白名单/批量延期/批量解禁设备
 let currentRequestId = null;
     let currentStatus = null;
     let isBatchMode = false;
@@ -6011,6 +6011,51 @@ async function batchDeleteUsers() {
     );
 }
 
+// ===== 用户管理 - 批量赠送订阅 =====
+async function batchGiftSubscription() {
+    const ids = getSelectedValues('user').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择用户', 'info');
+    
+    const days = await showPrompt({
+        title: '🎁 批量赠送订阅',
+        message: `将为 ${ids.length} 个用户赠送订阅，请输入赠送天数：`,
+        placeholder: '请输入天数（如30）',
+        defaultValue: '30',
+        confirmText: '确认赠送',
+        type: 'info'
+    });
+    if (!days || isNaN(days) || parseInt(days) <= 0) {
+        if (days !== null) showToast('错误', '请输入有效的天数', 'error');
+        return;
+    }
+    
+    await doBatchAction('/api/admin/users/batch', 'POST',
+        { ids, action: 'gift', days: parseInt(days) },
+        `已为 ${ids.length} 个用户赠送 ${days} 天订阅`, '批量赠送失败',
+        () => loadUsers(userCurrentPage)
+    );
+}
+
+// ===== 用户管理 - 批量设为白名单 =====
+async function batchSetWhitelist() {
+    const ids = getSelectedValues('user').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择用户', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '👑 批量设为白名单',
+        message: `确定要将 ${ids.length} 个用户设为白名单吗？\n\n白名单用户永久有效，无需订阅。`,
+        confirmText: '确定设置',
+        type: 'info'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/users/batch', 'POST',
+        { ids, action: 'whitelist' },
+        `已将 ${ids.length} 个用户设为白名单`, '批量设置失败',
+        () => loadUsers(userCurrentPage)
+    );
+}
+
 // ===== 订单管理批量操作 =====
 async function batchCancelOrders() {
     const orderNos = getSelectedValues('order');
@@ -6090,6 +6135,30 @@ async function batchDeleteTickets() {
 }
 
 // ===== 订阅管理批量操作 =====
+async function batchExtendSubscriptions() {
+    const ids = getSelectedValues('subscription');
+    if (ids.length === 0) return showToast('提示', '请先选择订阅', 'info');
+    
+    const days = await showPrompt({
+        title: '⏳ 批量延期订阅',
+        message: `将为 ${ids.length} 个用户延长订阅，请输入延长天数：`,
+        placeholder: '请输入天数（如30）',
+        defaultValue: '30',
+        confirmText: '确认延期',
+        type: 'info'
+    });
+    if (!days || isNaN(days) || parseInt(days) <= 0) {
+        if (days !== null) showToast('错误', '请输入有效的天数', 'error');
+        return;
+    }
+    
+    await doBatchAction('/api/admin/subscriptions/batch', 'POST',
+        { ids, action: 'extend', days: parseInt(days) },
+        `已为 ${ids.length} 个用户延长 ${days} 天订阅`, '批量延期失败',
+        loadSubscriptions
+    );
+}
+
 async function batchDeleteSubscriptions() {
     const ids = getSelectedValues('subscription');
     if (ids.length === 0) return showToast('提示', '请先选择订阅', 'info');
@@ -6144,6 +6213,26 @@ async function batchBlockDevices() {
     await doBatchAction('/api/admin/playback/devices/batch', 'POST',
         { ids, action: 'block' },
         `已禁用 ${ids.length} 个设备`, '批量禁用失败',
+        () => loadAdminDevices(adminDevicesPage)
+    );
+}
+
+// ===== 设备管理 - 批量解禁 =====
+async function batchUnblockDevices() {
+    const ids = getSelectedValues('device').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择设备', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '批量解禁设备',
+        message: `确定要解禁 ${ids.length} 个设备吗？`,
+        confirmText: '确定解禁',
+        type: 'info'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/playback/devices/batch', 'POST',
+        { ids, action: 'unblock' },
+        `已解禁 ${ids.length} 个设备`, '批量解禁失败',
         () => loadAdminDevices(adminDevicesPage)
     );
 }

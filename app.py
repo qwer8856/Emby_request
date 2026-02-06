@@ -11750,16 +11750,18 @@ def batch_delete_requests():
 @app.route('/api/admin/users/batch', methods=['POST'])
 @admin_required
 def batch_users():
-    """批量用户操作：禁用/解禁/删除"""
+    """批量用户操作：禁用/解禁/删除/赠送订阅/设白名单"""
     data = request.get_json()
     ids = data.get('ids', [])
     action = data.get('action', '')
+    days = data.get('days', 30)  # 赠送天数
     
     if not ids:
         return jsonify({'success': False, 'error': '未选择任何用户'}), 400
     
     success_count = 0
     fail_count = 0
+    now = datetime.now()
     
     for uid in ids:
         try:
@@ -11769,10 +11771,28 @@ def batch_users():
                 continue
             
             if action == 'ban':
+                user.ban_prev_lv = user.lv
+                user.ban_prev_ex = user.ex
+                user.ban_time = now
                 user.lv = 'c'
+                # 禁用Emby账号
+                if user.embyid and emby_client.is_enabled():
+                    emby_client.disable_user(user.embyid)
                 success_count += 1
             elif action == 'unban':
-                user.lv = 'b'
+                # 恢复封禁前状态
+                if user.ban_prev_lv:
+                    user.lv = user.ban_prev_lv
+                    user.ex = user.ban_prev_ex
+                else:
+                    user.lv = 'b'
+                user.ban_prev_lv = None
+                user.ban_prev_ex = None
+                user.ban_time = None
+                user.ban_reason = None
+                # 恢复Emby账号
+                if user.embyid and emby_client.is_enabled():
+                    emby_client.enable_user(user.embyid)
                 success_count += 1
             elif action == 'delete':
                 # 删除关联数据
@@ -11781,6 +11801,26 @@ def batch_users():
                 Subscription.query.filter_by(user_tg=user.tg).delete()
                 MovieRequest.query.filter_by(user_tg=str(user.tg)).delete()
                 db.session.delete(user)
+                success_count += 1
+            elif action == 'gift':
+                # 批量赠送订阅
+                gift_days = int(days) if days else 30
+                if user.ex and user.ex > now:
+                    user.ex = user.ex + timedelta(days=gift_days)
+                else:
+                    user.ex = now + timedelta(days=gift_days)
+                if user.lv not in ['a']:
+                    user.lv = 'b'
+                # 恢复Emby账号
+                if user.embyid and emby_client.is_enabled():
+                    emby_client.enable_user(user.embyid)
+                success_count += 1
+            elif action == 'whitelist':
+                # 批量设为白名单
+                user.lv = 'a'
+                # 恢复Emby账号
+                if user.embyid and emby_client.is_enabled():
+                    emby_client.enable_user(user.embyid)
                 success_count += 1
             else:
                 fail_count += 1
@@ -11877,16 +11917,18 @@ def batch_tickets():
 @app.route('/api/admin/subscriptions/batch', methods=['POST'])
 @admin_required
 def batch_subscriptions():
-    """批量订阅操作：删除（基于用户tg ID）"""
+    """批量订阅操作：删除/延期（基于用户tg ID）"""
     data = request.get_json()
     ids = data.get('ids', [])
     action = data.get('action', '')
+    days = data.get('days', 30)
     
     if not ids:
         return jsonify({'success': False, 'error': '未选择任何订阅'}), 400
     
     success_count = 0
     fail_count = 0
+    now = datetime.now()
     
     for uid in ids:
         try:
@@ -11899,6 +11941,23 @@ def batch_subscriptions():
                 else:
                     # 没有订阅记录也算成功（因为订阅页面显示的是用户信息）
                     success_count += 1
+            elif action == 'extend':
+                # 批量延期订阅
+                user = db.session.get(User, uid_int)
+                if user:
+                    extend_days = int(days) if days else 30
+                    if user.ex and user.ex > now:
+                        user.ex = user.ex + timedelta(days=extend_days)
+                    else:
+                        user.ex = now + timedelta(days=extend_days)
+                    if user.lv not in ['a']:
+                        user.lv = 'b'
+                    # 恢复Emby账号
+                    if user.embyid and emby_client.is_enabled():
+                        emby_client.enable_user(user.embyid)
+                    success_count += 1
+                else:
+                    fail_count += 1
             else:
                 fail_count += 1
         except Exception as e:
@@ -11913,7 +11972,7 @@ def batch_subscriptions():
 @app.route('/api/admin/playback/devices/batch', methods=['POST'])
 @admin_required
 def batch_devices():
-    """批量设备操作：删除/禁用"""
+    """批量设备操作：删除/禁用/解禁"""
     data = request.get_json()
     ids = data.get('ids', [])
     action = data.get('action', '')
@@ -11937,6 +11996,9 @@ def batch_devices():
                 success_count += 1
             elif action == 'block':
                 device.is_blocked = True
+                success_count += 1
+            elif action == 'unblock':
+                device.is_blocked = False
                 success_count += 1
             else:
                 fail_count += 1

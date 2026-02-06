@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>管理面板 - Emby管理系统</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}?v=13">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=18">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=19">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-checkin.css') }}?v=1">
     <!-- 防止刷新页面时闪屏 -->
     <style id="preload-style">
@@ -568,6 +568,7 @@
 
                     <div class="batch-actions" id="subscriptionBatchActions" style="display:none;">
                         <span class="batch-info">已选择 <strong id="selectedSubscriptionCount">0</strong> 条</span>
+                        <button class="batch-btn" onclick="batchExtendSubscriptions()" style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;">⏳ 批量延期</button>
                         <button class="batch-btn danger" onclick="batchDeleteSubscriptions()">🗑️ 批量删除</button>
                     </div>
 
@@ -805,6 +806,7 @@
                             <span class="batch-info">已选择 <strong id="selectedDeviceCount">0</strong> 条</span>
                             <button class="batch-btn danger" onclick="batchDeleteDevices()">🗑️ 批量删除</button>
                             <button class="batch-btn warning" onclick="batchBlockDevices()">🚫 批量禁用</button>
+                            <button class="batch-btn success" onclick="batchUnblockDevices()">✅ 批量解禁</button>
                         </div>
                         <div class="admin-table-container">
                             <table class="admin-table">
@@ -1108,6 +1110,8 @@
 
                     <div class="batch-actions" id="userBatchActions" style="display:none;">
                         <span class="batch-info">已选择 <strong id="selectedUserCount">0</strong> 条</span>
+                        <button class="batch-btn" onclick="batchGiftSubscription()" style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;">🎁 批量赠送订阅</button>
+                        <button class="batch-btn" onclick="batchSetWhitelist()" style="background:linear-gradient(135deg,#06b6d4 0%,#0891b2 100%);color:#fff;">👑 批量设白名单</button>
                         <button class="batch-btn warning" onclick="batchBanUsers()">⛔ 批量禁用</button>
                         <button class="batch-btn success" onclick="batchUnbanUsers()">✅ 批量解禁</button>
                         <button class="batch-btn danger" onclick="batchDeleteUsers()">🗑️ 批量删除</button>
@@ -2983,7 +2987,7 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/common.js') }}?v=12"></script>
-    <script src="{{ url_for('static', filename='js/admin.js') }}?v=30"></script>
+    <script src="{{ url_for('static', filename='js/admin.js') }}?v=31"></script>
     <script src="{{ url_for('static', filename='js/admin-checkin.js') }}?v=6"></script>
 
 </body>
