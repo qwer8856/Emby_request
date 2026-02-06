@@ -9551,9 +9551,13 @@ select.custom-select:focus,
         cursor: pointer;
         display: flex;
         flex-direction: column;
-        justify-content: space-between;
+        justify-content: center;
+        /* Changed from space-between to center */
+        gap: 5px;
+        /* Added gap to control spacing */
         width: 30px;
-        height: 20px;
+        height: 30px;
+        /* Increased height slightly for better touch target */
     }
 
     .mobile-header .mobile-menu-toggle span {
@@ -9582,6 +9586,39 @@ select.custom-select:focus,
         width: 100% !important;
         min-width: 0 !important;
         margin-bottom: 0 !important;
-        /* 网格由 gap 控制间距 */
+        /* 改为横向布局，图标在左文字在右，避免垂直空间不足导致内容隐藏 */
+        flex-direction: row !important;
+        align-items: center !important;
+        padding: 12px !important;
+        gap: 12px !important;
+    }
+
+    .admin-stats-grid .stat-icon,
+    .stats .stat-icon {
+        margin-bottom: 0 !important;
+        width: 36px !important;
+        height: 36px !important;
+        font-size: 18px !important;
+        flex-shrink: 0 !important;
+    }
+
+    .admin-stats-grid .stat-content,
+    .stats .stat-content {
+        align-items: flex-start !important;
+        text-align: left !important;
+        min-width: 0 !important;
+        /* Allow text truncation */
+    }
+
+    .admin-stats-grid .stat-content h3,
+    .stats .stat-content h3 {
+        font-size: 16px !important;
+        /* Adjust font size */
+        margin-bottom: 2px !important;
+    }
+
+    .admin-stats-grid .stat-content p,
+    .stats .stat-content p {
+        font-size: 12px !important;
     }
 }
