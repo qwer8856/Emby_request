@@ -8446,13 +8446,43 @@ select.custom-select:focus,
 
     .admin-table th,
     .admin-table td {
-        padding: 10px 8px;
-        font-size: 12px;
+        padding: 8px 6px;
+        font-size: 11px;
+        white-space: nowrap;
+    }
+    
+    /* 用户ID列更窄 */
+    .admin-table th:first-child,
+    .admin-table td:first-child {
+        max-width: 50px;
+        font-size: 10px;
+    }
+    
+    /* 操作列适配 */
+    .admin-table th:last-child,
+    .admin-table td:last-child {
+        min-width: 60px;
     }
 
     /* 隐藏不重要的列 */
     .admin-table .hide-mobile {
         display: none;
+    }
+    
+    /* 操作列按钮优化 */
+    .admin-table .btn-action {
+        padding: 6px 8px;
+        font-size: 11px;
+        margin: 2px;
+        min-width: 45px;
+    }
+    
+    /* 下拉选择器优化 */
+    .admin-table .level-select {
+        padding: 6px 4px;
+        font-size: 10px;
+        min-width: 90px;
+        margin: 2px;
     }
 
     /* 筛选器区域 */
@@ -8604,8 +8634,58 @@ select.custom-select:focus,
 
     .admin-table th,
     .admin-table td {
-        padding: 8px 6px;
-        font-size: 11px;
+        padding: 6px 4px;
+        font-size: 10px;
+    }
+    
+    /* 进一步缩小用户ID列 */
+    .admin-table th:first-child,
+    .admin-table td:first-child {
+        max-width: 40px;
+        font-size: 9px;
+        padding: 6px 2px;
+    }
+    
+    /* 用户名和Telegram ID列 */
+    .admin-table th:nth-child(2),
+    .admin-table td:nth-child(2),
+    .admin-table th:nth-child(3),
+    .admin-table td:nth-child(3) {
+        max-width: 80px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    /* 操作按钮更小 */
+    .admin-table .btn-xs {
+        padding: 4px 6px;
+        font-size: 9px;
+        min-height: 24px;
+    }
+    
+    /* 操作列按钮进一步优化 */
+    .admin-table .btn-action {
+        padding: 5px 6px;
+        font-size: 10px;
+        margin: 1px;
+        min-width: 40px;
+        display: inline-block;
+    }
+    
+    /* 下拉选择器超小屏优化 */
+    .admin-table .level-select {
+        padding: 5px 2px;
+        font-size: 9px;
+        min-width: 80px;
+        margin: 1px 0;
+        display: block;
+        width: 100%;
+    }
+    
+    /* 状态徽章字体更小 */
+    .admin-table .status-badge {
+        font-size: 9px;
+        padding: 2px 4px;
     }
 
     .btn-sm {

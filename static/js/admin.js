@@ -2318,15 +2318,15 @@ function renderUsers(users) {
         
         return `
         <tr>
-            <td>${user.id}</td>
+            <td class="hide-mobile">${user.id}</td>
             <td>${user.name || '-'}</td>
-            <td>${user.telegram_id ? user.telegram_id : '<span style="color:#999;">未绑定</span>'}</td>
+            <td class="hide-mobile">${user.telegram_id ? user.telegram_id : '<span style="color:#999;">未绑定</span>'}</td>
             <td>
                 <span class="status-badge ${roleClass}">${roleDisplay}</span>
             </td>
             <td>${subscriptionDisplay}</td>
-            <td>${user.request_count || 0}</td>
-            <td>${user.created_at ? new Date(user.created_at).toLocaleString('zh-CN') : '-'}</td>
+            <td class="hide-mobile">${user.request_count || 0}</td>
+            <td class="hide-mobile">${user.created_at ? new Date(user.created_at).toLocaleString('zh-CN') : '-'}</td>
             <td>
                 <button class="btn-action view" onclick="showUserDetail(${user.id})">详情</button>
                 <select class="level-select" onchange="setUserType(${user.id}, this.value, '${currentType}')">

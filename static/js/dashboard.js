@@ -3232,21 +3232,13 @@ async function unbindTelegramId() {
                 
                 if (data.success && data.benefits && data.benefits.length > 0) {
                     const benefits = data.benefits;
-                    const count = benefits.length;
-                    
-                    // 根据数量设置grid-template-columns
-                    // 1个=1列满宽, 2个=2列, 3个=3列, 4个及以上=4列
-                    let columns = 4;
-                    if (count === 1) columns = 1;
-                    else if (count === 2) columns = 2;
-                    else if (count === 3) columns = 3;
-                    
-                    benefitsGrid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
                     
                     benefitsGrid.innerHTML = benefits.map(benefit => `
-                        <div class="benefit-item">
-                            <span class="benefit-icon">${benefit.icon || '✨'}</span>
-                            <span class="benefit-text">${benefit.text || ''}</span>
+                        <div class="action-item">
+                            <div class="action-icon">${benefit.icon || '✨'}</div>
+                            <div class="action-info">
+                                <h4>${benefit.text || ''}</h4>
+                            </div>
                         </div>
                     `).join('');
                 }
