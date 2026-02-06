@@ -14142,7 +14142,8 @@
 @media (max-width: 768px) {
     /* 侧边栏动画增强 */
     .sidebar {
-        width: 280px;
+        width: 55vw;
+        max-width: 260px;
         z-index: 1000;
         box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
         transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
@@ -14491,9 +14492,10 @@
 
 /* ---- 小屏手机增强 (≤480px) ---- */
 @media (max-width: 480px) {
-    /* 侧边栏全屏宽度 */
+    /* 侧边栏半屏宽度 */
     .sidebar {
-        width: 100%;
+        width: 65vw;
+        max-width: 240px;
     }
     
     /* 移动端头部更紧凑 */

@@ -15,7 +15,7 @@
     <link rel="icon" href="{{ site_config.site_logo }}" type="image/png">
     {% endif %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}?v=23">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=47">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=48">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/checkin.css') }}?v=3">
     {% if site_config.custom_css %}
     <style>{{ site_config.custom_css | safe }}</style>
@@ -1107,31 +1107,23 @@
                 <!-- 权益说明 - 根据订阅等级动态显示 -->
                 <div class="subscription-benefits">
                     <h3>🎁 订阅权益</h3>
-                    <div class="quick-actions" id="benefitsGrid">
+                    <div class="benefits-grid" id="benefitsGrid">
                         <!-- 权益将通过JS动态加载 -->
-                        <div class="action-item">
-                            <div class="action-icon">🎬</div>
-                            <div class="action-info">
-                                <h4>无限制求片</h4>
-                            </div>
+                        <div class="benefit-item">
+                            <div class="benefit-icon">🎬</div>
+                            <span class="benefit-text">无限制求片</span>
                         </div>
-                        <div class="action-item">
-                            <div class="action-icon">⚡</div>
-                            <div class="action-info">
-                                <h4>优先处理</h4>
-                            </div>
+                        <div class="benefit-item">
+                            <div class="benefit-icon">⚡</div>
+                            <span class="benefit-text">优先处理</span>
                         </div>
-                        <div class="action-item">
-                            <div class="action-icon">📺</div>
-                            <div class="action-info">
-                                <h4>高清资源</h4>
-                            </div>
+                        <div class="benefit-item">
+                            <div class="benefit-icon">📺</div>
+                            <span class="benefit-text">高清资源</span>
                         </div>
-                        <div class="action-item">
-                            <div class="action-icon">💬</div>
-                            <div class="action-info">
-                                <h4>专属客服</h4>
-                            </div>
+                        <div class="benefit-item">
+                            <div class="benefit-icon">💬</div>
+                            <span class="benefit-text">专属客服</span>
                         </div>
                     </div>
                 </div>
@@ -2728,7 +2720,7 @@
         }
     </script>
     <script src="{{ url_for('static', filename='js/common.js') }}?v=22"></script>
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=39"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=40"></script>
     <script src="{{ url_for('static', filename='js/checkin.js') }}?v=3"></script>
     {% if site_config.custom_js %}
     <script>{{ site_config.custom_js | safe }}</script>

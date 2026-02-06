@@ -3234,11 +3234,9 @@ async function unbindTelegramId() {
                     const benefits = data.benefits;
                     
                     benefitsGrid.innerHTML = benefits.map(benefit => `
-                        <div class="action-item">
-                            <div class="action-icon">${benefit.icon || '✨'}</div>
-                            <div class="action-info">
-                                <h4>${benefit.text || ''}</h4>
-                            </div>
+                        <div class="benefit-item${benefit.highlight ? ' highlight' : ''}">
+                            <div class="benefit-icon">${benefit.icon || '✨'}</div>
+                            <span class="benefit-text">${benefit.text || ''}</span>
                         </div>
                     `).join('');
                 }
