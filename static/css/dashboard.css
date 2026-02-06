@@ -3608,7 +3608,7 @@
             
             .main-content {
                 margin-left: 0;
-                padding: 84px 16px 16px 16px;
+                padding: 72px 16px 16px 16px;
             }
             
             .stats-cards {
@@ -11686,136 +11686,6 @@
         flex: 1;
         text-align: center;
     }
-    
-    /* 新版仪表盘响应式 */
-    .dashboard-hero {
-        padding: 20px;
-        border-radius: 18px;
-    }
-    
-    .hero-content-main {
-        flex-direction: column;
-        text-align: center;
-    }
-    
-    .hero-greeting {
-        flex-direction: column;
-        gap: 12px;
-    }
-    
-    .greeting-emoji {
-        font-size: 40px;
-    }
-    
-    .greeting-text h1 {
-        font-size: 20px;
-    }
-    
-    .hero-search-btn {
-        width: 100%;
-        justify-content: center;
-    }
-    
-    .stats-grid-modern {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-    }
-    
-    .stat-card-inner {
-        padding: 16px;
-        flex-direction: column;
-        text-align: center;
-        gap: 10px;
-    }
-    
-    .stat-icon-modern {
-        width: 44px;
-        height: 44px;
-    }
-    
-    .stat-value-modern {
-        font-size: 24px;
-    }
-    
-    .stat-trend {
-        display: none;
-    }
-    
-    .quick-actions-modern {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-    }
-    
-    .quick-action-item {
-        padding: 16px 12px;
-    }
-    
-    .action-icon-wrapper {
-        width: 44px;
-        height: 44px;
-        font-size: 22px;
-    }
-    
-    .invite-banner-modern {
-        padding: 20px;
-    }
-    
-    .invite-content-wrapper {
-        flex-direction: column;
-        text-align: center;
-    }
-    
-    .invite-action-btn {
-        width: 100%;
-        justify-content: center;
-    }
-    
-    /* 迷你统计卡片响应式 */
-    .dashboard-stats-row {
-        gap: 8px;
-    }
-    
-    .mini-stat-card {
-        min-width: calc(50% - 4px);
-        padding: 12px;
-    }
-    
-    .mini-stat-icon {
-        width: 36px;
-        height: 36px;
-        font-size: 20px;
-    }
-    
-    .mini-stat-value {
-        font-size: 18px;
-    }
-    
-    /* 快捷链接响应式 */
-    .quick-links-bar {
-        gap: 8px;
-    }
-    
-    .quick-link-btn {
-        flex: 1;
-        min-width: calc(50% - 4px);
-        justify-content: center;
-        padding: 10px 12px;
-    }
-    
-    /* 邀请横幅响应式 */
-    .invite-banner {
-        flex-direction: column;
-        text-align: center;
-        padding: 16px;
-    }
-    
-    .invite-banner-left {
-        flex-direction: column;
-    }
-    
-    .invite-banner-btn {
-        width: 100%;
-    }
 }
 
 /* ==================== 播放监控页面样式 ==================== */
@@ -13575,271 +13445,6 @@
    移动端综合优化 - 卡片和按钮布局
    ============================================ */
 
-/* 快捷操作按钮移动端优化 */
-@media (max-width: 768px) {
-    .quick-actions-modern {
-        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-        gap: 12px;
-    }
-    
-    .quick-action-item {
-        padding: 16px 12px;
-    }
-    
-    .action-icon-wrapper {
-        width: 48px;
-        height: 48px;
-        font-size: 24px;
-    }
-    
-    .action-title {
-        font-size: 12px;
-    }
-}
-
-@media (max-width: 480px) {
-    .quick-actions-modern {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 10px;
-    }
-    
-    .quick-action-item {
-        padding: 14px 10px;
-        border-radius: 12px;
-    }
-    
-    .action-icon-wrapper {
-        width: 44px;
-        height: 44px;
-        font-size: 22px;
-        border-radius: 12px;
-    }
-    
-    .action-title {
-        font-size: 11px;
-    }
-    
-    .unread-badge {
-        min-width: 16px;
-        height: 16px;
-        font-size: 10px;
-        padding: 0 4px;
-    }
-}
-
-/* 统计卡片移动端优化 */
-@media (max-width: 768px) {
-    .stats-grid-modern {
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-        gap: 12px;
-    }
-    
-    .stat-card-inner {
-        padding: 16px;
-        gap: 12px;
-    }
-    
-    .stat-icon-modern {
-        width: 44px;
-        height: 44px;
-        border-radius: 12px;
-    }
-    
-    .stat-icon-modern svg {
-        width: 22px;
-        height: 22px;
-    }
-    
-    .stat-value-modern {
-        font-size: 24px;
-    }
-    
-    .stat-label-modern {
-        font-size: 12px;
-    }
-    
-    .stat-trend {
-        font-size: 24px;
-        top: 10px;
-        right: 10px;
-    }
-}
-
-@media (max-width: 480px) {
-    .stats-grid-modern {
-        grid-template-columns: 1fr;
-        gap: 10px;
-    }
-    
-    .stat-card-modern {
-        border-radius: 12px;
-    }
-    
-    .stat-card-inner {
-        padding: 14px;
-        gap: 10px;
-    }
-    
-    .stat-icon-modern {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-    }
-    
-    .stat-icon-modern svg {
-        width: 20px;
-        height: 20px;
-    }
-    
-    .stat-value-modern {
-        font-size: 22px;
-    }
-    
-    .stat-label-modern {
-        font-size: 11px;
-    }
-}
-
-/* 欢迎横幅移动端优化 */
-@media (max-width: 768px) {
-    .dashboard-hero {
-        padding: 20px 24px;
-        border-radius: 12px;
-    }
-    
-    .hero-content-main {
-        gap: 16px;
-    }
-    
-    .greeting-emoji {
-        font-size: 40px;
-    }
-    
-    .greeting-text h1 {
-        font-size: 22px;
-    }
-    
-    .greeting-time {
-        font-size: 13px;
-    }
-    
-    .hero-search-btn {
-        padding: 12px 24px;
-        font-size: 15px;
-        border-radius: 12px;
-    }
-}
-
-@media (max-width: 480px) {
-    .dashboard-hero {
-        padding: 16px 20px;
-        border-radius: 10px;
-        margin-bottom: 16px;
-    }
-    
-    .hero-content-main {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 12px;
-    }
-    
-    .hero-greeting {
-        gap: 12px;
-    }
-    
-    .greeting-emoji {
-        font-size: 36px;
-    }
-    
-    .greeting-text h1 {
-        font-size: 20px;
-    }
-    
-    .user-name-highlight {
-        padding: 1px 8px;
-        border-radius: 6px;
-    }
-    
-    .greeting-time {
-        font-size: 12px;
-    }
-    
-    .hero-search-btn {
-        width: 100%;
-        justify-content: center;
-        padding: 12px 20px;
-        font-size: 14px;
-    }
-}
-
-/* 邀请横幅移动端优化 */
-@media (max-width: 768px) {
-    .invite-banner-modern {
-        padding: 20px 24px;
-        border-radius: 12px;
-    }
-    
-    .invite-content-wrapper {
-        gap: 16px;
-    }
-    
-    .invite-icon-big {
-        font-size: 40px;
-    }
-    
-    .invite-info h3 {
-        font-size: 16px;
-    }
-    
-    .invite-info p {
-        font-size: 13px;
-    }
-    
-    .invite-action-btn {
-        padding: 12px 20px;
-        font-size: 14px;
-    }
-}
-
-@media (max-width: 480px) {
-    .invite-banner-modern {
-        padding: 16px 20px;
-        border-radius: 10px;
-    }
-    
-    .invite-content-wrapper {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 12px;
-    }
-    
-    .invite-icon-big {
-        font-size: 36px;
-        text-align: center;
-    }
-    
-    .invite-info {
-        text-align: center;
-        min-width: 0;
-    }
-    
-    .invite-info h3 {
-        font-size: 15px;
-    }
-    
-    .invite-info p {
-        font-size: 12px;
-    }
-    
-    .invite-action-btn {
-        width: 100%;
-        justify-content: center;
-        padding: 12px;
-        font-size: 14px;
-        border-radius: 10px;
-    }
-}
-
 /* 订阅与线路信息移动端优化 */
 @media (max-width: 768px) {
     .dashboard-subscription-lines {
@@ -14680,6 +14285,184 @@
     .subscription-hero-card, .redeem-card {
         border-radius: 14px;
     }
+    
+    /* ---- 仪表盘首页组件 ---- */
+    
+    /* 欢迎横幅 */
+    .dashboard-hero {
+        padding: 20px;
+        border-radius: 14px;
+    }
+    
+    .hero-content-main {
+        flex-direction: column;
+        text-align: center;
+        gap: 16px;
+    }
+    
+    .hero-greeting {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .greeting-emoji {
+        font-size: 40px;
+    }
+    
+    .greeting-text h1 {
+        font-size: 22px;
+    }
+    
+    .greeting-time {
+        font-size: 13px;
+    }
+    
+    .hero-search-btn {
+        width: 100%;
+        justify-content: center;
+        padding: 12px 24px;
+        font-size: 15px;
+        border-radius: 12px;
+    }
+    
+    /* 统计卡片网格 */
+    .stats-grid-modern {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+    
+    .stat-card-inner {
+        padding: 16px;
+        gap: 12px;
+    }
+    
+    .stat-icon-modern {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+    }
+    
+    .stat-icon-modern svg {
+        width: 22px;
+        height: 22px;
+    }
+    
+    .stat-value-modern {
+        font-size: 24px;
+    }
+    
+    .stat-label-modern {
+        font-size: 12px;
+    }
+    
+    .stat-trend {
+        font-size: 24px;
+        top: 10px;
+        right: 10px;
+    }
+    
+    /* 快捷操作 */
+    .quick-actions-modern {
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        gap: 12px;
+    }
+    
+    .quick-action-item {
+        padding: 16px 12px;
+    }
+    
+    .action-icon-wrapper {
+        width: 48px;
+        height: 48px;
+        font-size: 24px;
+    }
+    
+    .action-title {
+        font-size: 12px;
+    }
+    
+    /* 邀请横幅 */
+    .invite-banner-modern {
+        padding: 20px;
+        border-radius: 14px;
+    }
+    
+    .invite-content-wrapper {
+        gap: 16px;
+    }
+    
+    .invite-icon-big {
+        font-size: 40px;
+    }
+    
+    .invite-info h3 {
+        font-size: 16px;
+    }
+    
+    .invite-info p {
+        font-size: 13px;
+    }
+    
+    .invite-action-btn {
+        padding: 12px 20px;
+        font-size: 14px;
+    }
+    
+    /* 迷你统计卡片 */
+    .dashboard-stats-row {
+        gap: 8px;
+    }
+    
+    .mini-stat-card {
+        min-width: calc(50% - 4px);
+        padding: 12px;
+    }
+    
+    .mini-stat-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 20px;
+    }
+    
+    .mini-stat-value {
+        font-size: 18px;
+    }
+    
+    /* 快捷链接 */
+    .quick-links-bar {
+        gap: 8px;
+    }
+    
+    .quick-link-btn {
+        flex: 1;
+        min-width: calc(50% - 4px);
+        justify-content: center;
+        padding: 10px 12px;
+    }
+    
+    /* 邀请横幅（旧版） */
+    .invite-banner {
+        flex-direction: column;
+        text-align: center;
+        padding: 16px;
+    }
+    
+    .invite-banner-left {
+        flex-direction: column;
+    }
+    
+    .invite-banner-btn {
+        width: 100%;
+    }
+    
+    /* 公告区域 */
+    .announcements-container {
+        border-radius: 12px;
+    }
+    
+    .announcements-header {
+        padding: 12px 16px;
+    }
 }
 
 /* 底部弹出动画 */
@@ -14752,10 +14535,141 @@
         gap: 8px;
     }
     
-    /* 快捷操作 1 列 */
+    .stat-card-modern {
+        border-radius: 12px;
+    }
+    
+    .stat-card-inner {
+        padding: 14px;
+        flex-direction: row;
+        gap: 10px;
+    }
+    
+    .stat-icon-modern {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+    }
+    
+    .stat-icon-modern svg {
+        width: 20px;
+        height: 20px;
+    }
+    
+    .stat-value-modern {
+        font-size: 22px;
+    }
+    
+    .stat-label-modern {
+        font-size: 11px;
+    }
+    
+    /* 快捷操作 2 列 */
     .quick-actions-modern {
-        grid-template-columns: 1fr;
-        gap: 8px;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+    
+    .quick-action-item {
+        padding: 14px 10px;
+        border-radius: 12px;
+    }
+    
+    .action-icon-wrapper {
+        width: 44px;
+        height: 44px;
+        font-size: 22px;
+        border-radius: 12px;
+    }
+    
+    .action-title {
+        font-size: 11px;
+    }
+    
+    .unread-badge {
+        min-width: 16px;
+        height: 16px;
+        font-size: 10px;
+        padding: 0 4px;
+    }
+    
+    /* 欢迎横幅紧凑 */
+    .dashboard-hero {
+        padding: 16px;
+        border-radius: 12px;
+        margin-bottom: 16px;
+    }
+    
+    .hero-content-main {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    
+    .hero-greeting {
+        gap: 10px;
+    }
+    
+    .greeting-emoji {
+        font-size: 36px;
+    }
+    
+    .greeting-text h1 {
+        font-size: 20px;
+    }
+    
+    .user-name-highlight {
+        padding: 1px 8px;
+        border-radius: 6px;
+    }
+    
+    .greeting-time {
+        font-size: 12px;
+    }
+    
+    .hero-search-btn {
+        width: 100%;
+        justify-content: center;
+        padding: 12px 20px;
+        font-size: 14px;
+    }
+    
+    /* 邀请横幅紧凑 */
+    .invite-banner-modern {
+        padding: 16px;
+        border-radius: 12px;
+    }
+    
+    .invite-content-wrapper {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+    
+    .invite-icon-big {
+        font-size: 36px;
+        text-align: center;
+    }
+    
+    .invite-info {
+        text-align: center;
+        min-width: 0;
+    }
+    
+    .invite-info h3 {
+        font-size: 15px;
+    }
+    
+    .invite-info p {
+        font-size: 12px;
+    }
+    
+    .invite-action-btn {
+        width: 100%;
+        justify-content: center;
+        padding: 12px;
+        font-size: 14px;
+        border-radius: 10px;
     }
     
     /* 标签页横向滚动 */
@@ -14778,10 +14692,28 @@
         font-size: 12px;
     }
     
-    /* 搜索结果 1 列 */
+    /* 搜索结果 2 列 */
     .search-results {
         grid-template-columns: 1fr 1fr;
         gap: 6px;
+    }
+    
+    /* 订阅详情 1 列 */
+    .subscription-details-grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+    
+    .detail-card {
+        padding: 14px;
+    }
+    
+    .subscription-action-group {
+        gap: 10px;
+    }
+    
+    .sub-action-btn {
+        padding: 14px;
     }
     
     /* 订单卡片紧凑模式 */
