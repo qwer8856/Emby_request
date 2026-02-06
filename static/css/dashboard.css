@@ -6999,19 +6999,20 @@
     }
     
     .benefits-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, 1fr);
         gap: 10px;
     }
     
     .benefit-item {
-        padding: 14px 16px;
-        gap: 12px;
+        padding: 12px 14px;
+        gap: 10px;
     }
     
     .benefit-icon {
-        width: 40px;
-        height: 40px;
-        font-size: 20px;
+        width: 36px;
+        height: 36px;
+        font-size: 18px;
+        flex-shrink: 0;
     }
     
     .benefit-text {
