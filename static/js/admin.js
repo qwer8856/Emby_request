@@ -379,7 +379,6 @@ let currentRequestId = null;
         }
         
         function showNoteModal(requestId, status) {
-            console.log('showNoteModal called with:', requestId, status);
             if (!requestId) {
                 console.error('showNoteModal: requestId is empty!');
                 showToast('错误', '无法获取请求ID', 'error');
@@ -396,7 +395,6 @@ let currentRequestId = null;
         
         // 批准弹窗（带备注）
         function showApproveModal(requestId) {
-            console.log('showApproveModal called with:', requestId);
             if (!requestId) {
                 console.error('showApproveModal: requestId is empty!');
                 showToast('错误', '无法获取请求ID', 'error');
@@ -465,7 +463,6 @@ let currentRequestId = null;
         }
         
         async function updateStatus(requestId, status, note = '') {
-            console.log('updateStatus called with:', requestId, status, note);
             if (!requestId) {
                 console.error('updateStatus: requestId is empty!');
                 showToast('错误', '无法获取请求ID', 'error');
@@ -486,7 +483,6 @@ let currentRequestId = null;
             showLoading(statusText);
             
             try {
-                console.log('发送更新请求:', requestId, status);
                 const response = await fetch(`/admin/update-request/${requestId}`, {
                     method: 'POST',
                     headers: {
@@ -498,11 +494,8 @@ let currentRequestId = null;
                     })
                 });
                 
-                console.log('响应状态:', response.status, 'OK:', response.ok);
-                
                 // 先获取响应文本
                 const responseText = await response.text();
-                console.log('响应内容:', responseText);
                 
                 // 检查 HTTP 状态码
                 if (!response.ok) {
@@ -521,7 +514,6 @@ let currentRequestId = null;
                 let data = {};
                 try {
                     data = JSON.parse(responseText);
-                    console.log('解析后的数据:', data);
                 } catch (e) {
                     hideLoading();
                     console.error('成功响应的 JSON 解析失败:', e);
@@ -1224,9 +1216,6 @@ let currentRequestId = null;
             }
             
             // 显示搜索结果统计
-            if (filter) {
-                console.log(`搜索 "${filter}" 找到 ${visibleCount} 条结果`);
-            }
         }
 
         // ==================== 导出功能 ====================
@@ -3060,11 +3049,9 @@ async function loadSystemConfig() {
             
             if (config.telegram.library_notification) {
                 const libConfig = config.telegram.library_notification;
-                console.log('[入库通知] 加载配置:', libConfig);
                 
                 if (enabledCheckbox) {
                     enabledCheckbox.checked = libConfig.enabled === true;
-                    console.log('[入库通知] 设置 enabled 为:', libConfig.enabled);
                 }
                 if (chatIdInput) chatIdInput.value = libConfig.chat_id || '';
                 if (botTokenInput) botTokenInput.value = libConfig.bot_token || '';
@@ -3122,13 +3109,11 @@ async function loadSystemConfig() {
                 if (expireAutoDisable) expireAutoDisable.checked = config.subscription_expire.auto_disable !== false;
                 if (expireDeleteDays) expireDeleteDays.value = config.subscription_expire.delete_days || 0;
                 if (expireDeleteWebAccount) expireDeleteWebAccount.checked = config.subscription_expire.delete_web_account === true;
-                console.log('[订阅过期] 加载配置:', config.subscription_expire);
             } else {
                 // 设置默认值
                 if (expireAutoDisable) expireAutoDisable.checked = true;
                 if (expireDeleteDays) expireDeleteDays.value = 0;
                 if (expireDeleteWebAccount) expireDeleteWebAccount.checked = false;
-                console.log('[订阅过期] 使用默认配置');
             }
         }
     } catch (error) {
@@ -3178,8 +3163,6 @@ async function saveSubscriptionExpireConfig() {
     const deleteDays = parseInt(document.getElementById('expireDeleteDays').value) || 0;
     const deleteWebAccount = document.getElementById('expireDeleteWebAccount').checked;
     
-    console.log('[订阅过期] 准备保存配置:', { autoDisable, deleteDays, deleteWebAccount });
-    
     try {
         const response = await fetch('/api/admin/system-config', {
             method: 'POST',
@@ -3194,7 +3177,6 @@ async function saveSubscriptionExpireConfig() {
         });
         
         const data = await response.json();
-        console.log('[订阅过期] 服务器响应:', data);
         
         if (data.success) {
             showToast('成功', '订阅过期配置已保存', 'success');
@@ -3614,16 +3596,6 @@ async function saveLibraryNotificationConfig() {
     const generalBotToken = document.getElementById('generalLibraryBotToken').value.trim();
     const generalShowPoster = document.getElementById('generalShowPoster').checked;
     
-    console.log('[入库通知] 准备保存配置:', {
-        requestSendTo,
-        requestShowOverview,
-        requestShowPoster,
-        generalEnabled,
-        generalChatId,
-        generalBotToken: generalBotToken ? '***已设置***' : '空',
-        generalShowPoster
-    });
-    
     try {
         const requestBody = {
             telegram: {
@@ -3642,8 +3614,6 @@ async function saveLibraryNotificationConfig() {
             }
         };
         
-        console.log('[入库通知] 发送请求:', JSON.stringify(requestBody, null, 2));
-        
         const response = await fetch('/api/admin/system-config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3651,7 +3621,6 @@ async function saveLibraryNotificationConfig() {
         });
         
         const data = await response.json();
-        console.log('[入库通知] 服务器响应:', data);
         
         if (data.success) {
             showToast('成功', '入库通知配置已保存', 'success');
@@ -4754,10 +4723,8 @@ async function loadRedeemCodes() {
         if (statusFilter) params.append('status', statusFilter);
         if (params.toString()) url += '?' + params.toString();
         
-        console.log('请求兑换码列表:', url);
         const response = await fetch(url);
         const data = await response.json();
-        console.log('兑换码响应:', data);
         
         if (data.success) {
             redeemCodesData = data.codes || [];
@@ -5320,7 +5287,6 @@ let adminDevicesPage = 1;
 let adminHistoryPage = 1;
 
 async function loadAdminPlayback() {
-    console.log('loadAdminPlayback 开始加载...');
     loadAdminSessions();
     loadAdminDevices(1);
     loadAdminHistory(1);
@@ -5517,7 +5483,6 @@ async function loadAdminSessions() {
 }
 
 async function loadAdminDevices(page = 1) {
-    console.log('loadAdminDevices 加载第', page, '页');
     adminDevicesPage = page;
     const search = document.getElementById('deviceSearchInput')?.value || '';
     
@@ -5532,7 +5497,6 @@ async function loadAdminDevices(page = 1) {
         }
         
         // 更新总设备数
-        console.log('设备 API 返回:', data.total, '个设备');
         document.getElementById('adminTotalDevices').textContent = data.total || 0;
         
         const devices = data.devices || [];
@@ -5640,7 +5604,6 @@ async function deleteAdminDevice(deviceId) {
 }
 
 async function loadAdminHistory(page = 1) {
-    console.log('loadAdminHistory 加载第', page, '页');
     adminHistoryPage = page;
     const search = document.getElementById('historySearchInput')?.value || '';
     
@@ -5655,7 +5618,6 @@ async function loadAdminHistory(page = 1) {
         }
         
         // 更新总播放记录数
-        console.log('播放历史 API 返回:', data.total, '条记录');
         document.getElementById('adminTotalHistory').textContent = data.total || 0;
         
         const records = data.records || [];

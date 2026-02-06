@@ -47,7 +47,6 @@
             
             // 防止重复提交
             if (isSubmitting) {
-                console.log('登录请求进行中，忽略重复提交');
                 return;
             }
             
@@ -68,8 +67,6 @@
             submitBtn.innerHTML = '<span class="btn-spinner"></span>登录中';
             submitBtn.classList.add('loading');
             errorDiv.classList.remove('show');
-            
-            console.log('开始登录请求...');
             
             // 添加重试逻辑
             let retryCount = 0;
@@ -94,16 +91,13 @@
                     });
                     
                     clearTimeout(timeoutId);
-                    console.log('登录响应状态:', response.status, response.ok);
                     
                     // 使用 response.text() 避免流消耗问题
                     const responseText = await response.text();
-                    console.log('登录响应文本长度:', responseText.length);
                     
                     let data;
                     try {
                         data = JSON.parse(responseText);
-                        console.log('登录响应数据:', data);
                     } catch (parseError) {
                         console.error('JSON解析失败:', parseError, '原始文本:', responseText.substring(0, 100));
                         throw new Error('服务器返回格式错误');
@@ -117,7 +111,6 @@
                     }
                     
                     if (data.success) {
-                        console.log('登录成功，准备跳转:', data.redirect);
                         submitBtn.innerHTML = '✓ 登录成功';
                         submitBtn.classList.remove('loading');
                         submitBtn.classList.add('success');
@@ -137,8 +130,7 @@
                     // 如果是超时或网络错误，且还有重试机会，则自动重试
                     if ((error.name === 'AbortError' || error.name === 'TypeError') && retryCount < maxRetries) {
                         retryCount++;
-                        console.log('后台自动重试中 (' + retryCount + '/' + maxRetries + ')...');
-                        // 按钮继续显示"登录中..."，不显示重试进度
+                        // 按钮继续显示“登录中...”，不显示重试进度
                         
                         // 等待1秒后重试
                         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -167,6 +159,5 @@
                     submitBtn.innerHTML = '登录';
                     submitBtn.classList.remove('loading');
                 }
-                console.log('登录流程结束，释放锁定');
             }
         });

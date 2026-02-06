@@ -3,17 +3,11 @@
 // 加载签到状态
 async function loadCheckinStatus() {
     try {
-        console.log('[签到系统] 请求签到状态 API...');
         const response = await fetch('/api/user/checkin/status');
         const data = await response.json();
         
-        console.log('[签到系统] API 响应:', data);
-        
         if (data.success) {
             const { config, status } = data;
-            
-            console.log('[签到系统] 配置:', config);
-            console.log('[签到系统] 状态:', status);
             
             // 获取签到相关元素
             const miniCard = document.getElementById('checkinMiniCard');
@@ -21,14 +15,12 @@ async function loadCheckinStatus() {
             
             // 如果签到功能未开启，隐藏签到容器
             if (!config.enabled) {
-                console.log('[签到系统] 功能未开启，隐藏容器');
                 if (miniCard) miniCard.style.display = 'none';
                 if (exchangeSection) exchangeSection.style.display = 'none';
                 return;
             }
             
             // 显示签到容器
-            console.log('[签到系统] 功能已开启，显示容器');
             if (miniCard) miniCard.style.display = 'block';
             
             // 检查是否有兑换套餐，有则显示兑换区域
@@ -279,7 +271,6 @@ function viewAllExchangeRecords() {
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', () => {
     // 立即加载签到状态
-    console.log('[签到系统] 开始加载签到状态...');
     setTimeout(() => {
         loadCheckinStatus();
     }, 100);

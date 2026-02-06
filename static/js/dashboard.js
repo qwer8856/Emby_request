@@ -1967,12 +1967,8 @@ async function unbindTelegramId() {
             updateTrendingItemsPerPage();
             container.innerHTML = generateSkeletonHTML(trendingItemsPerPage);
             
-            console.log(`开始加载热门内容: type=${mediaType}, page=${page}, itemsPerPage=${trendingItemsPerPage}`);
-            
             try {
                 const response = await fetch(`/trending?type=${mediaType}&page=${page}`);
-                
-                console.log(`热门内容响应: status=${response.status}, ok=${response.ok}`);
                 
                 // 检查响应状态
                 if (!response.ok) {
@@ -1981,12 +1977,10 @@ async function unbindTelegramId() {
                 
                 // 使用 response.text() 避免移动端流消耗问题
                 const responseText = await response.text();
-                console.log(`热门内容响应长度: ${responseText.length} 字符`);
                 
                 let data;
                 try {
                     data = JSON.parse(responseText);
-                    console.log(`热门内容解析成功: ${data.results?.length || 0} 条结果`);
                 } catch (parseError) {
                     console.error('JSON解析失败:', parseError, '原始文本:', responseText.substring(0, 200));
                     throw new Error('数据格式错误');
@@ -2135,8 +2129,6 @@ async function unbindTelegramId() {
             loadingDiv.style.display = 'none'; // 隐藏旧的 spinner
             
             try {
-                console.log(`开始搜索: ${query}`);
-                
                 // 同时搜索电影和剧集，但设置超时
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒总超时
@@ -2150,8 +2142,6 @@ async function unbindTelegramId() {
                     })
                 ]).finally(() => clearTimeout(timeoutId));
                 
-                console.log(`搜索响应: movie=${movieResponse.status}, tv=${tvResponse.status}`);
-                
                 // 检查响应状态
                 if (!movieResponse.ok || !tvResponse.ok) {
                     throw new Error('搜索请求失败');
@@ -2163,13 +2153,10 @@ async function unbindTelegramId() {
                     tvResponse.text()
                 ]);
                 
-                console.log(`搜索响应长度: movie=${movieText.length}, tv=${tvText.length}`);
-                
                 let movieData, tvData;
                 try {
                     movieData = JSON.parse(movieText);
                     tvData = JSON.parse(tvText);
-                    console.log(`搜索结果: movie=${movieData.results?.length || 0}, tv=${tvData.results?.length || 0}`);
                 } catch (parseError) {
                     console.error('搜索JSON解析失败:', parseError);
                     throw new Error('数据格式错误');
@@ -2489,7 +2476,6 @@ async function unbindTelegramId() {
             showLoading();
             
             try {
-                console.log('发送求片请求:', requestData);
                 const response = await fetch('/request-movie', {
                     method: 'POST',
                     headers: {
@@ -2501,11 +2487,8 @@ async function unbindTelegramId() {
                 // 隐藏加载动画
                 hideLoading();
                 
-                console.log('响应状态:', response.status, 'OK:', response.ok);
-                
                 // 先获取响应文本
                 const responseText = await response.text();
-                console.log('响应内容:', responseText);
                 
                 // 检查 HTTP 状态码
                 if (!response.ok) {
@@ -2540,7 +2523,6 @@ async function unbindTelegramId() {
                 let data = {};
                 try {
                     data = JSON.parse(responseText);
-                    console.log('解析后的数据:', data);
                 } catch (e) {
                     console.error('成功响应的 JSON 解析失败:', e);
                     showToast('网络错误', '响应格式错误', 'error');
@@ -2601,8 +2583,8 @@ async function unbindTelegramId() {
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/static/sw.js')
-                    .then(reg => console.log('Service Worker 注册成功'))
-                    .catch(err => console.log('Service Worker 注册失败:', err));
+                    .then(reg => {})
+                    .catch(err => {});
             });
         }
         
@@ -2735,9 +2717,6 @@ async function unbindTelegramId() {
             if (deferredPrompt) {
                 deferredPrompt.prompt();
                 deferredPrompt.userChoice.then((choiceResult) => {
-                    if (choiceResult.outcome === 'accepted') {
-                        console.log('用户接受安装');
-                    }
                     deferredPrompt = null;
                 });
             }

@@ -3166,6 +3166,12 @@ def log_request():
 @app.after_request
 def log_response(response):
     """记录响应状态和优化响应头"""
+    # ===== 安全响应头 =====
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    
     # 静态文件缓存（1小时）
     if request.path.startswith('/static/'):
         response.cache_control.max_age = 3600
@@ -3187,6 +3193,7 @@ def log_response(response):
                 response.data = gzip_buffer
                 response.headers['Content-Encoding'] = 'gzip'
                 response.headers['Content-Length'] = len(gzip_buffer)
+                response.headers['Vary'] = 'Accept-Encoding'
     
     # 记录错误响应
     if response.status_code >= 400:

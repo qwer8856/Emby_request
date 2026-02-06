@@ -17,11 +17,6 @@ async function loadCheckinConfig() {
         if (data.success && data.config.checkin) {
             const config = data.config.checkin;
             
-            // 调试日志
-            console.log('[签到配置] 加载配置:', config);
-            console.log('[签到配置] enabled:', config.enabled);
-            console.log('[签到配置] bot_enabled:', config.bot_enabled);
-            
             // 更新状态标签
             const statusBadge = document.getElementById('checkinStatus');
             if (statusBadge) {
@@ -35,12 +30,10 @@ async function loadCheckinConfig() {
             
             if (checkinEnabledElement) {
                 checkinEnabledElement.checked = config.enabled || false;
-                console.log('[签到配置] 设置网页签到开关:', checkinEnabledElement.checked);
             }
             
             if (checkinBotEnabledElement) {
                 checkinBotEnabledElement.checked = config.bot_enabled || false;
-                console.log('[签到配置] 设置BOT签到开关:', checkinBotEnabledElement.checked);
             }
             
             document.getElementById('coinName').value = config.coin_name || '积分';
@@ -87,7 +80,6 @@ function syncExchangePlansWithConfig(exchangePlans) {
         if (!planConfig) {
             // 套餐已被删除，跳过
             hasChanges = true;
-            console.log(`套餐 ${ep.id} 已被删除，从兑换列表中移除`);
             continue;
         }
         
@@ -354,8 +346,6 @@ async function saveCheckinConfig() {
         const coinMin = parseInt(document.getElementById('coinMin').value) || 1;
         const coinMax = parseInt(document.getElementById('coinMax').value) || 10;
         
-        console.log('[签到配置] 准备保存 - enabled:', enabled, 'bot_enabled:', botEnabled);
-        
         // 验证
         if (coinMin > coinMax) {
             window.showToast && window.showToast('错误', '最少积分不能大于最多积分', 'error');
@@ -388,8 +378,6 @@ async function saveCheckinConfig() {
             }
         };
         
-        console.log('[签到配置] 发送数据:', JSON.stringify(configData, null, 2));
-        
         // 发送保存请求
         const response = await fetch('/api/admin/system-config', {
             method: 'POST',
@@ -400,7 +388,6 @@ async function saveCheckinConfig() {
         });
         
         const result = await response.json();
-        console.log('[签到配置] 保存响应:', result);
         
         if (result.success) {
             window.showToast && window.showToast('成功', '签到配置已保存', 'success');

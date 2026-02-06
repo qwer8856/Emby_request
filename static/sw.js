@@ -1,5 +1,5 @@
 // Service Worker for PWA
-const CACHE_NAME = 'emby-request-v1';
+const CACHE_NAME = 'emby-request-v2';
 const STATIC_ASSETS = [
   '/static/logo.png',
   '/static/manifest.json'
@@ -10,7 +10,6 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('缓存静态资源');
         return cache.addAll(STATIC_ASSETS);
       })
       .then(() => self.skipWaiting())
@@ -24,7 +23,6 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
           if (cacheName !== CACHE_NAME) {
-            console.log('清理旧缓存:', cacheName);
             return caches.delete(cacheName);
           }
         })
