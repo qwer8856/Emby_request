@@ -289,6 +289,11 @@ else:
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# Session 安全配置
+app.config['SESSION_COOKIE_HTTPONLY'] = True      # 禁止 JS 读取 Cookie，防止 XSS 窃取
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'     # 防止 CSRF 跨站请求伪造
+app.config['PERMANENT_SESSION_LIFETIME'] = 86400 * 7  # Session 有效期 7 天
+
 # 减少 werkzeug 日志噪音（过滤掉静态资源和图片代理请求）
 import logging
 import re
@@ -406,10 +411,6 @@ MOVIEPILOT_URL = os.getenv('MOVIEPILOT_URL', '').rstrip('/')
 MOVIEPILOT_USERNAME = os.getenv('MOVIEPILOT_USERNAME', '')
 MOVIEPILOT_PASSWORD = os.getenv('MOVIEPILOT_PASSWORD', '')
 MOVIEPILOT_TOKEN = os.getenv('MOVIEPILOT_TOKEN', '')  # 可选：直接提供 JWT Token
-
-# 调试输出
-print(f"[DEBUG] MOVIEPILOT_URL = '{MOVIEPILOT_URL}'")
-print(f"[DEBUG] MOVIEPILOT_USERNAME = '{MOVIEPILOT_USERNAME}'")
 
 # qBittorrent 配置
 QBITTORRENT_BASE_URL = os.getenv('QBITTORRENT_BASE_URL', '').rstrip('/')
@@ -18585,7 +18586,7 @@ if __name__ == '__main__':
     
     bootstrap_background_tasks()
     # 从环境变量读取运行配置
-    debug_mode = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
+    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
     host = os.getenv('FLASK_HOST', '0.0.0.0')
     port = int(os.getenv('FLASK_PORT', 5000))
     
