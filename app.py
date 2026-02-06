@@ -18470,8 +18470,8 @@ download_monitor = DownloadMonitor(app, DOWNLOAD_POLL_INTERVAL)
 
 def auto_close_inactive_tickets():
     """自动关闭3天内管理员回复后用户未回复的工单"""
-    try:
-        with app.app_context():
+    with app.app_context():
+        try:
             three_days_ago = datetime.now() - timedelta(days=3)
             
             # 查找处理中状态且管理员回复后3天用户未回复的工单
@@ -18491,11 +18491,11 @@ def auto_close_inactive_tickets():
             if closed_count > 0:
                 db.session.commit()
                 app.logger.info(f'自动关闭了 {closed_count} 个超时工单')
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f'自动关闭工单失败: {e}', exc_info=True)
-    finally:
-        db.session.remove()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f'自动关闭工单失败: {e}', exc_info=True)
+        finally:
+            db.session.remove()
 
 
 # 工单自动关闭检查的时间戳
@@ -18527,8 +18527,8 @@ last_subscription_check_time = None
 
 def check_expired_subscriptions():
     """检查订阅到期用户并禁用/删除其Emby账号"""
-    try:
-        with app.app_context():
+    with app.app_context():
+        try:
             now = datetime.now()
             
             # 获取订阅过期配置
@@ -18644,11 +18644,11 @@ def check_expired_subscriptions():
             if web_deleted_count > 0:
                 app.logger.info(f'[订阅检查] 本次共删除 {web_deleted_count} 个网站账号')
                 
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f'[订阅检查] 检查过期订阅失败: {e}')
-    finally:
-        db.session.remove()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f'[订阅检查] 检查过期订阅失败: {e}')
+        finally:
+            db.session.remove()
 
 
 @app.before_request
