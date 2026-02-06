@@ -9726,4 +9726,26 @@ select.custom-select:focus,
         width: 100% !important;
         max-width: none !important;
     }
+
+    /* 5. 弹窗与 Toast (.toast) */
+    .toast {
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        width: auto !important;
+        min-width: 200px !important;
+        max-width: 90% !important;
+        white-space: normal !important;
+        top: 80px !important;
+        z-index: 999999 !important;
+    }
+
+    .toast.show {
+        transform: translateX(-50%) translateY(0) !important;
+    }
+
+    .toast-content,
+    .toast-message {
+        white-space: normal !important;
+        word-break: break-word !important;
+    }
 }
