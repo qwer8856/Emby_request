@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>管理面板 - Emby管理系统</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}?v=13">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=17">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=18">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-checkin.css') }}?v=1">
     <!-- 防止刷新页面时闪屏 -->
     <style id="preload-style">
@@ -566,9 +566,15 @@
                         </div>
                     </div>
 
+                    <div class="batch-actions" id="subscriptionBatchActions" style="display:none;">
+                        <span class="batch-info">已选择 <strong id="selectedSubscriptionCount">0</strong> 条</span>
+                        <button class="batch-btn danger" onclick="batchDeleteSubscriptions()">🗑️ 批量删除</button>
+                    </div>
+
                     <table class="admin-table" id="subscriptionsTable">
                         <thead>
                             <tr>
+                                <th style="width:40px;"><input type="checkbox" id="selectAllSubscriptions" onchange="toggleSelectAllSubscriptions()"></th>
                                 <th>用户名</th>
                                 <th>TG ID</th>
                                 <th>用户类型</th>
@@ -580,7 +586,7 @@
                         </thead>
                         <tbody id="subscriptionsTableBody">
                             <tr>
-                                <td colspan="7" class="loading-cell">加载中...</td>
+                                <td colspan="8" class="loading-cell">加载中...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -637,9 +643,16 @@
                         </div>
                     </div>
 
+                    <div class="batch-actions" id="orderBatchActions" style="display:none;">
+                        <span class="batch-info">已选择 <strong id="selectedOrderCount">0</strong> 条</span>
+                        <button class="batch-btn warning" onclick="batchCancelOrders()">❌ 批量取消</button>
+                        <button class="batch-btn danger" onclick="batchDeleteOrders()">🗑️ 批量删除</button>
+                    </div>
+
                     <table class="admin-table" id="ordersTable">
                         <thead>
                             <tr>
+                                <th style="width:40px;"><input type="checkbox" id="selectAllOrders" onchange="toggleSelectAllOrders()"></th>
                                 <th>订单号</th>
                                 <th>用户</th>
                                 <th>套餐</th>
@@ -652,7 +665,7 @@
                         </thead>
                         <tbody id="ordersTableBody">
                             <tr>
-                                <td colspan="8" class="loading-cell">加载中...</td>
+                                <td colspan="9" class="loading-cell">加载中...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -788,10 +801,16 @@
                                 onkeyup="searchAdminDevices()" autocomplete="off" autocorrect="off" autocapitalize="off"
                                 spellcheck="false" data-form-type="other">
                         </div>
+                        <div class="batch-actions" id="deviceBatchActions" style="display:none;">
+                            <span class="batch-info">已选择 <strong id="selectedDeviceCount">0</strong> 条</span>
+                            <button class="batch-btn danger" onclick="batchDeleteDevices()">🗑️ 批量删除</button>
+                            <button class="batch-btn warning" onclick="batchBlockDevices()">🚫 批量禁用</button>
+                        </div>
                         <div class="admin-table-container">
                             <table class="admin-table">
                                 <thead>
                                     <tr>
+                                        <th style="width:40px;"><input type="checkbox" id="selectAllDevices" onchange="toggleSelectAllDevices()"></th>
                                         <th>用户</th>
                                         <th>设备名称</th>
                                         <th>客户端</th>
@@ -803,7 +822,7 @@
                                 </thead>
                                 <tbody id="adminDevicesBody">
                                     <tr>
-                                        <td colspan="7" class="loading-cell">加载中...</td>
+                                        <td colspan="8" class="loading-cell">加载中...</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -818,10 +837,15 @@
                                 onkeyup="searchAdminHistory()" autocomplete="off" autocorrect="off" autocapitalize="off"
                                 spellcheck="false" data-form-type="other">
                         </div>
+                        <div class="batch-actions" id="historyBatchActions" style="display:none;">
+                            <span class="batch-info">已选择 <strong id="selectedHistoryCount">0</strong> 条</span>
+                            <button class="batch-btn danger" onclick="batchDeleteHistory()">🗑️ 批量删除</button>
+                        </div>
                         <div class="admin-table-container">
                             <table class="admin-table">
                                 <thead>
                                     <tr>
+                                        <th style="width:40px;"><input type="checkbox" id="selectAllHistory" onchange="toggleSelectAllHistory()"></th>
                                         <th>用户</th>
                                         <th>媒体</th>
                                         <th>类型</th>
@@ -832,7 +856,7 @@
                                 </thead>
                                 <tbody id="adminHistoryBody">
                                     <tr>
-                                        <td colspan="6" class="loading-cell">加载中...</td>
+                                        <td colspan="7" class="loading-cell">加载中...</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -858,10 +882,15 @@
                             </ul>
                         </div>
 
+                        <div class="batch-actions" id="blacklistBatchActions" style="display:none;">
+                            <span class="batch-info">已选择 <strong id="selectedBlacklistCount">0</strong> 条</span>
+                            <button class="batch-btn danger" onclick="batchDeleteBlacklist()">🗑️ 批量删除</button>
+                        </div>
                         <div class="admin-table-container">
                             <table class="admin-table" id="blacklistTable">
                                 <thead>
                                     <tr>
+                                        <th style="width:40px;"><input type="checkbox" id="selectAllBlacklist" onchange="toggleSelectAllBlacklist()"></th>
                                         <th>规则名称</th>
                                         <th>客户端匹配</th>
                                         <th>设备名称匹配</th>
@@ -873,7 +902,7 @@
                                 </thead>
                                 <tbody id="blacklistTableBody">
                                     <tr>
-                                        <td colspan="7" class="loading-cell">加载中...</td>
+                                        <td colspan="8" class="loading-cell">加载中...</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -931,9 +960,16 @@
                         </div>
                     </div>
 
+                    <div class="batch-actions" id="ticketBatchActions" style="display:none;">
+                        <span class="batch-info">已选择 <strong id="selectedTicketCount">0</strong> 条</span>
+                        <button class="batch-btn warning" onclick="batchCloseTickets()">🔒 批量关闭</button>
+                        <button class="batch-btn danger" onclick="batchDeleteTickets()">🗑️ 批量删除</button>
+                    </div>
+
                     <table class="admin-table" id="ticketsTable">
                         <thead>
                             <tr>
+                                <th style="width:40px;"><input type="checkbox" id="selectAllTickets" onchange="toggleSelectAllTickets()"></th>
                                 <th>工单号</th>
                                 <th>用户</th>
                                 <th>类别</th>
@@ -946,7 +982,7 @@
                         </thead>
                         <tbody id="ticketsTableBody">
                             <tr>
-                                <td colspan="8" class="loading-cell">加载中...</td>
+                                <td colspan="9" class="loading-cell">加载中...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -1036,6 +1072,13 @@
                                 <option value="admin">管理员</option>
                                 <option value="user">普通用户</option>
                             </select>
+                            <select id="userStatusFilter" onchange="loadUsers()">
+                                <option value="">全部状态</option>
+                                <option value="whitelist">白名单</option>
+                                <option value="subscribed">已订阅</option>
+                                <option value="normal">未订阅</option>
+                                <option value="banned">已禁用</option>
+                            </select>
                         </div>
                     </div>
 
@@ -1063,9 +1106,17 @@
                         </div>
                     </div>
 
+                    <div class="batch-actions" id="userBatchActions" style="display:none;">
+                        <span class="batch-info">已选择 <strong id="selectedUserCount">0</strong> 条</span>
+                        <button class="batch-btn warning" onclick="batchBanUsers()">⛔ 批量禁用</button>
+                        <button class="batch-btn success" onclick="batchUnbanUsers()">✅ 批量解禁</button>
+                        <button class="batch-btn danger" onclick="batchDeleteUsers()">🗑️ 批量删除</button>
+                    </div>
+
                     <table class="admin-table" id="usersTable">
                         <thead>
                             <tr>
+                                <th style="width:40px;"><input type="checkbox" id="selectAllUsers" onchange="toggleSelectAllUsers()"></th>
                                 <th class="hide-mobile">用户ID</th>
                                 <th>用户名</th>
                                 <th class="hide-mobile">Telegram ID</th>
@@ -1078,7 +1129,7 @@
                         </thead>
                         <tbody id="usersTableBody">
                             <tr>
-                                <td colspan="8" class="loading-cell">加载中...</td>
+                                <td colspan="9" class="loading-cell">加载中...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -2932,7 +2983,7 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/common.js') }}?v=12"></script>
-    <script src="{{ url_for('static', filename='js/admin.js') }}?v=29"></script>
+    <script src="{{ url_for('static', filename='js/admin.js') }}?v=30"></script>
     <script src="{{ url_for('static', filename='js/admin-checkin.js') }}?v=6"></script>
 
 </body>

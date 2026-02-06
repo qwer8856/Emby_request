@@ -1771,6 +1771,7 @@ body.page-admin {
     gap: 10px;
     flex-wrap: wrap;
     padding: 10px 16px;
+    margin-bottom: 12px;
     background: #f8f9fa;
     border-radius: 10px;
     border: 1px solid #e2e8f0;
@@ -1818,6 +1819,45 @@ body.page-admin {
 .batch-delete:hover {
     background: rgba(239, 68, 68, 0.15);
     color: #ef4444;
+}
+
+.batch-btn.danger {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: white;
+}
+
+.batch-btn.danger:hover {
+    box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+}
+
+.batch-btn.warning {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+}
+
+.batch-btn.warning:hover {
+    box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
+}
+
+.batch-btn.success {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+}
+
+.batch-btn.success:hover {
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+}
+
+.batch-info {
+    color: #475569;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.batch-info strong {
+    color: #3b82f6;
+    font-size: 16px;
 }
 
 .sync-downloads-btn {
@@ -7389,17 +7429,23 @@ select.custom-select:focus,
     
     /* --- 批量操作 --- */
     .batch-actions {
-        flex-direction: column;
+        flex-wrap: wrap;
         gap: 8px;
         padding: 10px 12px;
         border-radius: 10px;
     }
     
-    .batch-btn {
+    .batch-info {
         width: 100%;
+        font-size: 13px;
+    }
+    
+    .batch-btn {
+        flex: 1;
+        min-width: 0;
         padding: 10px 14px;
         text-align: center;
-        font-size: 14px;
+        font-size: 13px;
     }
     
     /* --- 下载进度条 --- */

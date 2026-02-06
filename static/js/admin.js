@@ -1,4 +1,4 @@
-// admin.js v29 - 修复配置保存后重新加载时序问题
+// admin.js v30 - 添加批量操作和批量筛选功能
 let currentRequestId = null;
     let currentStatus = null;
     let isBatchMode = false;
@@ -1598,8 +1598,13 @@ function renderSubscriptions(subscriptions) {
     const tbody = document.getElementById('subscriptionsTableBody');
     if (!tbody) return;
     
+    // 重置全选
+    const selectAll = document.getElementById('selectAllSubscriptions');
+    if (selectAll) selectAll.checked = false;
+    updateBatchUI('subscription');
+    
     if (subscriptions.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">暂无订阅数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">暂无订阅数据</td></tr>';
         return;
     }
     
@@ -1614,6 +1619,7 @@ function renderSubscriptions(subscriptions) {
         
         return `
             <tr>
+                <td data-label="选择"><input type="checkbox" class="subscription-checkbox" value="${sub.id || sub.user_tg_id}" onchange="updateBatchUI('subscription')"></td>
                 <td data-label="用户名">${sub.user_name || '未知用户'}</td>
                 <td data-label="TG ID"><code>${sub.user_tg_id || '-'}</code></td>
                 <td data-label="用户类型"><span class="plan-badge ${sub.plan_type}">${sub.plan_name || '-'}</span></td>
@@ -1687,13 +1693,19 @@ function renderOrders(orders) {
     const tbody = document.getElementById('ordersTableBody');
     if (!tbody) return;
     
+    // 重置全选
+    const selectAll = document.getElementById('selectAllOrders');
+    if (selectAll) selectAll.checked = false;
+    updateBatchUI('order');
+    
     if (orders.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">暂无订单数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">暂无订单数据</td></tr>';
         return;
     }
     
     tbody.innerHTML = orders.map(order => `
         <tr>
+            <td data-label="选择"><input type="checkbox" class="order-checkbox" value="${order.order_no}" onchange="updateBatchUI('order')"></td>
             <td data-label="订单号"><code>${order.order_no}</code></td>
             <td data-label="用户">${order.user_name || order.user_tg_id || '未知用户'}</td>
             <td data-label="套餐">${order.plan_name || order.plan_type || '-'}</td>
@@ -1954,13 +1966,19 @@ function renderTickets(tickets) {
     const tbody = document.getElementById('ticketsTableBody');
     if (!tbody) return;
     
+    // 重置全选
+    const selectAll = document.getElementById('selectAllTickets');
+    if (selectAll) selectAll.checked = false;
+    updateBatchUI('ticket');
+    
     if (tickets.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">暂无工单数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">暂无工单数据</td></tr>';
         return;
     }
     
     tbody.innerHTML = tickets.map(ticket => `
         <tr>
+            <td data-label="选择"><input type="checkbox" class="ticket-checkbox" value="${ticket.id}" onchange="updateBatchUI('ticket')"></td>
             <td data-label="工单号"><code>${ticket.ticket_no}</code></td>
             <td data-label="用户">${ticket.user_name || ticket.user_tg_id || '未知用户'}</td>
             <td data-label="分类">${getCategoryText(ticket.category)}</td>
@@ -2269,11 +2287,12 @@ let userSearchTimeout = null;
 
 async function loadUsers(page = 1) {
     const role = document.getElementById('userRoleFilter')?.value || '';
+    const status = document.getElementById('userStatusFilter')?.value || '';
     const search = document.getElementById('userSearch')?.value || '';
     userCurrentPage = page;
     
     try {
-        const response = await fetch(`/api/admin/users?role=${role}&search=${encodeURIComponent(search)}&page=${page}&per_page=20`);
+        const response = await fetch(`/api/admin/users?role=${role}&status=${status}&search=${encodeURIComponent(search)}&page=${page}&per_page=20`);
         const data = await response.json();
         
         if (data.success) {
@@ -2294,8 +2313,13 @@ function renderUsers(users) {
     const tbody = document.getElementById('usersTableBody');
     if (!tbody) return;
     
+    // 重置全选
+    const selectAll = document.getElementById('selectAllUsers');
+    if (selectAll) selectAll.checked = false;
+    updateBatchUI('user');
+    
     if (users.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">暂无用户数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">暂无用户数据</td></tr>';
         return;
     }
     
@@ -2335,6 +2359,7 @@ function renderUsers(users) {
         
         return `
         <tr>
+            <td data-label="选择"><input type="checkbox" class="user-checkbox" value="${user.id}" onchange="updateBatchUI('user')"></td>
             <td class="hide-mobile" data-label="ID">${user.id}</td>
             <td data-label="用户名">${user.name || '-'}</td>
             <td class="hide-mobile" data-label="Telegram">${user.telegram_id ? user.telegram_id : '<span style="color:#999;">未绑定</span>'}</td>
@@ -5503,8 +5528,13 @@ async function loadAdminDevices(page = 1) {
         const devices = data.devices || [];
         const tbody = document.getElementById('adminDevicesBody');
         
+        // 重置全选
+        const selectAll = document.getElementById('selectAllDevices');
+        if (selectAll) selectAll.checked = false;
+        updateBatchUI('device');
+        
         if (devices.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">暂无设备记录</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">暂无设备记录</td></tr>';
             return;
         }
         
@@ -5515,6 +5545,7 @@ async function loadAdminDevices(page = 1) {
             
             return `
                 <tr>
+                    <td data-label="选择"><input type="checkbox" class="device-checkbox" value="${d.id}" onchange="updateBatchUI('device')"></td>
                     <td data-label="用户"><strong>${escapeHtml(d.user_name)}</strong></td>
                     <td data-label="设备名称">${escapeHtml(d.device_name)}</td>
                     <td data-label="客户端">${escapeHtml(d.client)}</td>
@@ -5620,8 +5651,13 @@ async function loadAdminHistory(page = 1) {
         const records = data.records || [];
         const tbody = document.getElementById('adminHistoryBody');
         
+        // 重置全选
+        const selectAll = document.getElementById('selectAllHistory');
+        if (selectAll) selectAll.checked = false;
+        updateBatchUI('history');
+        
         if (records.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">暂无播放记录</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">暂无播放记录</td></tr>';
             return;
         }
         
@@ -5632,6 +5668,7 @@ async function loadAdminHistory(page = 1) {
             
             return `
                 <tr>
+                    <td data-label="选择"><input type="checkbox" class="history-checkbox" value="${r.id}" onchange="updateBatchUI('history')"></td>
                     <td data-label="用户"><strong>${escapeHtml(r.user_name)}</strong></td>
                     <td data-label="媒体" class="nowrap" title="${escapeHtml(r.display_name)}">${escapeHtml(r.display_name?.length > 25 ? r.display_name.slice(0, 25) + '...' : r.display_name)}</td>
                     <td data-label="类型">${typeText}</td>
@@ -5719,13 +5756,19 @@ function renderBlacklist(rules) {
     const tbody = document.getElementById('blacklistTableBody');
     if (!tbody) return;
     
+    // 重置全选
+    const selectAll = document.getElementById('selectAllBlacklist');
+    if (selectAll) selectAll.checked = false;
+    updateBatchUI('blacklist');
+    
     if (rules.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">暂无黑名单规则</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">暂无黑名单规则</td></tr>';
         return;
     }
     
     tbody.innerHTML = rules.map(rule => `
         <tr>
+            <td data-label="选择"><input type="checkbox" class="blacklist-checkbox" value="${rule.id}" onchange="updateBatchUI('blacklist')"></td>
             <td data-label="规则名称"><strong>${escapeHtml(rule.rule_name)}</strong></td>
             <td data-label="客户端匹配"><code>${rule.client_pattern || '*'}</code></td>
             <td data-label="设备匹配"><code>${rule.device_name_pattern || '*'}</code></td>
@@ -5841,6 +5884,308 @@ async function deleteBlacklistRule(ruleId, ruleName) {
         console.error('删除黑名单规则失败:', error);
         showToast('网络错误', '请检查网络连接', 'error');
     }
+}
+
+// ==================== 通用批量操作系统 ====================
+
+// 通用：更新批量操作UI（显示/隐藏批量操作栏和计数）
+function updateBatchUI(type) {
+    const checkboxes = document.querySelectorAll(`.${type}-checkbox:checked`);
+    const count = checkboxes.length;
+    const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1);
+    const countEl = document.getElementById(`selected${typeCapitalized}Count`);
+    const batchActions = document.getElementById(`${type}BatchActions`);
+    
+    if (countEl) countEl.textContent = count;
+    if (batchActions) batchActions.style.display = count > 0 ? 'flex' : 'none';
+}
+
+// 通用：全选/取消全选
+function createToggleSelectAll(type, selectAllId) {
+    if (!selectAllId) {
+        const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1);
+        selectAllId = `selectAll${typeCapitalized}s`;
+    }
+    return function() {
+        const selectAll = document.getElementById(selectAllId);
+        const checkboxes = document.querySelectorAll(`.${type}-checkbox`);
+        checkboxes.forEach(cb => cb.checked = selectAll.checked);
+        updateBatchUI(type);
+    };
+}
+
+// 通用：获取选中的值列表
+function getSelectedValues(type) {
+    const checkboxes = document.querySelectorAll(`.${type}-checkbox:checked`);
+    return Array.from(checkboxes).map(cb => cb.value);
+}
+
+// 通用：批量操作请求
+async function doBatchAction(url, method, body, successMsg, failMsg, reloadFn) {
+    showLoading('正在批量处理...');
+    try {
+        const response = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await response.json();
+        hideLoading();
+        
+        if (data.success) {
+            showToast('批量操作成功', data.message || successMsg, 'success');
+            if (reloadFn) reloadFn();
+        } else {
+            showToast('操作失败', data.error || failMsg, 'error');
+        }
+    } catch (error) {
+        hideLoading();
+        showToast('网络错误', error.message, 'error');
+    }
+}
+
+// ===== 全选函数绑定 =====
+const toggleSelectAllSubscriptions = createToggleSelectAll('subscription');
+const toggleSelectAllOrders = createToggleSelectAll('order');
+const toggleSelectAllTickets = createToggleSelectAll('ticket');
+const toggleSelectAllUsers = createToggleSelectAll('user');
+const toggleSelectAllDevices = createToggleSelectAll('device');
+const toggleSelectAllHistory = createToggleSelectAll('history', 'selectAllHistory');
+const toggleSelectAllBlacklist = createToggleSelectAll('blacklist', 'selectAllBlacklist');
+
+// ===== 用户管理批量操作 =====
+async function batchBanUsers() {
+    const ids = getSelectedValues('user').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择用户', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '批量禁用用户',
+        message: `确定要禁用 ${ids.length} 个用户吗？`,
+        confirmText: '确定禁用',
+        type: 'warning'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/users/batch', 'POST', 
+        { ids, action: 'ban' },
+        `已禁用 ${ids.length} 个用户`, '批量禁用失败',
+        () => loadUsers(userCurrentPage)
+    );
+}
+
+async function batchUnbanUsers() {
+    const ids = getSelectedValues('user').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择用户', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '批量解禁用户',
+        message: `确定要解除 ${ids.length} 个用户的禁用状态吗？`,
+        confirmText: '确定解禁',
+        type: 'info'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/users/batch', 'POST',
+        { ids, action: 'unban' },
+        `已解禁 ${ids.length} 个用户`, '批量解禁失败',
+        () => loadUsers(userCurrentPage)
+    );
+}
+
+async function batchDeleteUsers() {
+    const ids = getSelectedValues('user').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择用户', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '⚠️ 批量删除用户',
+        message: `确定要删除 ${ids.length} 个用户吗？此操作不可恢复！\n将同时删除用户的所有关联数据。`,
+        confirmText: '确认删除',
+        type: 'danger'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/users/batch', 'POST',
+        { ids, action: 'delete' },
+        `已删除 ${ids.length} 个用户`, '批量删除失败',
+        () => loadUsers(userCurrentPage)
+    );
+}
+
+// ===== 订单管理批量操作 =====
+async function batchCancelOrders() {
+    const orderNos = getSelectedValues('order');
+    if (orderNos.length === 0) return showToast('提示', '请先选择订单', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '批量取消订单',
+        message: `确定要取消 ${orderNos.length} 个订单吗？`,
+        confirmText: '确定取消',
+        type: 'warning'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/orders/batch', 'POST',
+        { order_nos: orderNos, action: 'cancel' },
+        `已取消 ${orderNos.length} 个订单`, '批量取消失败',
+        loadOrders
+    );
+}
+
+async function batchDeleteOrders() {
+    const orderNos = getSelectedValues('order');
+    if (orderNos.length === 0) return showToast('提示', '请先选择订单', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '⚠️ 批量删除订单',
+        message: `确定要删除 ${orderNos.length} 个订单吗？此操作不可恢复！`,
+        confirmText: '确认删除',
+        type: 'danger'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/orders/batch', 'POST',
+        { order_nos: orderNos, action: 'delete' },
+        `已删除 ${orderNos.length} 个订单`, '批量删除失败',
+        loadOrders
+    );
+}
+
+// ===== 工单管理批量操作 =====
+async function batchCloseTickets() {
+    const ids = getSelectedValues('ticket').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择工单', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '批量关闭工单',
+        message: `确定要关闭 ${ids.length} 个工单吗？`,
+        confirmText: '确定关闭',
+        type: 'warning'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/tickets/batch', 'POST',
+        { ids, action: 'close' },
+        `已关闭 ${ids.length} 个工单`, '批量关闭失败',
+        loadTickets
+    );
+}
+
+async function batchDeleteTickets() {
+    const ids = getSelectedValues('ticket').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择工单', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '⚠️ 批量删除工单',
+        message: `确定要删除 ${ids.length} 个工单吗？此操作不可恢复！`,
+        confirmText: '确认删除',
+        type: 'danger'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/tickets/batch', 'POST',
+        { ids, action: 'delete' },
+        `已删除 ${ids.length} 个工单`, '批量删除失败',
+        loadTickets
+    );
+}
+
+// ===== 订阅管理批量操作 =====
+async function batchDeleteSubscriptions() {
+    const ids = getSelectedValues('subscription');
+    if (ids.length === 0) return showToast('提示', '请先选择订阅', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '⚠️ 批量删除订阅记录',
+        message: `确定要删除 ${ids.length} 条订阅记录吗？此操作不可恢复！`,
+        confirmText: '确认删除',
+        type: 'danger'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/subscriptions/batch', 'POST',
+        { ids, action: 'delete' },
+        `已删除 ${ids.length} 条订阅`, '批量删除失败',
+        loadSubscriptions
+    );
+}
+
+// ===== 设备管理批量操作 =====
+async function batchDeleteDevices() {
+    const ids = getSelectedValues('device').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择设备', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '⚠️ 批量删除设备',
+        message: `确定要删除 ${ids.length} 个设备吗？关联的播放记录也会被删除。`,
+        confirmText: '确认删除',
+        type: 'danger'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/playback/devices/batch', 'POST',
+        { ids, action: 'delete' },
+        `已删除 ${ids.length} 个设备`, '批量删除失败',
+        () => loadAdminDevices(adminDevicesPage)
+    );
+}
+
+async function batchBlockDevices() {
+    const ids = getSelectedValues('device').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择设备', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '批量禁用设备',
+        message: `确定要禁用 ${ids.length} 个设备吗？`,
+        confirmText: '确定禁用',
+        type: 'warning'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/playback/devices/batch', 'POST',
+        { ids, action: 'block' },
+        `已禁用 ${ids.length} 个设备`, '批量禁用失败',
+        () => loadAdminDevices(adminDevicesPage)
+    );
+}
+
+// ===== 播放历史批量操作 =====
+async function batchDeleteHistory() {
+    const ids = getSelectedValues('history').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择记录', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '⚠️ 批量删除播放记录',
+        message: `确定要删除 ${ids.length} 条播放记录吗？`,
+        confirmText: '确认删除',
+        type: 'danger'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/playback/history/batch', 'POST',
+        { ids, action: 'delete' },
+        `已删除 ${ids.length} 条记录`, '批量删除失败',
+        () => loadAdminHistory(adminHistoryPage)
+    );
+}
+
+// ===== 黑名单批量操作 =====
+async function batchDeleteBlacklist() {
+    const ids = getSelectedValues('blacklist').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择规则', 'info');
+    
+    const confirmed = await showConfirm({
+        title: '⚠️ 批量删除黑名单规则',
+        message: `确定要删除 ${ids.length} 条黑名单规则吗？`,
+        confirmText: '确认删除',
+        type: 'danger'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/device-blacklist/batch', 'POST',
+        { ids, action: 'delete' },
+        `已删除 ${ids.length} 条规则`, '批量删除失败',
+        loadBlacklist
+    );
 }
 
 // ==================== 用户详情功能 ====================

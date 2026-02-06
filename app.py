@@ -11745,6 +11745,280 @@ def batch_delete_requests():
     }), 200
 
 
+# ==================== 批量操作 API ====================
+
+@app.route('/api/admin/users/batch', methods=['POST'])
+@admin_required
+def batch_users():
+    """批量用户操作：禁用/解禁/删除"""
+    data = request.get_json()
+    ids = data.get('ids', [])
+    action = data.get('action', '')
+    
+    if not ids:
+        return jsonify({'success': False, 'error': '未选择任何用户'}), 400
+    
+    success_count = 0
+    fail_count = 0
+    
+    for uid in ids:
+        try:
+            user = db.session.get(User, uid)
+            if not user:
+                fail_count += 1
+                continue
+            
+            if action == 'ban':
+                user.lv = 'c'
+                success_count += 1
+            elif action == 'unban':
+                user.lv = 'b'
+                success_count += 1
+            elif action == 'delete':
+                # 删除关联数据
+                SupportTicket.query.filter_by(user_tg=user.tg).delete()
+                Order.query.filter_by(user_tg=user.tg).delete()
+                Subscription.query.filter_by(user_tg=user.tg).delete()
+                MovieRequest.query.filter_by(user_tg=str(user.tg)).delete()
+                db.session.delete(user)
+                success_count += 1
+            else:
+                fail_count += 1
+        except Exception as e:
+            app.logger.error(f'批量用户操作失败: ID={uid}, error={e}')
+            fail_count += 1
+    
+    db.session.commit()
+    app.logger.info(f'管理员批量{action}用户: 成功={success_count}, 失败={fail_count}')
+    return jsonify({'success': True, 'message': f'已处理 {success_count} 个用户', 'success_count': success_count})
+
+
+@app.route('/api/admin/orders/batch', methods=['POST'])
+@admin_required
+def batch_orders():
+    """批量订单操作：取消/删除"""
+    data = request.get_json()
+    order_nos = data.get('order_nos', [])
+    action = data.get('action', '')
+    
+    if not order_nos:
+        return jsonify({'success': False, 'error': '未选择任何订单'}), 400
+    
+    success_count = 0
+    fail_count = 0
+    
+    for order_no in order_nos:
+        try:
+            order = Order.query.filter_by(order_no=order_no).first()
+            if not order:
+                fail_count += 1
+                continue
+            
+            if action == 'cancel':
+                if order.payment_status == 'pending':
+                    order.payment_status = 'cancelled'
+                    success_count += 1
+                else:
+                    fail_count += 1
+            elif action == 'delete':
+                db.session.delete(order)
+                success_count += 1
+            else:
+                fail_count += 1
+        except Exception as e:
+            app.logger.error(f'批量订单操作失败: {order_no}, error={e}')
+            fail_count += 1
+    
+    db.session.commit()
+    app.logger.info(f'管理员批量{action}订单: 成功={success_count}, 失败={fail_count}')
+    return jsonify({'success': True, 'message': f'已处理 {success_count} 个订单', 'success_count': success_count})
+
+
+@app.route('/api/admin/tickets/batch', methods=['POST'])
+@admin_required
+def batch_tickets():
+    """批量工单操作：关闭/删除"""
+    data = request.get_json()
+    ids = data.get('ids', [])
+    action = data.get('action', '')
+    
+    if not ids:
+        return jsonify({'success': False, 'error': '未选择任何工单'}), 400
+    
+    success_count = 0
+    fail_count = 0
+    
+    for tid in ids:
+        try:
+            ticket = db.session.get(SupportTicket, tid)
+            if not ticket:
+                fail_count += 1
+                continue
+            
+            if action == 'close':
+                ticket.status = 'closed'
+                ticket.resolved_at = datetime.now()
+                success_count += 1
+            elif action == 'delete':
+                TicketMessage.query.filter_by(ticket_id=ticket.id).delete()
+                db.session.delete(ticket)
+                success_count += 1
+            else:
+                fail_count += 1
+        except Exception as e:
+            app.logger.error(f'批量工单操作失败: ID={tid}, error={e}')
+            fail_count += 1
+    
+    db.session.commit()
+    app.logger.info(f'管理员批量{action}工单: 成功={success_count}, 失败={fail_count}')
+    return jsonify({'success': True, 'message': f'已处理 {success_count} 个工单', 'success_count': success_count})
+
+
+@app.route('/api/admin/subscriptions/batch', methods=['POST'])
+@admin_required
+def batch_subscriptions():
+    """批量订阅操作：删除（基于用户tg ID）"""
+    data = request.get_json()
+    ids = data.get('ids', [])
+    action = data.get('action', '')
+    
+    if not ids:
+        return jsonify({'success': False, 'error': '未选择任何订阅'}), 400
+    
+    success_count = 0
+    fail_count = 0
+    
+    for uid in ids:
+        try:
+            uid_int = int(uid)
+            if action == 'delete':
+                # 删除该用户的所有订阅记录
+                deleted = Subscription.query.filter_by(user_tg=uid_int).delete()
+                if deleted > 0:
+                    success_count += 1
+                else:
+                    # 没有订阅记录也算成功（因为订阅页面显示的是用户信息）
+                    success_count += 1
+            else:
+                fail_count += 1
+        except Exception as e:
+            app.logger.error(f'批量订阅操作失败: ID={uid}, error={e}')
+            fail_count += 1
+    
+    db.session.commit()
+    app.logger.info(f'管理员批量{action}订阅: 成功={success_count}, 失败={fail_count}')
+    return jsonify({'success': True, 'message': f'已处理 {success_count} 条订阅', 'success_count': success_count})
+
+
+@app.route('/api/admin/playback/devices/batch', methods=['POST'])
+@admin_required
+def batch_devices():
+    """批量设备操作：删除/禁用"""
+    data = request.get_json()
+    ids = data.get('ids', [])
+    action = data.get('action', '')
+    
+    if not ids:
+        return jsonify({'success': False, 'error': '未选择任何设备'}), 400
+    
+    success_count = 0
+    fail_count = 0
+    
+    for did in ids:
+        try:
+            device = db.session.get(UserDevice, did)
+            if not device:
+                fail_count += 1
+                continue
+            
+            if action == 'delete':
+                PlaybackRecord.query.filter_by(device_id=device.id).delete()
+                db.session.delete(device)
+                success_count += 1
+            elif action == 'block':
+                device.is_blocked = True
+                success_count += 1
+            else:
+                fail_count += 1
+        except Exception as e:
+            app.logger.error(f'批量设备操作失败: ID={did}, error={e}')
+            fail_count += 1
+    
+    db.session.commit()
+    app.logger.info(f'管理员批量{action}设备: 成功={success_count}, 失败={fail_count}')
+    return jsonify({'success': True, 'message': f'已处理 {success_count} 个设备', 'success_count': success_count})
+
+
+@app.route('/api/admin/playback/history/batch', methods=['POST'])
+@admin_required
+def batch_history():
+    """批量播放记录操作：删除"""
+    data = request.get_json()
+    ids = data.get('ids', [])
+    action = data.get('action', '')
+    
+    if not ids:
+        return jsonify({'success': False, 'error': '未选择任何记录'}), 400
+    
+    success_count = 0
+    fail_count = 0
+    
+    for rid in ids:
+        try:
+            record = db.session.get(PlaybackRecord, rid)
+            if not record:
+                fail_count += 1
+                continue
+            
+            if action == 'delete':
+                db.session.delete(record)
+                success_count += 1
+            else:
+                fail_count += 1
+        except Exception as e:
+            app.logger.error(f'批量播放记录操作失败: ID={rid}, error={e}')
+            fail_count += 1
+    
+    db.session.commit()
+    app.logger.info(f'管理员批量{action}播放记录: 成功={success_count}, 失败={fail_count}')
+    return jsonify({'success': True, 'message': f'已处理 {success_count} 条记录', 'success_count': success_count})
+
+
+@app.route('/api/admin/device-blacklist/batch', methods=['POST'])
+@admin_required
+def batch_blacklist():
+    """批量黑名单操作：删除"""
+    data = request.get_json()
+    ids = data.get('ids', [])
+    action = data.get('action', '')
+    
+    if not ids:
+        return jsonify({'success': False, 'error': '未选择任何规则'}), 400
+    
+    success_count = 0
+    fail_count = 0
+    
+    for bid in ids:
+        try:
+            rule = db.session.get(DeviceBlacklist, bid)
+            if not rule:
+                fail_count += 1
+                continue
+            
+            if action == 'delete':
+                db.session.delete(rule)
+                success_count += 1
+            else:
+                fail_count += 1
+        except Exception as e:
+            app.logger.error(f'批量黑名单操作失败: ID={bid}, error={e}')
+            fail_count += 1
+    
+    db.session.commit()
+    app.logger.info(f'管理员批量{action}黑名单: 成功={success_count}, 失败={fail_count}')
+    return jsonify({'success': True, 'message': f'已处理 {success_count} 条规则', 'success_count': success_count})
+
+
 # ==================== 统计图表 API ====================
 @app.route('/admin/stats/daily')
 @admin_required
@@ -16455,6 +16729,18 @@ def admin_get_users():
         elif role == 'user':
             all_filtered_users = [u for u in all_filtered_users if not u.is_admin]
         
+        # 根据用户状态筛选
+        now = datetime.now()  # 使用不带时区的时间，与数据库一致
+        status_filter = request.args.get('status', '').strip()
+        if status_filter == 'whitelist':
+            all_filtered_users = [u for u in all_filtered_users if u.lv == 'a']
+        elif status_filter == 'subscribed':
+            all_filtered_users = [u for u in all_filtered_users if u.lv != 'a' and u.ex and u.ex > now]
+        elif status_filter == 'normal':
+            all_filtered_users = [u for u in all_filtered_users if u.lv != 'a' and u.lv != 'c' and (not u.ex or u.ex <= now)]
+        elif status_filter == 'banned':
+            all_filtered_users = [u for u in all_filtered_users if u.lv == 'c']
+        
         # 手动分页
         total_filtered = len(all_filtered_users)
         total_pages = (total_filtered + per_page - 1) // per_page
@@ -16464,7 +16750,6 @@ def admin_get_users():
         
         # 用户数据
         user_list = []
-        now = datetime.now()  # 使用不带时区的时间，与数据库一致
         for user in paginated_users:
             # 获取该用户的求片数
             request_count = MovieRequest.query.filter_by(user_tg=user.tg).count()
