@@ -9857,7 +9857,8 @@ def telegram_webhook():
             existing_user = User.query.filter_by(telegram_id=target_user_id).first()
         
         # 构建用户信息显示 - 按照新格式
-        display_name = target_username or target_first_name or str(target_user_id)
+        from html import escape as html_escape
+        display_name = html_escape(target_username or target_first_name or str(target_user_id))
         
         # TG名称带链接
         if target_user_id:
@@ -9886,7 +9887,7 @@ def telegram_webhook():
                 expire_time = "已过期"
             
             # 账号名称（Emby 账号）
-            account_name = existing_user.name if existing_user.name else "无账户信息"
+            account_name = html_escape(existing_user.name) if existing_user.name else "无账户信息"
             
             user_info = f"""· 🍉 TG&名称 | {tg_name_link}
 · 🍒 识别のID | {target_user_id}
@@ -10508,12 +10509,13 @@ def handle_kk_gift(callback_id, chat_id, message_id, target_user_id, target_user
     bot_username = get_bot_username()
     
     # 构建赠送消息
+    from html import escape as html_escape
     # 目标用户显示：显示名称，使用 tg://user?id 链接（不会产生预览）
-    target_display_name = target_first_name or target_username or str(target_user_id)
+    target_display_name = html_escape(target_first_name or target_username or str(target_user_id))
     target_display = f'<a href="tg://user?id={target_user_id}">{target_display_name}</a>'
     
     # 管理员显示：显示名称，使用 tg://user?id 链接（不会产生预览）
-    operator_display_name = operator_first_name or operator_username or str(operator_id)
+    operator_display_name = html_escape(operator_first_name or operator_username or str(operator_id))
     operator_link = f'<a href="tg://user?id={operator_id}">{operator_display_name}</a>'
     
     gift_message = f"""🌟 好的，管理员 {operator_link}
@@ -10549,7 +10551,9 @@ def handle_kk_kick(callback_id, chat_id, message_id, target_user_id, target_user
         answer_callback_query(callback_id, "❌ 无法识别目标用户（需要用户 ID）", show_alert=True)
         return jsonify({'ok': True})
     
-    display_name = f"@{target_username}" if target_username else str(target_user_id)
+    from html import escape as html_escape
+    display_name = f"@{html_escape(target_username)}" if target_username else str(target_user_id)
+    safe_operator_name = html_escape(str(operator_name)) if operator_name else '未知'
     
     # 1. 在数据库中封禁用户
     existing_user = User.query.filter_by(telegram_id=target_user_id).first()
@@ -10576,7 +10580,7 @@ def handle_kk_kick(callback_id, chat_id, message_id, target_user_id, target_user
 
 用户: {display_name}
 TG ID: <code>{target_user_id}</code>
-操作者: {operator_name}
+操作者: {safe_operator_name}
 
 状态:
 • 群组踢出: {'✅ 成功' if kick_result else '❌ 失败（可能已不在群中或权限不足）'}
