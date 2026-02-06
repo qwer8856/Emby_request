@@ -309,13 +309,28 @@
         
         /* 响应式设计 */
         @media (max-width: 768px) {
+            body {
+                padding: 0;
+                align-items: flex-start;
+            }
+            
             .register-wrapper {
                 flex-direction: column;
-                max-width: 420px;
+                max-width: 100%;
+                border-radius: 0;
+                border: none;
+                box-shadow: none;
+                min-height: 100vh;
             }
             
             .register-banner {
-                padding: 40px 30px;
+                padding: 32px 24px;
+            }
+            
+            .banner-logo {
+                width: 72px;
+                height: 72px;
+                margin-bottom: 16px;
             }
             
             .banner-features {
@@ -323,19 +338,122 @@
             }
             
             .banner-title {
-                font-size: 24px;
+                font-size: 22px;
             }
             
             .banner-desc {
-                font-size: 14px;
+                font-size: 13px;
             }
             
             .register-form-section {
-                padding: 30px 24px;
+                padding: 24px 20px 40px;
             }
             
             .form-header h1 {
-                font-size: 24px;
+                font-size: 22px;
+            }
+            
+            .form-header p {
+                font-size: 13px;
+            }
+            
+            .form-group input {
+                padding: 12px 12px 12px 40px;
+                font-size: 16px;
+                border-radius: 10px;
+            }
+            
+            .form-group label {
+                font-size: 13px;
+            }
+            
+            .register-btn {
+                padding: 14px;
+                font-size: 15px;
+                border-radius: 10px;
+                min-height: 48px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .register-banner {
+                padding: 24px 16px;
+            }
+            
+            .banner-logo {
+                width: 56px;
+                height: 56px;
+                border-radius: 14px;
+                margin-bottom: 12px;
+            }
+            
+            .banner-title {
+                font-size: 20px;
+            }
+            
+            .register-form-section {
+                padding: 20px 16px calc(32px + env(safe-area-inset-bottom));
+            }
+            
+            .form-header {
+                margin-bottom: 24px;
+            }
+            
+            .form-header h1 {
+                font-size: 20px;
+            }
+            
+            .form-group {
+                margin-bottom: 16px;
+            }
+            
+            .form-group input {
+                padding: 11px 11px 11px 38px;
+                border-width: 1.5px;
+            }
+            
+            .input-wrapper .input-icon {
+                font-size: 16px;
+                left: 12px;
+            }
+            
+            .invite-badge {
+                padding: 10px 14px;
+                font-size: 12px;
+            }
+            
+            .message {
+                padding: 10px 14px;
+                font-size: 13px;
+            }
+        }
+        
+        /* 触摸设备优化 */
+        @media (hover: none) and (pointer: coarse) {
+            .register-btn:hover {
+                transform: none;
+                box-shadow: none;
+            }
+            
+            .register-btn:active {
+                transform: scale(0.97);
+                transition: transform 0.1s;
+            }
+            
+            /* 防止 iOS 缩放 */
+            .form-group input {
+                font-size: 16px !important;
+            }
+            
+            /* 最小触摸面积 */
+            .register-btn,
+            .login-link a {
+                min-height: 44px;
+            }
+            
+            /* 消除点击延迟 */
+            a, button, input {
+                touch-action: manipulation;
             }
         }
     </style>

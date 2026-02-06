@@ -245,6 +245,114 @@
             font-size: 16px;
             cursor: pointer;
             margin-top: 16px;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        /* 移动端适配 */
+        @media (max-width: 768px) {
+            body {
+                padding: 16px;
+            }
+            
+            .setup-container {
+                padding: 28px 20px;
+                border-radius: 18px;
+            }
+            
+            .setup-header .icon {
+                font-size: 40px;
+                margin-bottom: 12px;
+            }
+            
+            .setup-header h1 {
+                font-size: 20px;
+            }
+            
+            .setup-header p {
+                font-size: 13px;
+            }
+            
+            .warning-box {
+                padding: 14px;
+                margin-bottom: 20px;
+            }
+            
+            .warning-box h3 {
+                font-size: 13px;
+            }
+            
+            .warning-box p {
+                font-size: 12px;
+            }
+            
+            .form-group input {
+                padding: 13px 14px;
+                font-size: 16px; /* 防止iOS缩放 */
+            }
+            
+            .btn-submit {
+                padding: 14px;
+                font-size: 15px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            body {
+                padding: 12px;
+                align-items: flex-end;
+            }
+            
+            .setup-container {
+                padding: 24px 18px;
+                border-radius: 18px 18px 0 0;
+                margin-bottom: 0;
+                max-width: 100%;
+                box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.2);
+            }
+            
+            .setup-header .icon {
+                font-size: 36px;
+            }
+            
+            .setup-header h1 {
+                font-size: 19px;
+            }
+            
+            .form-group {
+                margin-bottom: 16px;
+            }
+            
+            .form-group label {
+                font-size: 13px;
+            }
+            
+            .modal-content {
+                padding: 28px 20px;
+                border-radius: 16px;
+                margin: 16px;
+            }
+            
+            .modal-content .icon {
+                font-size: 48px;
+            }
+            
+            .modal-content h2 {
+                font-size: 18px;
+            }
+            
+            .modal-content .new-path {
+                font-size: 12px;
+                padding: 10px 12px;
+            }
+        }
+        
+        /* iOS安全区域 */
+        @supports (padding-bottom: env(safe-area-inset-bottom)) {
+            @media (max-width: 480px) {
+                .setup-container {
+                    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+                }
+            }
         }
     </style>
 </head>

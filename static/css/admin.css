@@ -769,19 +769,6 @@ body.page-admin {
     box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
 
-@media (max-width: 900px) {
-    .ticket-detail-modal {
-        max-width: 95%;
-    }
-
-    .ticket-detail-layout {
-        grid-template-columns: 1fr;
-    }
-
-    .ticket-chat-section .ticket-messages-list {
-        max-height: 200px;
-    }
-}
 
 .modal-header {
     display: flex;
@@ -1261,183 +1248,7 @@ body.page-admin {
 }
 
 /* 响应式设计 */
-@media (max-width: 1024px) {
-    .admin-sidebar {
-        transform: translateX(-100%);
-    }
 
-    .admin-sidebar.open {
-        transform: translateX(0);
-    }
-
-    .admin-main {
-        margin-left: 0;
-    }
-
-    .sidebar-toggle {
-        display: block;
-    }
-
-    .invite-charts {
-        grid-template-columns: 1fr;
-    }
-}
-
-@media (max-width: 768px) {
-
-    /* 移动端顶部栏样式 */
-    .admin-topbar {
-        padding: 12px 16px;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 60px;
-        box-sizing: border-box;
-    }
-
-    .admin-topbar .page-title {
-        font-size: 16px;
-        flex: 1;
-        text-align: center;
-    }
-
-    .admin-topbar .topbar-actions {
-        display: none;
-    }
-
-    .sidebar-toggle {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 40px;
-        height: 40px;
-        font-size: 22px;
-    }
-
-    /* 侧边栏移动端 */
-    .admin-sidebar {
-        transform: translateX(-100%);
-        transition: transform 0.3s ease;
-        box-shadow: none;
-    }
-
-    .admin-sidebar.open {
-        transform: translateX(0);
-        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
-    }
-
-    /* 主内容区 */
-    .admin-main {
-        margin-left: 0;
-    }
-
-    .admin-content {
-        padding: 76px 16px 16px 16px;
-    }
-
-    /* 统计卡片网格 - 移动端一行两个 */
-    .admin-stats-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-    }
-
-    .admin-stats-grid .stat-card {
-        padding: 16px;
-        flex-direction: column;
-        text-align: center;
-        gap: 10px;
-    }
-
-    .admin-stats-grid .stat-icon {
-        width: 44px;
-        height: 44px;
-        font-size: 22px;
-    }
-
-    .admin-stats-grid .stat-content h3 {
-        font-size: 22px;
-    }
-
-    .admin-stats-grid .stat-content p {
-        font-size: 12px;
-    }
-
-    /* 快捷操作区 - 移动端一行两个 */
-    .quick-actions {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-    }
-
-    .action-item {
-        padding: 16px;
-        flex-direction: column;
-        text-align: center;
-        gap: 10px;
-    }
-
-    .action-icon {
-        width: 44px;
-        height: 44px;
-        font-size: 20px;
-    }
-
-    .action-info h4 {
-        font-size: 18px;
-    }
-
-    .action-info p {
-        font-size: 12px;
-    }
-
-    /* 表格响应式 */
-    .admin-table {
-        display: block;
-        overflow-x: auto;
-    }
-
-    .ticket-info-grid,
-    .user-info-grid {
-        grid-template-columns: 1fr;
-    }
-
-    /* 搜索和筛选区域 */
-    .search-filter-bar {
-        flex-direction: column;
-        gap: 12px;
-    }
-
-    .search-box {
-        width: 100%;
-    }
-
-    .filter-group {
-        width: 100%;
-        flex-wrap: wrap;
-    }
-
-    /* 按钮响应式 */
-    .btn-primary,
-    .btn-secondary {
-        padding: 10px 16px;
-        font-size: 13px;
-    }
-
-    /* 卡片头部响应式 */
-    .card-header {
-        flex-direction: column;
-        gap: 12px;
-        align-items: flex-start;
-    }
-
-    .card-header .actions {
-        width: 100%;
-    }
-
-    .card-header .actions button {
-        flex: 1;
-    }
-}
 
 /* ==================== 原有样式保留 ==================== */
 
@@ -1663,25 +1474,6 @@ body.page-admin {
     margin-bottom: 30px;
 }
 
-@media (max-width: 1200px) {
-    .stats {
-        grid-template-columns: repeat(4, 1fr);
-    }
-}
-
-@media (max-width: 768px) {
-    .stats {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 6px;
-    }
-}
-
-@media (max-width: 480px) {
-    .stats {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 4px;
-    }
-}
 
 .stat-card {
     background: #ffffff;
@@ -3255,442 +3047,9 @@ body.page-admin {
 }
 
 /* ==================== 移动端响应式设计 - 深色主题 ==================== */
-@media (max-width: 768px) {
 
-    /* 图表区域 */
-    .chart-section {
-        grid-template-columns: 1fr;
-        gap: 15px;
-    }
-
-    .chart-container {
-        padding: 15px;
-    }
-
-    .chart-container h3 {
-        font-size: 14px;
-    }
-
-    /* 批量操作 */
-    .section-header {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .batch-actions {
-        width: 100%;
-        justify-content: flex-start;
-    }
-
-    .batch-btn {
-        padding: 6px 12px;
-        font-size: 12px;
-    }
-
-    /* 选择框 */
-    .request-table td:first-child {
-        display: none;
-    }
-
-    .request-table th:first-child {
-        display: none;
-    }
-
-    /* 导航栏 */
-    .navbar {
-        padding: 10px 16px;
-        margin: 10px auto;
-        width: calc(100% - 20px);
-        border-radius: 16px;
-        flex-direction: row;
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-
-    .navbar .logo {
-        font-size: 14px;
-        flex: 1 1 100%;
-        justify-content: center;
-    }
-
-    .navbar .logo-icon {
-        width: 28px;
-        height: 28px;
-        border-radius: 8px;
-        font-size: 16px;
-    }
-
-    .navbar h1 {
-        font-size: 16px;
-        flex: 1 1 100%;
-        text-align: center;
-    }
-
-    .navbar .nav-links {
-        flex: 1 1 100%;
-        justify-content: center;
-        gap: 8px;
-    }
-
-    .navbar a {
-        padding: 6px 12px;
-        font-size: 12px;
-        border-radius: 8px;
-    }
-
-    /* 容器 */
-    .container {
-        padding: 10px;
-        margin: 10px auto;
-    }
-
-    /* 统计卡片 */
-    .stats {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 8px;
-        margin-bottom: 12px;
-        max-width: 100%;
-    }
-
-    .stat-card {
-        flex: 0 0 calc(33.333% - 6px);
-        max-width: calc(33.333% - 6px);
-    }
-
-    .stat-card:nth-child(n+4) {
-        flex: 0 0 calc(50% - 4px);
-        max-width: calc(50% - 4px);
-    }
-
-    .stats .stat-card {
-        padding: 10px 6px;
-        border-radius: 12px;
-    }
-
-    .stat-card h3 {
-        font-size: 20px;
-        margin-bottom: 4px;
-    }
-
-    .stat-card p {
-        font-size: 10px;
-    }
-
-    /* 求片管理区域 */
-    .requests-section {
-        padding: 12px;
-        border-radius: 16px;
-    }
-
-    .requests-section h2 {
-        font-size: 16px;
-        margin-bottom: 12px;
-    }
-
-    /* 筛选标签 */
-    .filter-tabs {
-        gap: 6px;
-        padding-bottom: 0;
-        border-bottom: none;
-        margin-bottom: 12px;
-        overflow-x: auto;
-    }
-
-    .filter-tabs button {
-        padding: 8px 14px;
-        font-size: 12px;
-        border: 1px solid #e2e8f0;
-        border-radius: 999px;
-        flex: 0 0 auto;
-        white-space: nowrap;
-        background: #ffffff;
-        color: #64748b;
-    }
-
-    .filter-tabs button.active {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border-color: transparent;
-    }
-
-    /* 表格改为卡片布局 - 白色主题 */
-    .request-table {
-        display: block;
-    }
-
-    .request-table thead {
-        display: none;
-    }
-
-    .request-table tbody {
-        display: block;
-    }
-
-    .request-table tr {
-        display: block;
-        margin-bottom: 12px;
-        border: none;
-        border-radius: 16px;
-        background: #ffffff;
-        padding: 0;
-        border: 1px solid #e2e8f0;
-        overflow: hidden;
-    }
-
-    .request-table td {
-        display: block;
-        padding: 10px 14px;
-        border: none;
-        text-align: left;
-        border-bottom: 1px solid #f1f5f9;
-    }
-
-    .request-table td:last-child {
-        border-bottom: none;
-    }
-
-    .request-table td::before {
-        content: attr(data-label);
-        font-weight: 600;
-        color: #64748b;
-        display: inline-block;
-        margin-right: 8px;
-        font-size: 11px;
-        min-width: 60px;
-    }
-
-    .request-table td[data-label="影片信息"]::before,
-    .request-table td[data-label="操作"]::before {
-        display: none;
-    }
-
-    /* 电影信息 */
-    .movie-info {
-        flex-direction: row;
-        gap: 10px;
-        align-items: flex-start;
-    }
-
-    .movie-info img {
-        width: 50px;
-        height: 75px;
-        flex-shrink: 0;
-    }
-
-    .movie-info .details {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .movie-info .details h4 {
-        font-size: 13px;
-        line-height: 1.3;
-    }
-
-    .movie-info .details p {
-        font-size: 11px;
-        line-height: 1.4;
-    }
-
-    /* 操作按钮 */
-    .action-buttons {
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 8px;
-    }
-
-    .action-buttons button {
-        flex: 1;
-        min-width: calc(50% - 3px);
-        padding: 9px;
-        font-size: 12px;
-    }
-
-    /* 状态标签 */
-    .status-badge {
-        font-size: 11px;
-        padding: 4px 10px;
-    }
-
-    /* 模态框 */
-    .modal-content {
-        width: 90%;
-        max-width: 320px;
-        padding: 18px;
-        border-radius: 12px;
-    }
-
-    .modal-content h3 {
-        font-size: 16px;
-        margin-bottom: 12px;
-    }
-
-    .modal-content textarea {
-        font-size: 13px;
-        padding: 10px;
-        min-height: 80px;
-    }
-
-    .modal-buttons {
-        flex-direction: row;
-        gap: 8px;
-    }
-
-    .modal-buttons button {
-        flex: 1;
-        padding: 10px;
-        font-size: 13px;
-    }
-}
-
-@media (max-width: 600px) {
-    .stats {
-        grid-template-columns: repeat(3, 1fr);
-    }
-
-    .stat-card {
-        padding: 10px 6px;
-    }
-
-    .stat-card h3 {
-        font-size: 22px;
-    }
-
-    .stat-card p {
-        font-size: 10px;
-    }
-
-    .filter-tabs button {
-        padding: 7px 12px;
-        font-size: 11px;
-    }
-
-    .request-table tr {
-        padding: 10px;
-    }
-
-    .movie-info img {
-        width: 45px;
-        height: 68px;
-    }
-
-    .action-buttons button {
-        min-width: 100%;
-        font-size: 11px;
-    }
-}
 
 /* 小屏幕手机优化 */
-@media (max-width: 480px) {
-    .navbar {
-        padding: 8px 12px;
-        border-radius: 14px;
-    }
-
-    .navbar .logo {
-        font-size: 12px;
-    }
-
-    .navbar .logo-icon {
-        width: 24px;
-        height: 24px;
-    }
-
-    .navbar h1 {
-        font-size: 14px;
-    }
-
-    .navbar a {
-        padding: 5px 10px;
-        font-size: 11px;
-    }
-
-    .container {
-        padding: 8px;
-    }
-
-    .stats {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 6px;
-    }
-
-    .stat-card {
-        padding: 10px 6px;
-    }
-
-    .stat-card h3 {
-        font-size: 20px;
-    }
-
-    .stat-card p {
-        font-size: 10px;
-    }
-
-    .requests-section {
-        padding: 10px;
-    }
-
-    .requests-section h2 {
-        font-size: 15px;
-        margin-bottom: 10px;
-    }
-
-    .filter-tabs {
-        gap: 5px;
-    }
-
-    .filter-tabs button {
-        padding: 7px 10px;
-        font-size: 11px;
-    }
-
-    .request-table tr {
-        padding: 10px;
-        margin-bottom: 8px;
-    }
-
-    .movie-info img {
-        width: 42px;
-        height: 63px;
-    }
-
-    .movie-info .details h4 {
-        font-size: 12px;
-    }
-
-    .movie-info .details p {
-        font-size: 10px;
-    }
-
-    .action-buttons button {
-        padding: 8px;
-        font-size: 11px;
-    }
-
-    .modal-content {
-        width: 92%;
-    }
-
-    /* 分页 */
-    .pagination {
-        gap: 5px;
-        padding: 15px 0;
-        flex-wrap: wrap;
-    }
-
-    .page-btn {
-        padding: 6px 10px;
-        font-size: 12px;
-        min-width: 32px;
-    }
-
-    .page-ellipsis {
-        padding: 6px 2px;
-        font-size: 12px;
-    }
-}
 
 /* ==================== 系统设置页面样式 - 白色主题 ==================== */
 
@@ -3913,26 +3272,6 @@ body.page-admin {
 }
 
 /* 设置页面响应式 */
-@media (max-width: 768px) {
-    .settings-card-header {
-        flex-direction: column;
-        gap: 12px;
-        align-items: flex-start;
-    }
-
-    .settings-actions {
-        flex-direction: column;
-    }
-
-    .settings-actions button {
-        width: 100%;
-        justify-content: center;
-    }
-
-    .system-info-grid {
-        grid-template-columns: 1fr;
-    }
-}
 
 /* ==================== 套餐配置样式 ==================== */
 .plans-config-list {
@@ -4191,35 +3530,6 @@ body.page-admin {
     background: #5a67d8;
 }
 
-@media (max-width: 768px) {
-    .plan-config-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .plan-config-field.full-width {
-        grid-column: span 1;
-    }
-
-    .plans-config-list {
-        gap: 12px;
-    }
-
-    .plan-config-item {
-        padding: 16px;
-    }
-
-    .plan-config-item.collapsible-card .plan-config-header {
-        padding: 14px 16px;
-    }
-
-    .benefits-config-list {
-        grid-template-columns: 1fr;
-    }
-
-    .default-benefits-section .benefits-config-list {
-        grid-template-columns: 1fr;
-    }
-}
 
 /* 订阅权益配置卡片 */
 .benefits-config-card {
@@ -4250,11 +3560,6 @@ body.page-admin {
     margin-bottom: 20px;
 }
 
-@media (max-width: 900px) {
-    .benefits-config-list {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
 
 .benefit-config-item {
     display: flex;
@@ -4417,13 +3722,6 @@ body.page-admin {
     grid-template-columns: repeat(2, 1fr);
 }
 
-@media (max-width: 768px) {
-
-    .plan-benefits-section .benefits-config-list,
-    .default-benefits-section .benefits-config-list {
-        grid-template-columns: 1fr;
-    }
-}
 
 /* 套餐配置页面容器 */
 .plans-config-container {
@@ -4600,17 +3898,6 @@ body.page-admin {
     background: #cbd5e1;
 }
 
-@media (max-width: 992px) {
-    .plan-prices-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
-@media (max-width: 576px) {
-    .plan-prices-grid {
-        grid-template-columns: 1fr;
-    }
-}
 
 /* ==================== 兑换码管理样式 ==================== */
 .redeem-codes-header {
@@ -5737,11 +5024,6 @@ body.page-admin {
 }
 
 /* 响应式 */
-@media (max-width: 768px) {
-    .lines-grid {
-        grid-template-columns: 1fr;
-    }
-}
 
 /* ==================== 管理员播放监控样式 ==================== */
 
@@ -6477,48 +5759,6 @@ select.custom-select:focus,
 }
 
 /* 响应式 */
-@media (max-width: 768px) {
-    .playback-stats-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
-    .user-playback-item {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 12px;
-    }
-
-    .user-playback-stats {
-        width: 100%;
-        justify-content: space-around;
-    }
-
-    .user-playback-modal .modal-content {
-        margin: 10px;
-        max-height: calc(100vh - 20px);
-    }
-
-    .admin-devices-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .playback-tabs {
-        flex-wrap: wrap;
-    }
-
-    .playback-tabs .tab-btn {
-        flex: 1;
-        text-align: center;
-    }
-
-    .playback-admin-stats {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
-    .admin-sessions-grid {
-        grid-template-columns: 1fr;
-    }
-}
 
 /* ==================== 实时会话卡片样式 ==================== */
 .admin-sessions-grid {
@@ -7117,58 +6357,6 @@ select.custom-select:focus,
 }
 
 /* ==================== 折叠卡片内容响应式 ==================== */
-@media (max-width: 768px) {
-    .lines-stats-mini {
-        gap: 12px;
-        padding: 10px 12px;
-    }
-
-    .stat-mini-value {
-        font-size: 16px;
-    }
-
-    .stat-mini-label {
-        font-size: 11px;
-    }
-
-    .line-item-compact {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 10px;
-    }
-
-    .line-item-info {
-        width: 100%;
-    }
-
-    .line-item-badges {
-        margin-left: 0;
-    }
-
-    .line-item-actions {
-        width: 100%;
-        justify-content: flex-start;
-    }
-
-    .announcement-item-compact {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 10px;
-    }
-
-    .announcement-item-info {
-        width: 100%;
-    }
-
-    .announcement-item-badges {
-        margin-left: 0;
-    }
-
-    .announcement-item-actions {
-        width: 100%;
-        justify-content: flex-start;
-    }
-}
 
 /* ==================== 订单详情弹窗样式 ==================== */
 .order-detail-modal {
@@ -7293,25 +6481,6 @@ select.custom-select:focus,
     text-align: center;
 }
 
-@media (max-width: 480px) {
-    .detail-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .detail-item.full-width {
-        grid-column: span 1;
-    }
-
-    .order-detail-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 12px;
-    }
-
-    .order-detail-actions {
-        flex-direction: column;
-    }
-}
 
 /* ==================== 操作日志新样式 ==================== */
 .activity-logs-filters {
@@ -7494,33 +6663,6 @@ select.custom-select:focus,
 }
 
 /* 移动端适配 */
-@media (max-width: 768px) {
-    .activity-logs-filters {
-        flex-direction: column;
-    }
-
-    .activity-logs-filters .filter-group {
-        max-width: none;
-        width: 100%;
-    }
-
-    .activity-logs-filters .btn-refresh {
-        width: 100%;
-    }
-
-    .log-main {
-        flex-wrap: wrap;
-    }
-
-    .log-meta {
-        width: 100%;
-        flex-direction: row;
-        justify-content: space-between;
-        margin-top: 10px;
-        padding-top: 10px;
-        border-top: 1px dashed #e2e8f0;
-    }
-}
 
 /* ==================== 二级分类策略配置样式 ==================== */
 .category-section {
@@ -7677,1034 +6819,1262 @@ select.custom-select:focus,
     display: block;
 }
 
-/* 平板和小屏幕 */
+/* ==================== 平板适配 (769px - 1024px) ==================== */
 @media (max-width: 1024px) {
     .admin-sidebar {
         transform: translateX(-100%);
-        width: 280px;
     }
-
-    .admin-sidebar.open {
+    
+    .admin-sidebar.show {
         transform: translateX(0);
     }
-
+    
     .admin-main {
         margin-left: 0;
     }
-
+    
     .sidebar-toggle {
         display: block;
     }
-
-    .admin-content {
-        padding: 20px;
+    
+    .sidebar-overlay.show {
+        display: block;
+        opacity: 1;
     }
-
-    .admin-stats-grid {
-        grid-template-columns: repeat(2, 1fr);
+    
+    .mobile-header {
+        display: flex;
+    }
+    
+    .admin-topbar {
+        display: none;
+    }
+    
+    .admin-main {
+        padding-top: 60px;
+    }
+    
+    .admin-content {
+        padding: 16px;
+    }
+    
+    .stats {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+    }
+    
+    .quick-actions {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+    }
+    
+    .chart-section {
+        grid-template-columns: 1fr;
+    }
+    
+    .invite-charts {
+        grid-template-columns: 1fr;
+    }
+    
+    .ticket-detail-layout {
+        grid-template-columns: 1fr;
+    }
+    
+    .ticket-detail-right {
+        min-width: unset;
+    }
+    
+    .modal-content.ticket-detail-modal {
+        width: 98% !important;
+        padding: 16px;
     }
 }
 
-/* 手机端样式 */
+/* ==================== 手机端样式 (max-width: 768px) ==================== */
 @media (max-width: 768px) {
-
-    /* 顶部栏 */
-    .admin-topbar {
-        padding: 12px 16px;
-        gap: 12px;
+    /* --- 布局基础 --- */
+    .admin-layout {
+        flex-direction: column;
     }
-
-    .page-title {
+    
+    .admin-sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 280px;
+        height: 100vh;
+        transform: translateX(-100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 1001;
+    }
+    
+    .admin-sidebar.show {
+        transform: translateX(0);
+    }
+    
+    .sidebar-overlay.show {
+        display: block;
+        opacity: 1;
+    }
+    
+    .admin-main {
+        margin-left: 0;
+        padding-top: 60px;
+        width: 100%;
+    }
+    
+    /* --- 移动端顶部栏 --- */
+    .mobile-header {
+        display: flex;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 56px;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-bottom: 1px solid #e2e8f0;
+        z-index: 998;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 16px;
+    }
+    
+    .mobile-menu-toggle {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 5px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 8px;
+        border-radius: 10px;
+        transition: background 0.2s;
+    }
+    
+    .mobile-menu-toggle:active {
+        background: #f1f5f9;
+    }
+    
+    .mobile-menu-toggle span {
+        display: block;
+        width: 20px;
+        height: 2px;
+        background: #1e293b;
+        border-radius: 2px;
+        transition: all 0.3s;
+    }
+    
+    .mobile-logo {
+        display: flex;
+        align-items: center;
+        gap: 8px;
         font-size: 16px;
+        font-weight: 600;
+        color: #1e293b;
     }
-
-    .topbar-actions {
+    
+    .mobile-logo img {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        object-fit: cover;
+    }
+    
+    .mobile-user-avatar {
+        width: 34px;
+        height: 34px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
+    }
+    
+    /* --- 隐藏桌面端顶部栏 --- */
+    .admin-topbar {
+        display: none;
+    }
+    
+    /* --- 内容区域 --- */
+    .admin-content {
+        padding: 12px;
+    }
+    
+    /* --- 快捷操作区 --- */
+    .quick-actions {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+    
+    .action-item {
+        padding: 14px 12px;
+        border-radius: 12px;
         gap: 10px;
     }
-
-    .admin-user {
-        font-size: 13px;
+    
+    .action-item::before {
+        height: 3px;
     }
-
-    /* 内容区 */
-    .admin-content {
-        padding: 16px;
-    }
-
-    /* 统计卡片 */
-    .stats {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
-    }
-
-    .stat-card {
-        padding: 10px 8px;
-        min-height: 70px;
+    
+    .action-icon {
+        font-size: 22px;
+        width: 42px;
+        height: 42px;
         border-radius: 10px;
-        text-align: center;
     }
-
+    
+    .action-info h4 {
+        font-size: 20px;
+    }
+    
+    .action-info p {
+        font-size: 12px;
+    }
+    
+    .action-item:hover {
+        transform: none;
+    }
+    
+    /* --- 统计卡片 --- */
+    .stats {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+    
+    .stat-card {
+        padding: 14px 10px;
+        border-radius: 12px;
+        min-height: 90px;
+    }
+    
     .stat-icon {
-        font-size: 18px;
-        margin-bottom: 2px;
+        font-size: 22px;
+        margin-bottom: 4px;
     }
-
-    .stat-value {
-        font-size: 16px;
+    
+    .stat-content h3 {
+        font-size: 22px;
+        margin: 4px 0 2px 0;
     }
-
-    .stat-label {
-        font-size: 10px;
+    
+    .stat-content p {
+        font-size: 11px;
     }
-
+    
     .stat-card::after {
         display: none;
     }
-
-    /* 管理统计网格 */
-    .admin-stats-grid {
+    
+    .stat-card:hover {
+        transform: none;
+    }
+    
+    /* --- 统计图表 --- */
+    .chart-section {
         grid-template-columns: 1fr;
         gap: 12px;
+        margin-bottom: 16px;
     }
-
-    /* 卡片通用样式 */
-    .admin-card,
-    .card {
+    
+    .chart-container {
+        padding: 14px;
         border-radius: 12px;
-        padding: 16px;
     }
-
-    .card-header {
-        padding: 12px 16px;
-        flex-wrap: wrap;
-        gap: 10px;
+    
+    .chart-container h3 {
+        font-size: 14px;
+        margin-bottom: 10px;
     }
-
-    .card-header h3 {
+    
+    .chart-container canvas {
+        max-height: 200px;
+    }
+    
+    /* --- 章节头部 --- */
+    .section-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        padding: 14px;
+        border-radius: 12px;
+        margin-bottom: 12px;
+    }
+    
+    .section-header h2 {
+        font-size: 17px;
+    }
+    
+    .section-header h3 {
         font-size: 15px;
     }
-
-    .card-body {
+    
+    .header-actions {
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+    }
+    
+    .header-actions .search-box {
+        width: 100%;
+    }
+    
+    .header-actions .search-box input {
+        width: 100%;
+    }
+    
+    .header-actions select {
+        width: 100%;
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-size: 14px;
+        border: 1px solid #e2e8f0;
+        background: #fff;
+    }
+    
+    .header-actions .btn,
+    .header-actions .btn-primary,
+    .header-actions .btn-secondary,
+    .header-actions .btn-danger,
+    .header-actions .export-btn {
+        width: 100%;
+        justify-content: center;
+        text-align: center;
         padding: 12px 16px;
     }
-
-    /* 表格响应式 */
-    .admin-table {
-        display: block;
-        overflow-x: auto;
+    
+    /* --- 搜索框 --- */
+    .search-box input {
+        width: 100%;
+        font-size: 14px;
+        padding: 12px 14px;
+        border-radius: 10px;
+    }
+    
+    /* --- 筛选标签 --- */
+    .filter-tabs {
+        gap: 6px;
+        margin-bottom: 14px;
+        padding-bottom: 12px;
         -webkit-overflow-scrolling: touch;
     }
-
-    .admin-table th,
-    .admin-table td {
-        padding: 10px 12px;
+    
+    .filter-tabs button {
+        padding: 8px 14px;
         font-size: 13px;
-        white-space: nowrap;
+        border-radius: 8px;
+        flex-shrink: 0;
     }
-
-    /* 表单输入框 */
-    .form-control,
-    .form-input,
-    input[type="text"],
-    input[type="password"],
-    input[type="email"],
-    input[type="number"],
-    textarea,
-    select {
-        font-size: 16px !important;
-        /* 防止iOS缩放 */
-        padding: 10px 12px;
-    }
-
-    .form-group label {
-        font-size: 13px;
-        margin-bottom: 6px;
-    }
-
-    /* 按钮 */
-    .btn,
-    button {
-        padding: 10px 16px;
-        font-size: 14px;
-        min-height: 40px;
-    }
-
-    .btn-sm {
-        padding: 8px 12px;
-        font-size: 13px;
-        min-height: 36px;
-    }
-
-    .btn-group {
-        flex-wrap: wrap;
+    
+    /* --- 筛选栏 --- */
+    .filter-bar {
+        flex-direction: column;
         gap: 8px;
     }
-
-    /* 筛选器 */
-    .filters,
-    .filter-row {
+    
+    .filter-bar input,
+    .filter-bar select {
+        width: 100%;
+        padding: 10px 14px;
+        font-size: 14px;
+        border-radius: 8px;
+    }
+    
+    /* --- 求片管理区域 --- */
+    .requests-section {
+        padding: 14px;
+        border-radius: 12px;
+    }
+    
+    .requests-section h2 {
+        font-size: 17px;
+    }
+    
+    /* --- 表格卡片化 --- */
+    .request-table,
+    .admin-table {
+        border: none;
+    }
+    
+    .request-table thead,
+    .admin-table thead {
+        display: none;
+    }
+    
+    .request-table tbody,
+    .admin-table tbody {
+        display: flex;
         flex-direction: column;
         gap: 10px;
     }
-
-    .filters select,
-    .filters input {
-        width: 100%;
-    }
-
-    .filter-group {
-        width: 100%;
-    }
-
-    /* 弹窗 */
-    .modal-content,
-    .dialog {
-        width: 95%;
-        max-width: none;
-        margin: 10px;
-        max-height: 90vh;
-        border-radius: 16px;
-    }
-
-    .modal-header,
-    .dialog-header {
-        padding: 16px;
-    }
-
-    .modal-body,
-    .dialog-body {
-        padding: 16px;
-    }
-
-    .modal-footer,
-    .dialog-footer {
-        padding: 12px 16px;
-        flex-wrap: wrap;
+    
+    .request-table tr,
+    .admin-table tr {
+        display: flex;
+        flex-direction: column;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 14px;
+        position: relative;
         gap: 8px;
     }
-
-    .modal-footer .btn,
-    .dialog-footer .btn {
-        flex: 1;
-        min-width: 100px;
-    }
-
-    /* 操作按钮行 */
-    .action-buttons,
-    .actions {
+    
+    .request-table td,
+    .admin-table td {
         display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-    }
-
-    .action-buttons .btn,
-    .actions .btn {
-        padding: 6px 10px;
-        font-size: 12px;
-    }
-
-    /* 设置页面 */
-    .settings-section {
-        padding: 16px;
-    }
-
-    .settings-grid {
-        grid-template-columns: 1fr;
-        gap: 12px;
-    }
-
-    .config-card {
-        padding: 16px;
-    }
-
-    .config-card h4 {
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 0;
+        border-bottom: none;
         font-size: 14px;
     }
-
-    /* 选项卡 */
-    .tabs,
-    .nav-tabs {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        flex-wrap: nowrap;
-        gap: 0;
-    }
-
-    .tab-btn,
-    .nav-tab {
-        padding: 10px 16px;
-        font-size: 13px;
-        white-space: nowrap;
+    
+    .request-table td::before,
+    .admin-table td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: #64748b;
+        font-size: 12px;
         flex-shrink: 0;
+        min-width: 80px;
     }
-
-    /* 分页 */
+    
+    .request-table td[data-label="选择"],
+    .admin-table td[data-label="选择"] {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+    }
+    
+    .request-table td[data-label="选择"]::before,
+    .admin-table td[data-label="选择"]::before {
+        display: none;
+    }
+    
+    .request-table td[data-label="影片信息"]::before {
+        display: none;
+    }
+    
+    .request-table td[data-label="影片信息"] {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .request-table td[data-label="操作"],
+    .admin-table td[data-label="操作"] {
+        flex-direction: column;
+        align-items: stretch;
+        padding-top: 8px;
+        border-top: 1px solid #f1f5f9;
+        margin-top: 4px;
+    }
+    
+    .request-table td[data-label="操作"]::before,
+    .admin-table td[data-label="操作"]::before {
+        display: none;
+    }
+    
+    .action-buttons {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        width: 100%;
+    }
+    
+    .action-buttons button {
+        flex: 1;
+        min-width: calc(50% - 4px);
+        padding: 10px 12px;
+        font-size: 13px;
+        border-radius: 8px;
+        text-align: center;
+        justify-content: center;
+    }
+    
+    /* 隐藏移动端不需要的列 */
+    .hide-mobile {
+        display: none !important;
+    }
+    
+    /* --- 电影信息 --- */
+    .movie-info {
+        flex-direction: row;
+        gap: 12px;
+        width: 100%;
+    }
+    
+    .movie-info img {
+        width: 45px;
+        height: 67px;
+        border-radius: 6px;
+    }
+    
+    .movie-info .details h4 {
+        font-size: 15px;
+        margin-bottom: 3px;
+    }
+    
+    .movie-info .details p {
+        font-size: 11px;
+    }
+    
+    /* --- 分页 --- */
     .pagination {
         flex-wrap: wrap;
         justify-content: center;
         gap: 6px;
-    }
-
-    .pagination button,
-    .pagination a {
-        padding: 8px 12px;
-        font-size: 13px;
-        min-width: 36px;
-    }
-
-    /* 邀请统计 */
-    .invite-charts {
-        grid-template-columns: 1fr;
-    }
-
-    /* 用户信息网格 */
-    .user-info-grid,
-    .ticket-info-grid {
-        grid-template-columns: 1fr;
-        gap: 10px;
-    }
-
-    /* 工单详情 */
-    .ticket-messages {
-        max-height: 300px;
-    }
-
-    .message-content {
-        font-size: 13px;
-    }
-
-    /* 快捷操作 - 移动端一行两个 */
-    .quick-actions {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-    }
-
-    .action-item {
-        padding: 14px 12px;
-        flex-direction: column;
-        text-align: center;
-        gap: 8px;
-        border-radius: 12px;
-    }
-
-    .action-item::before {
-        height: 3px;
-    }
-
-    .action-icon {
-        font-size: 22px;
-        width: 44px;
-        height: 44px;
-        border-radius: 12px;
-    }
-
-    .action-info h4 {
-        font-size: 18px;
-        margin: 0;
-    }
-
-    .action-info p {
-        font-size: 11px;
-        line-height: 1.3;
-    }
-
-    /* 搜索框 */
-    .search-box,
-    .search-input-wrapper {
-        width: 100%;
-    }
-
-    .search-box input {
-        width: 100%;
-    }
-
-    /* 下拉菜单 */
-    .dropdown-menu {
-        min-width: 150px;
-        font-size: 13px;
-    }
-
-    /* 图表容器 */
-    .chart-container {
-        height: 250px !important;
-    }
-
-    /* 套餐卡片 */
-    .plan-cards {
-        grid-template-columns: 1fr;
-    }
-
-    /* 分类配置 */
-    .category-item {
-        padding: 12px;
-    }
-
-    .condition-row {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .condition-row label {
-        min-width: auto;
-    }
-
-    .condition-row input {
-        width: 100%;
-        min-width: auto;
-    }
-}
-
-/* 超小屏幕 (小于 480px) */
-@media (max-width: 480px) {
-
-    /* 侧边栏 - 保留一点右边距让用户能看到遮罩层 */
-    .admin-sidebar {
-        width: calc(100% - 50px);
-        max-width: 280px;
-    }
-
-    .sidebar-header {
-        padding: 16px;
-    }
-
-    .sidebar-header .logo-text {
-        font-size: 16px;
-    }
-
-    .sidebar-nav .nav-item {
-        padding: 12px 16px;
-    }
-
-    .nav-text {
-        font-size: 13px;
-    }
-
-    /* 统计卡片保持2列 */
-    .stats {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 8px;
-    }
-
-    .stat-card {
-        padding: 12px 10px;
-        min-height: 70px;
-    }
-
-    .stat-icon {
-        font-size: 18px;
-    }
-
-    .stat-value {
-        font-size: 16px;
-    }
-
-    .stat-label {
-        font-size: 10px;
-    }
-
-    /* 统计网格也保持2列 */
-    .admin-stats-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 10px;
-    }
-
-    .admin-stats-grid .stat-card {
-        padding: 14px;
-    }
-
-    .admin-stats-grid .stat-icon {
-        width: 40px;
-        height: 40px;
-        font-size: 20px;
-    }
-
-    .admin-stats-grid .stat-content h3 {
-        font-size: 20px;
-    }
-
-    /* 快捷操作保持2列 */
-    .quick-actions {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 6px;
-        margin-bottom: 12px;
-    }
-
-    .action-item {
-        padding: 10px 8px;
-        border-radius: 12px;
-    }
-
-    .action-icon {
-        width: 32px;
-        height: 32px;
-        font-size: 16px;
-    }
-
-    .action-info h4 {
-        font-size: 14px;
-    }
-
-    .action-info p {
-        font-size: 10px;
-    }
-
-    /* 顶部栏 */
-    .admin-topbar {
-        padding: 10px 12px;
-        height: 56px;
-    }
-
-    .page-title {
-        font-size: 14px;
-    }
-
-    .sidebar-toggle {
-        font-size: 20px;
-        padding: 6px;
-        width: 36px;
-        height: 36px;
-    }
-
-    /* 内容区 - 考虑顶部栏高度 */
-    .admin-content {
-        padding: 70px 8px 8px 8px;
+        margin-top: 16px;
     }
     
-    /* 减小section内边距 */
-    .admin-section {
-        padding: 0 4px;
-    }
-
-    /* 表格滚动提示 */
-    .table-wrapper {
-        position: relative;
-    }
-
-    .table-wrapper::after {
-        content: '← 左右滑动查看更多 →';
-        display: block;
+    .page-btn {
+        padding: 8px 14px;
+        font-size: 13px;
+        min-width: 40px;
         text-align: center;
-        font-size: 11px;
-        color: #94a3b8;
-        padding: 8px 0;
     }
-
-    /* 弹窗全屏 */
-    .modal-content,
-    .dialog {
+    
+    /* --- 批量操作 --- */
+    .batch-actions {
+        flex-direction: column;
+        gap: 8px;
+        padding: 10px 12px;
+        border-radius: 10px;
+    }
+    
+    .batch-btn {
         width: 100%;
-        height: 100%;
-        max-height: 100%;
-        margin: 0;
-        border-radius: 0;
-    }
-
-    .modal-header,
-    .dialog-header {
-        position: sticky;
-        top: 0;
-        background: #ffffff;
-        z-index: 10;
-    }
-
-    /* 按钮组垂直排列 */
-    .modal-footer .btn,
-    .dialog-footer .btn {
-        width: 100%;
-    }
-}
-
-/* 横屏手机适配 */
-@media (max-width: 768px) and (orientation: landscape) {
-    .admin-sidebar {
-        width: 240px;
-    }
-
-    .modal-content,
-    .dialog {
-        max-height: 95vh;
-    }
-
-    .stats {
-        grid-template-columns: repeat(4, 1fr);
-    }
-}
-
-/* 触摸设备优化 */
-@media (hover: none) and (pointer: coarse) {
-
-    /* 增大点击区域 */
-    .nav-item {
-        padding: 16px 24px;
-    }
-
-    .btn,
-    button {
-        min-height: 44px;
-    }
-
-    /* 移除悬停效果 */
-    .stat-card:hover {
-        transform: none;
-    }
-
-    .nav-item:hover {
-        background: none;
-    }
-
-    /* 点击效果 */
-    .stat-card:active {
-        transform: scale(0.98);
-        background: #f1f5f9;
-    }
-
-    .nav-item:active {
-        background: rgba(99, 102, 241, 0.15);
-    }
-}
-
-/* ==================== 增强移动端适配 ==================== */
-@media (max-width: 768px) {
-
-    /* 设置卡片优化 */
-    .settings-card {
-        margin-bottom: 12px;
-        border-radius: 12px;
-    }
-
-    .settings-card-header {
-        padding: 14px 16px;
-        flex-wrap: nowrap;
-    }
-
-    .settings-card-header h3 {
+        padding: 10px 14px;
+        text-align: center;
         font-size: 14px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
     }
-
-    .settings-card-body {
+    
+    /* --- 下载进度条 --- */
+    .download-progress {
+        width: 100%;
+        margin-top: 8px;
+    }
+    
+    .progress-track {
+        height: 6px;
+        border-radius: 3px;
+    }
+    
+    .progress-meta {
+        font-size: 11px;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    
+    /* --- 弹窗/模态框 --- */
+    .modal-overlay {
+        padding: 12px;
+        align-items: flex-end;
+    }
+    
+    .modal-content {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: 85vh;
+        border-radius: 16px 16px 0 0;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .modal-content.modal-lg {
+        width: 100% !important;
+        max-height: 90vh;
+    }
+    
+    .modal-content.ticket-detail-modal {
+        width: 100% !important;
+        max-height: 90vh;
         padding: 16px;
     }
-
-    .settings-card.collapsed .settings-card-body {
-        display: none;
+    
+    .modal-header {
+        padding-bottom: 12px;
+        margin-bottom: 16px;
+        position: sticky;
+        top: 0;
+        background: white;
+        z-index: 10;
     }
-
-    .settings-actions {
+    
+    .modal-header h3 {
+        font-size: 16px;
+    }
+    
+    .modal-body {
+        padding: 0;
+    }
+    
+    .modal-footer {
         flex-direction: column;
-        gap: 10px;
+        gap: 8px;
+        padding-top: 16px;
+        border-top: 1px solid #e2e8f0;
+        position: sticky;
+        bottom: 0;
+        background: white;
+        z-index: 10;
     }
-
-    .settings-actions .btn-primary,
-    .settings-actions .btn-secondary {
+    
+    .modal-footer .btn,
+    .modal-footer .btn-primary,
+    .modal-footer .btn-secondary {
         width: 100%;
-        justify-content: center;
+        text-align: center;
+        padding: 12px 16px;
     }
-
-    /* 表单优化 */
+    
+    /* --- 表单元素 --- */
+    .form-group {
+        margin-bottom: 16px;
+    }
+    
+    .form-group label {
+        font-size: 14px;
+        margin-bottom: 6px;
+    }
+    
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        padding: 12px 14px;
+        font-size: 15px;
+        border-radius: 10px;
+        -webkit-appearance: none;
+    }
+    
+    .form-group textarea {
+        min-height: 80px;
+    }
+    
     .form-row {
         flex-direction: column;
         gap: 12px;
     }
-
-    .form-row .form-group {
-        width: 100%;
-    }
-
-    .form-group {
-        margin-bottom: 16px;
-    }
-
-    .form-group label {
-        font-size: 13px;
-        font-weight: 500;
-        margin-bottom: 8px;
-        display: block;
-    }
-
-    .form-input,
-    .form-control,
-    input[type="text"],
-    input[type="password"],
-    input[type="email"],
-    input[type="number"],
-    textarea,
-    select {
-        width: 100%;
-        padding: 12px 14px;
-        font-size: 16px !important;
-        border-radius: 10px;
-        box-sizing: border-box;
-    }
-
-    textarea.form-input {
-        min-height: 100px;
-    }
-
+    
     .form-hint {
         font-size: 12px;
-        margin-top: 6px;
     }
-
-    /* 设置提示区域 */
-    .settings-tips {
-        padding: 14px;
-        font-size: 13px;
-        border-radius: 10px;
+    
+    /* --- 确认弹窗 --- */
+    .confirm-overlay {
+        padding: 12px;
+        align-items: flex-end;
     }
-
-    .settings-tips h4 {
-        font-size: 13px;
-        margin-bottom: 10px;
-    }
-
-    .settings-tips ul {
-        padding-left: 16px;
-    }
-
-    .settings-tips li {
-        margin-bottom: 6px;
-        line-height: 1.5;
-    }
-
-    /* 状态徽章 */
-    .status-badge {
-        padding: 4px 10px;
-        font-size: 11px;
-        border-radius: 12px;
-    }
-
-    /* 用户详情弹窗 */
-    .user-detail-modal .modal-content,
-    .ticket-detail-modal .modal-content {
+    
+    .confirm-dialog {
         width: 100%;
-        height: 100%;
-        max-height: 100%;
-        margin: 0;
-        border-radius: 0;
+        max-width: 100%;
+        border-radius: 16px 16px 0 0;
+        padding: 24px 20px;
     }
-
-    .user-tabs,
-    .ticket-tabs {
+    
+    .confirm-dialog .buttons {
+        flex-direction: column-reverse;
+        gap: 8px;
+    }
+    
+    .confirm-dialog .buttons button {
+        width: 100%;
+        padding: 14px;
+        font-size: 15px;
+    }
+    
+    /* --- 标签页 --- */
+    .tabs {
+        display: flex;
+        overflow-x: auto;
+        gap: 4px;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+    
+    .tabs::-webkit-scrollbar {
+        display: none;
+    }
+    
+    .tab-btn {
+        padding: 10px 16px;
+        font-size: 13px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+    
+    /* --- 工单详情 --- */
+    .ticket-detail-layout {
+        grid-template-columns: 1fr;
+        gap: 16px;
+        min-height: auto;
+    }
+    
+    .ticket-detail-right {
+        min-width: unset;
+    }
+    
+    .ticket-info-compact {
+        grid-template-columns: 1fr;
+        gap: 8px;
+        padding: 14px;
+    }
+    
+    .ticket-info-grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+    
+    .ticket-actions {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .ticket-status-info {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .ticket-messages-list {
+        max-height: 250px;
+    }
+    
+    .ticket-messages-list .chat-message {
+        max-width: 95%;
+    }
+    
+    /* --- 用户详情弹窗 --- */
+    .user-info-grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+    
+    .user-actions {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .user-actions button {
+        width: 100%;
+    }
+    
+    /* --- 邀请图表 --- */
+    .invite-charts {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    
+    /* --- 排行榜 --- */
+    .rank-item {
+        padding: 10px 12px;
+        margin-bottom: 8px;
+    }
+    
+    /* --- 播放监控 --- */
+    .playback-admin-stats {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+    }
+    
+    .playback-tabs {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
-        padding-bottom: 2px;
+        gap: 4px;
     }
-
-    .user-tabs .tab-btn,
-    .ticket-tabs .tab-btn {
+    
+    .playback-tabs button {
         flex-shrink: 0;
         padding: 10px 14px;
         font-size: 13px;
     }
-
-    .user-info-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
+    
+    .admin-sessions-grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
     }
-
-    .user-info-item {
-        padding: 10px;
-        border-radius: 8px;
-    }
-
-    .user-info-item .label {
-        font-size: 11px;
-    }
-
-    .user-info-item .value {
-        font-size: 13px;
-    }
-
-    /* 操作按钮组 */
-    .user-actions,
-    .ticket-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 16px;
-    }
-
-    .user-actions .btn,
-    .ticket-actions .btn {
-        flex: 1 1 calc(50% - 4px);
-        min-width: 0;
-        padding: 10px 8px;
-        font-size: 12px;
-        text-align: center;
-        justify-content: center;
-    }
-
-    /* 表格容器 */
-    .table-container,
-    .table-wrapper {
+    
+    .admin-table-container {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
-        margin: 0 -8px;
-        padding: 0 8px;
-    }
-
-    .admin-table {
-        min-width: 600px;
-    }
-
-    .admin-table th,
-    .admin-table td {
-        padding: 6px 4px;
-        font-size: 10px;
-        white-space: nowrap;
     }
     
-    /* 用户ID列更窄 */
-    .admin-table th:first-child,
-    .admin-table td:first-child {
-        max-width: 50px;
-        font-size: 10px;
-    }
-    
-    /* 操作列适配 */
-    .admin-table th:last-child,
-    .admin-table td:last-child {
-        min-width: 60px;
-    }
-
-    /* 隐藏不重要的列 */
-    .admin-table .hide-mobile {
-        display: none;
-    }
-    
-    /* 操作列按钮优化 */
-    .admin-table .btn-action {
-        padding: 6px 8px;
-        font-size: 11px;
-        margin: 2px;
-        min-width: 45px;
-    }
-    
-    /* 下拉选择器优化 */
-    .admin-table .level-select {
-        padding: 6px 4px;
-        font-size: 10px;
-        min-width: 90px;
-        margin: 2px;
-    }
-
-    /* 筛选器区域 */
-    .filter-section,
-    .filters {
-        padding: 12px;
-        background: #f8fafc;
-        border-radius: 10px;
-        margin-bottom: 16px;
-        border: 1px solid #e2e8f0;
-    }
-
-    .filter-row {
-        display: flex;
-        flex-direction: column;
+    /* --- Admin Stats Grid --- */
+    .admin-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
         gap: 10px;
     }
-
-    .filter-group {
-        width: 100%;
-    }
-
-    .filter-group label {
-        font-size: 12px;
-        margin-bottom: 4px;
-        color: #64748b;
-    }
-
-    .filter-group select,
-    .filter-group input {
-        width: 100%;
-        padding: 10px 12px;
-        font-size: 14px;
-    }
-
-    /* Toast 消息 */
-    .toast {
-        left: 16px;
-        right: 16px;
-        max-width: none;
-        width: auto;
-    }
-
-    /* 确认弹窗 */
-    .global-confirm-overlay .global-confirm-dialog {
-        width: 90%;
-        max-width: 320px;
-        padding: 24px 20px;
-    }
-
-    .global-confirm-title {
-        font-size: 16px;
-    }
-
-    .global-confirm-message {
-        font-size: 14px;
-    }
-
-    .global-confirm-buttons {
-        flex-direction: column;
-        gap: 10px;
-    }
-
-    .global-confirm-btn {
-        width: 100%;
-        padding: 12px;
-    }
-
-    /* 输入弹窗 */
-    .global-prompt-input {
-        font-size: 16px !important;
-        padding: 12px !important;
-    }
-
-    /* 套餐卡片 */
-    .plan-card {
-        padding: 16px;
+    
+    .admin-stats-grid .stat-card {
+        padding: 14px;
         border-radius: 12px;
     }
-
-    .plan-card h4 {
-        font-size: 15px;
+    
+    .admin-stats-grid .stat-icon {
+        font-size: 22px;
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
     }
-
-    .plan-price {
+    
+    .admin-stats-grid .stat-content h3 {
         font-size: 20px;
     }
-
-    /* 兑换码列表 */
-    .redeem-code-item {
-        padding: 12px;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 10px;
-    }
-
-    .redeem-code-item .code-value {
-        font-size: 14px;
-        word-break: break-all;
-    }
-
-    .redeem-code-item .code-actions {
-        width: 100%;
-        justify-content: flex-end;
-    }
-
-    /* 邀请统计 */
-    .invite-stat-card {
-        padding: 14px;
-    }
-
-    .invite-stat-value {
-        font-size: 24px;
-    }
-
-    .invite-stat-label {
+    
+    .admin-stats-grid .stat-content p {
         font-size: 12px;
     }
-
-    /* 折叠卡片图标 */
-    .collapse-icon {
-        font-size: 10px;
-        margin-right: 8px;
+    
+    /* --- 操作按钮 --- */
+    .btn-action {
+        padding: 8px 14px;
+        font-size: 13px;
+        min-height: 40px;
     }
-
-    .settings-card.collapsed .collapse-icon {
-        transform: rotate(0deg);
+    
+    .btn-primary {
+        padding: 12px 18px;
+        font-size: 14px;
+        width: auto;
     }
-
-    .settings-card:not(.collapsed) .collapse-icon {
-        transform: rotate(90deg);
+    
+    .btn-secondary {
+        padding: 10px 16px;
+        font-size: 13px;
+    }
+    
+    /* --- Info Box --- */
+    .info-box {
+        padding: 14px 16px;
+        border-radius: 12px;
+        font-size: 13px;
+    }
+    
+    .info-box ul {
+        padding-left: 16px;
+    }
+    
+    .info-box li {
+        font-size: 12px;
+    }
+    
+    /* --- 等级下拉 --- */
+    .level-select {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+    
+    /* --- 侧边栏内部 --- */
+    .sidebar-nav .nav-item {
+        padding: 13px 16px;
+        gap: 12px;
+    }
+    
+    .nav-icon {
+        font-size: 18px;
+        width: 24px;
+    }
+    
+    .nav-text {
+        font-size: 15px;
+    }
+    
+    /* --- 导出按钮 --- */
+    .export-btn {
+        width: 100%;
+        text-align: center;
+        padding: 12px 16px;
+    }
+    
+    /* --- 套餐相关 --- */
+    .section-actions {
+        width: 100%;
+    }
+    
+    .section-actions .btn-primary {
+        width: 100%;
+        text-align: center;
+    }
+    
+    /* --- 知识库 --- */
+    .knowledge-item {
+        padding: 14px;
+    }
+    
+    .knowledge-item-header {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .knowledge-item-question {
+        font-size: 15px;
+    }
+    
+    .knowledge-item-answer {
+        font-size: 13px;
+    }
+    
+    .knowledge-item-actions {
+        width: 100%;
+    }
+    
+    .knowledge-item-actions button {
+        flex: 1;
+        text-align: center;
+    }
+    
+    /* --- 分类管理 --- */
+    .category-item {
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-start;
+    }
+    
+    /* --- 导航栏 (原有) --- */
+    .navbar {
+        padding: 10px 14px;
+        margin: 8px auto;
+        width: calc(100% - 16px);
+        border-radius: 14px;
+    }
+    
+    .navbar .logo {
+        font-size: 14px;
+    }
+    
+    .navbar .logo-icon {
+        width: 28px;
+        height: 28px;
+    }
+    
+    /* --- 容器 --- */
+    .container {
+        padding: 0 8px;
+        margin: 8px auto;
     }
 }
 
-/* 超小屏幕补充 */
+/* ==================== 超小屏幕 (max-width: 480px) ==================== */
 @media (max-width: 480px) {
-    .user-info-grid {
-        grid-template-columns: 1fr;
+    .mobile-header {
+        height: 50px;
+        padding: 0 12px;
     }
-
-    .user-actions .btn,
-    .ticket-actions .btn {
-        flex: 1 1 100%;
+    
+    .mobile-logo {
+        font-size: 14px;
     }
-
-    .settings-card-header h3 {
+    
+    .mobile-logo img {
+        width: 24px;
+        height: 24px;
+    }
+    
+    .mobile-user-avatar {
+        width: 30px;
+        height: 30px;
+        font-size: 12px;
+    }
+    
+    .admin-main {
+        padding-top: 50px;
+    }
+    
+    .admin-content {
+        padding: 8px;
+    }
+    
+    .admin-sidebar {
+        width: 260px;
+    }
+    
+    /* 快捷操作 */
+    .quick-actions {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+    
+    .action-item {
+        padding: 12px 10px;
+        gap: 8px;
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .action-icon {
+        font-size: 20px;
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+    }
+    
+    .action-info h4 {
+        font-size: 18px;
+    }
+    
+    .action-info p {
+        font-size: 11px;
+    }
+    
+    /* 统计卡片 */
+    .stats {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+    
+    .stat-card {
+        padding: 12px 8px;
+        min-height: 80px;
+    }
+    
+    .stat-icon {
+        font-size: 18px;
+    }
+    
+    .stat-content h3 {
+        font-size: 18px;
+    }
+    
+    .stat-content p {
+        font-size: 10px;
+    }
+    
+    /* 图表 */
+    .chart-container {
+        padding: 12px;
+    }
+    
+    .chart-container h3 {
         font-size: 13px;
     }
     
-    /* 表格容器进一步减小边距 */
-    .table-container,
-    .table-wrapper {
-        margin: 0 -4px;
-        padding: 0 4px;
+    .chart-container canvas {
+        max-height: 180px;
     }
-
-    .admin-table th,
+    
+    /* 章节头部 */
+    .section-header {
+        padding: 12px;
+        border-radius: 10px;
+    }
+    
+    .section-header h2 {
+        font-size: 16px;
+    }
+    
+    /* 表格卡片 */
+    .request-table tr,
+    .admin-table tr {
+        padding: 12px;
+        border-radius: 10px;
+        gap: 6px;
+    }
+    
+    .request-table td,
     .admin-table td {
-        padding: 5px 3px;
-        font-size: 9px;
+        font-size: 13px;
+        padding: 4px 0;
     }
     
-    /* 进一步缩小用户ID列 */
-    .admin-table th:first-child,
-    .admin-table td:first-child {
-        max-width: 35px;
-        font-size: 8px;
-        padding: 5px 2px;
+    .movie-info img {
+        width: 40px;
+        height: 60px;
     }
     
-    /* 用户名和Telegram ID列 */
-    .admin-table th:nth-child(2),
-    .admin-table td:nth-child(2),
-    .admin-table th:nth-child(3),
-    .admin-table td:nth-child(3) {
-        max-width: 80px;
-        overflow: hidden;
-        text-overflow: ellipsis;
+    .movie-info .details h4 {
+        font-size: 14px;
     }
     
-    /* 操作按钮更小 */
-    .admin-table .btn-xs {
-        padding: 4px 6px;
-        font-size: 9px;
-        min-height: 24px;
+    .movie-info .details p {
+        font-size: 10px;
     }
     
-    /* 操作列按钮进一步优化 */
-    .admin-table .btn-action {
-        padding: 4px 5px;
-        font-size: 9px;
-        margin: 1px;
-        min-width: 36px;
-        display: inline-block;
+    /* 弹窗 */
+    .modal-overlay {
+        padding: 0;
     }
     
-    /* 下拉选择器超小屏优化 */
-    .admin-table .level-select {
-        padding: 4px 2px;
-        font-size: 8px;
-        min-width: 75px;
-        margin: 1px 0;
-        display: block;
-        width: 100%;
+    .modal-content {
+        border-radius: 16px 16px 0 0;
+        max-height: 90vh;
     }
     
-    /* 状态徽章字体更小 */
-    .admin-table .status-badge {
-        font-size: 8px;
-        padding: 2px 3px;
+    .modal-header h3 {
+        font-size: 15px;
     }
-
-    .btn-sm {
+    
+    /* 播放监控 */
+    .playback-admin-stats {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+    }
+    
+    .stat-box {
+        padding: 10px 6px;
+    }
+    
+    .stat-box .stat-value {
+        font-size: 18px;
+    }
+    
+    .stat-box .stat-label {
+        font-size: 10px;
+    }
+    
+    /* Admin Stats */
+    .admin-stats-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+    
+    .admin-stats-grid .stat-card {
+        padding: 12px;
+        gap: 10px;
+    }
+    
+    .admin-stats-grid .stat-icon {
+        font-size: 18px;
+        width: 38px;
+        height: 38px;
+    }
+    
+    .admin-stats-grid .stat-content h3 {
+        font-size: 18px;
+    }
+    
+    /* 分页 */
+    .pagination {
+        gap: 4px;
+    }
+    
+    .page-btn {
         padding: 6px 10px;
-        font-size: 11px;
+        font-size: 12px;
+        min-width: 34px;
+    }
+    
+    /* 筛选标签 */
+    .filter-tabs button {
+        padding: 7px 12px;
+        font-size: 12px;
+    }
+    
+    /* 知识库 */
+    .knowledge-item {
+        padding: 12px;
+    }
+    
+    .knowledge-item-question {
+        font-size: 14px;
+    }
+    
+    /* 请求区域 */
+    .requests-section {
+        padding: 12px;
+        border-radius: 10px;
+    }
+    
+    /* 排行榜 */
+    .rank-item {
+        padding: 8px 10px;
+    }
+}
+
+/* ==================== 横屏手机适配 ==================== */
+@media (max-height: 500px) and (orientation: landscape) {
+    .mobile-header {
+        height: 44px;
+        padding: 0 12px;
+    }
+    
+    .admin-main {
+        padding-top: 44px;
+    }
+    
+    .admin-content {
+        padding: 8px;
+    }
+    
+    .quick-actions {
+        grid-template-columns: repeat(4, 1fr);
+    }
+    
+    .stats {
+        grid-template-columns: repeat(4, 1fr);
+    }
+    
+    .modal-content {
+        max-height: 95vh;
+        border-radius: 12px;
+    }
+}
+
+/* ==================== 触摸设备优化 ==================== */
+@media (hover: none) and (pointer: coarse) {
+    .action-item:hover {
+        transform: none;
+        box-shadow: none;
+    }
+    
+    .action-item:active {
+        transform: scale(0.98);
+        opacity: 0.9;
+    }
+    
+    .stat-card:hover {
+        transform: none;
+        box-shadow: none;
+    }
+    
+    .stat-card:active {
+        transform: scale(0.98);
+    }
+    
+    .btn-action,
+    .btn-primary,
+    .btn-secondary,
+    .batch-btn,
+    .export-btn {
+        min-height: 44px;
+    }
+    
+    .nav-item {
+        min-height: 44px;
+    }
+    
+    .filter-tabs button {
+        min-height: 40px;
+    }
+    
+    .tab-btn {
+        min-height: 40px;
+    }
+    
+    /* iOS安全区域 */
+    .mobile-header {
+        padding-top: env(safe-area-inset-top);
+        height: calc(56px + env(safe-area-inset-top));
+    }
+    
+    .admin-sidebar {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+    
+    .modal-content {
+        padding-bottom: env(safe-area-inset-bottom);
     }
 }
 
@@ -8919,1430 +8289,7 @@ select.custom-select:focus,
     font-size: 16px;
 }
 
-/* ==================== 移动端统一样式覆盖 - 与前端保持一致 ==================== */
-@media (max-width: 768px) {
-
-    /* 统一统计卡片网格 - 一行两个 */
-    .stats,
-    .admin-stats-grid,
-    .quick-actions,
-    .redeem-stats,
-    .order-stats,
-    .playback-stats,
-    .ticket-stats,
-    .invite-stats {
-        display: grid !important;
-        grid-template-columns: 1fr 1fr !important;
-        gap: 12px !important;
-    }
-
-    /* 统一卡片样式 - 横向布局，与前端一致 */
-    .stat-card,
-    .action-item,
-    .stats .stat-card,
-    .admin-stats-grid .stat-card,
-    .quick-actions .action-item,
-    .redeem-stats .stat-card,
-    .order-stats .stat-card,
-    .playback-stats .stat-card,
-    .ticket-stats .stat-card,
-    .invite-stats .stat-card {
-        display: flex !important;
-        flex-direction: row !important;
-        align-items: center !important;
-        padding: 14px !important;
-        min-height: auto !important;
-        gap: 12px !important;
-        border-radius: 12px !important;
-        text-align: left !important;
-    }
-
-    /* 统一图标大小 */
-    .stat-icon,
-    .action-icon,
-    .stats .stat-icon,
-    .admin-stats-grid .stat-icon,
-    .quick-actions .action-icon {
-        width: 40px !important;
-        height: 40px !important;
-        min-width: 40px !important;
-        font-size: 18px !important;
-        border-radius: 10px !important;
-        flex-shrink: 0 !important;
-    }
-
-    /* 内容区域 */
-    .stat-content,
-    .action-info {
-        flex: 1 !important;
-        min-width: 0 !important;
-    }
-
-    /* 统一数值样式 */
-    .stat-value,
-    .stat-content h3,
-    .action-info h4,
-    .stats .stat-value,
-    .admin-stats-grid .stat-content h3 {
-        font-size: 20px !important;
-        font-weight: 700 !important;
-        margin: 0 0 2px 0 !important;
-        line-height: 1.2 !important;
-    }
-
-    /* 统一标签样式 */
-    .stat-label,
-    .stat-content p,
-    .action-info p,
-    .stats .stat-label,
-    .admin-stats-grid .stat-content p {
-        font-size: 12px !important;
-        margin: 0 !important;
-        color: #64748b !important;
-        line-height: 1.3 !important;
-    }
-
-    /* 顶部模块卡片 */
-    .section-header-card,
-    .module-header-card,
-    .card-header-box {
-        padding: 16px !important;
-        margin-bottom: 16px !important;
-        border-radius: 12px !important;
-    }
-
-    .section-header-card h2,
-    .module-header-card h2,
-    .card-header-box h2 {
-        font-size: 18px !important;
-    }
-
-    /* 搜索框 */
-    .search-box,
-    .filter-select,
-    .search-input-wrapper {
-        width: 100% !important;
-    }
-
-    .search-box input,
-    .filter-select select,
-    .search-input {
-        padding: 10px 14px !important;
-        font-size: 14px !important;
-        border-radius: 8px !important;
-    }
-
-    /* 表格滚动 */
-    .table-container,
-    .admin-table-wrapper {
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        margin: 0 -16px !important;
-        padding: 0 16px !important;
-    }
-
-    /* 配置卡片 */
-    .config-card,
-    .settings-card,
-    .plan-config-item {
-        padding: 16px !important;
-        margin-bottom: 12px !important;
-        border-radius: 12px !important;
-    }
-
-    /* 表单网格 */
-    .form-grid,
-    .settings-grid,
-    .config-grid {
-        grid-template-columns: 1fr !important;
-        gap: 12px !important;
-    }
-
-    /* 按钮 */
-    .btn-primary,
-    .btn-secondary,
-    .btn-action {
-        padding: 10px 16px !important;
-        font-size: 13px !important;
-    }
-}
-
-/* 超小屏幕 */
-@media (max-width: 480px) {
-
-    .stats,
-    .admin-stats-grid,
-    .quick-actions,
-    .redeem-stats,
-    .order-stats,
-    .playback-stats,
-    .ticket-stats,
-    .invite-stats {
-        gap: 10px !important;
-    }
-
-    .stat-card,
-    .action-item,
-    .stats .stat-card,
-    .admin-stats-grid .stat-card,
-    .quick-actions .action-item {
-        padding: 12px !important;
-        gap: 10px !important;
-    }
-
-    .stat-icon,
-    .action-icon {
-        width: 36px !important;
-        height: 36px !important;
-        min-width: 36px !important;
-        font-size: 16px !important;
-    }
-
-    .stat-value,
-    .stat-content h3,
-    .action-info h4 {
-        font-size: 18px !important;
-    }
-
-    .stat-label,
-    .stat-content p,
-    .action-info p {
-        font-size: 11px !important;
-    }
-
-    .admin-content {
-        padding: 68px 12px 12px 12px !important;
-    }
-
-    .section-header-card,
-    .module-header-card,
-    .card-header-box {
-        padding: 14px !important;
-    }
-}
-
-/* ==================== 移动端适配新增样式 ==================== */
-@media (max-width: 768px) {
-
-    /* 隐藏桌面端顶部栏 */
-    .admin-topbar {
-        display: none !important;
-    }
-
-    /* 移动端顶部栏 */
-    .mobile-header {
-        display: flex;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 60px;
-        background: white;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 16px;
-        z-index: 1100;
-    }
-
-    .mobile-menu-toggle {
-        width: 40px;
-        height: 40px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        gap: 5px;
-        background: none;
-        border: none;
-        cursor: pointer;
-        padding: 8px;
-    }
-
-    .mobile-menu-toggle span {
-        width: 24px;
-        height: 2px;
-        background: #1a1a1a;
-        border-radius: 2px;
-        transition: all 0.3s;
-    }
-
-    .mobile-logo {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 16px;
-        font-weight: 600;
-        color: #1a1a1a;
-    }
-
-    .mobile-logo img {
-        width: 32px;
-        height: 32px;
-        border-radius: 6px;
-    }
-
-    .mobile-user-avatar {
-        width: 36px;
-        height: 36px;
-        border-radius: 8px;
-        background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 14px;
-        font-weight: 600;
-        color: white;
-    }
-
-    /* 侧边栏调整 - 匹配 dashboard */
-    .admin-sidebar {
-        transform: translateX(-100%);
-        transition: transform 0.3s;
-        z-index: 1200;
-        top: 0;
-        left: 0;
-        height: 100vh;
-        width: 260px;
-        box-shadow: none;
-        position: fixed;
-        display: flex !important;
-        background: #f8f7f4;
-    }
-
-    .admin-sidebar.show {
-        transform: translateX(0);
-        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
-    }
-
-    /* 遮罩层 */
-    .sidebar-overlay {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        z-index: 1150;
-    }
-
-    .sidebar-overlay.show {
-        display: block;
-    }
-
-    /* 主内容区调整 - 匹配 dashboard padding */
-    .admin-main {
-        margin-left: 0 !important;
-        padding: 84px 16px 16px 16px !important;
-        width: 100%;
-        min-height: 100vh;
-    }
-
-    .admin-content {
-        padding: 16px !important;
-    }
-
-    /* 表格转卡片视图 - 高保真适配 */
-    .admin-table,
-    .request-table {
-        display: block;
-        border: none;
-        background: transparent;
-    }
-
-    .admin-table thead,
-    .request-table thead {
-        display: none;
-    }
-
-    .admin-table tbody,
-    .request-table tbody {
-        display: block;
-        padding-bottom: 20px;
-    }
-
-    /* 卡片容器样式 - 模仿 Dashboard .stat-card-modern */
-    .admin-table tr,
-    .request-table tr {
-        display: block;
-        background: #fff;
-        margin-bottom: 16px;
-        border-radius: 16px;
-        /* 更圆润的角 */
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        /* 更细腻的阴影 */
-        padding: 20px;
-        /* 增加内边距 */
-        border: 1px solid #e5e5e5;
-        position: relative;
-        transition: transform 0.2s, box-shadow 0.2s;
-    }
-
-    .admin-table tr:active,
-    .request-table tr:active {
-        transform: scale(0.995);
-    }
-
-    .admin-table td,
-    .request-table td {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 12px 0;
-        border-bottom: 1px solid #f3f4f6;
-        text-align: right;
-        font-size: 14px;
-        color: #4b5563;
-    }
-
-    .admin-table td:first-child,
-    .request-table td:first-child {
-        padding-top: 0;
-    }
-
-    .admin-table td:last-child,
-    .request-table td:last-child {
-        border-bottom: none;
-        flex-direction: column;
-        align-items: stretch;
-        /* 按钮拉伸 */
-        gap: 10px;
-        margin-top: 12px;
-        padding-top: 16px;
-        padding-bottom: 0;
-        border-top: 1px solid #f3f4f6;
-    }
-
-    /* 数据标签样式 */
-    .admin-table td::before,
-    .request-table td::before {
-        content: attr(data-label);
-        font-weight: 600;
-        color: #64748b;
-        font-size: 13px;
-        text-align: left;
-        margin-right: 12px;
-        flex-shrink: 0;
-    }
-
-    /* 影片信息卡片化特别处理 */
-    td[data-label="影片信息"] {
-        flex-direction: row;
-        align-items: flex-start;
-        border-bottom: 1px solid #f3f4f6;
-        padding-bottom: 16px;
-        margin-bottom: 4px;
-    }
-
-    td[data-label="影片信息"]::before {
-        display: none;
-    }
-
-    .movie-info {
-        flex-direction: row;
-        align-items: flex-start;
-        gap: 16px;
-        text-align: left;
-        width: 100%;
-        position: relative;
-    }
-
-    .movie-info img {
-        width: 80px;
-        /* 更大的海报 */
-        height: 120px;
-        border-radius: 8px;
-        object-fit: cover;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }
-
-    .movie-info .details {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        padding-top: 4px;
-    }
-
-    /* 标题样式增强 */
-    .movie-info .details div:first-child {
-        font-size: 16px;
-        font-weight: 700;
-        color: #111827;
-        line-height: 1.4;
-        margin-bottom: 2px;
-    }
-
-    .movie-info .details div {
-        color: #6b7280;
-        font-size: 13px;
-    }
-
-    /* 复选框定位优化 */
-    td:has(input[type="checkbox"]) {
-        position: absolute;
-        top: 20px;
-        left: 20px;
-        /* 调整位置 */
-        width: auto;
-        padding: 0;
-        border: none;
-        z-index: 10;
-        background: rgba(255, 255, 255, 0.9);
-        border-radius: 4px;
-    }
-
-    td:has(input[type="checkbox"]) input {
-        width: 18px;
-        height: 18px;
-        cursor: pointer;
-    }
-
-    /* 状态标签样式优化 */
-    .status-badge {
-        padding: 4px 10px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-        letter-spacing: 0.02em;
-    }
-
-    /* 操作按钮组优化 */
-    .action-buttons {
-        width: 100%;
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-        /* 自适应网格 */
-        gap: 10px;
-    }
-
-    .action-buttons button {
-        margin: 0;
-        width: 100%;
-        justify-content: center;
-        padding: 10px;
-        border-radius: 10px;
-        width: 100%;
-        box-sizing: border-box;
-    }
-
-    .admin-stats-grid .stat-card,
-    .stats .stat-card {
-        background: #fff;
-        border-radius: 16px;
-        padding: 16px;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 12px;
-        border: 1px solid #e5e5e5;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        color: inherit;
-        text-decoration: none;
-        width: auto !important;
-        /* 防止被挤压 */
-        min-width: 0;
-        /* 允许 flex item 缩小 */
-        height: auto;
-    }
-
-    /* 修复可能存在的空内容导致高度塌陷或其他布局问题 */
-    .admin-stats-grid .stat-card:empty,
-    .stats .stat-card:empty {
-        display: none;
-    }
-
-    .admin-stats-grid .stat-icon,
-    .stats .stat-icon {
-        width: 44px;
-        height: 44px;
-        font-size: 22px;
-        border-radius: 12px;
-        background: #f3f4f6;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 4px;
-        color: #3b82f6;
-        flex-shrink: 0;
-    }
-
-    /* 特定状态的图标背景/颜色 */
-    .stats .stat-card.pending .stat-icon,
-    .admin-stats-grid .stat-card.pending .stat-icon {
-        color: #f59e0b;
-        background: #fffbeb;
-    }
-
-    .stats .stat-card.approved .stat-icon,
-    .admin-stats-grid .stat-card.approved .stat-icon {
-        color: #10b981;
-        background: #ecfdf5;
-    }
-
-    .stats .stat-card.completed .stat-icon,
-    .admin-stats-grid .stat-card.completed .stat-icon {
-        color: #3b82f6;
-        background: #eff6ff;
-    }
-
-    .stats .stat-card.rejected .stat-icon,
-    .admin-stats-grid .stat-card.rejected .stat-icon {
-        color: #ef4444;
-        background: #fef2f2;
-    }
-
-    /* 适配邀请统计等部分的特定样式 */
-    .admin-stats-grid .stat-card.success .stat-icon {
-        color: #10b981;
-        background: #ecfdf5;
-    }
-
-    .admin-stats-grid .stat-card.warning .stat-icon {
-        color: #f59e0b;
-        background: #fffbeb;
-    }
-
-    .admin-stats-grid .stat-card.rewards .stat-icon {
-        color: #ef4444;
-        background: #fef2f2;
-    }
-
-    .admin-stats-grid .stat-card.admin .stat-icon {
-        color: #7c3aed;
-        background: #ede9fe;
-    }
-
-    .admin-stats-grid .stat-content,
-    .stats .stat-content {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        width: 100%;
-        overflow: hidden;
-        /* 防止文字溢出撑开 */
-    }
-
-    .admin-stats-grid .stat-content h3,
-    .stats .stat-content h3 {
-        font-size: 20px;
-        /* 稍微调小一点以免换行 */
-        font-weight: 700;
-        color: #111827;
-        margin: 0;
-        line-height: 1.2;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .admin-stats-grid .stat-content p,
-    .stats .stat-content p {
-        font-size: 13px;
-        color: #6b7280;
-        margin: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    /* 过滤 Tab 滚动优化 */
-    .filter-tabs {
-        padding: 4px;
-        background: #f3f4f6;
-        border-radius: 12px;
-        gap: 0;
-        margin-bottom: 20px;
-    }
-
-    .filter-tabs button {
-        flex: 1;
-        padding: 8px 12px;
-        border-radius: 10px;
-        font-size: 13px;
-        font-weight: 500;
-        background: transparent;
-        border: none;
-        color: #6b7280;
-    }
-
-    .filter-tabs button.active {
-        background: #fff;
-        color: #3b82f6;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-    }
-
-    /* 搜索栏和操作按钮 */
-    .header-actions {
-        background: #fff;
-        padding: 16px;
-        border-radius: 16px;
-        margin-bottom: 20px;
-        border: 1px solid #e5e5e5;
-    }
-
-    .search-box {
-        width: 100%;
-        margin-bottom: 12px;
-    }
-
-    .search-box input {
-        width: 100%;
-        background: #f9fafb;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        padding: 10px 12px 10px 40px;
-        /* 留出图标位置 */
-        height: 42px;
-    }
-
-    /* 隐藏详情按钮上多余的图标/文字，简化移动端显示 */
-    button svg {
-        margin-right: 4px;
-    }
-}
-
-/* ==================== 修复移动端顶部栏样式 ==================== */
-/* 默认只在移动端显示，桌面端隐藏 */
+/* ==================== 默认隐藏移动端元素 ==================== */
 .mobile-header {
     display: none;
-}
-
-@media (max-width: 900px) {
-    .mobile-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 12px 16px;
-        background: #ffffff;
-        border-bottom: 1px solid #e2e8f0;
-    }
-
-    .mobile-logo {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .mobile-logo img {
-        height: 32px;
-        width: auto;
-        border-radius: 4px;
-    }
-
-    .mobile-logo span {
-        font-size: 16px;
-        font-weight: 600;
-        color: #1e293b;
-    }
-
-    .mobile-header .mobile-menu-toggle {
-        background: transparent;
-        border: none;
-        padding: 5px;
-        cursor: pointer;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        /* Changed from space-between to center */
-        gap: 5px;
-        /* Added gap to control spacing */
-        width: 30px;
-        height: 30px;
-        /* Increased height slightly for better touch target */
-    }
-
-    .mobile-header .mobile-menu-toggle span {
-        display: block;
-        width: 100%;
-        height: 2px;
-        background-color: #1e293b;
-        border-radius: 2px;
-    }
-}
-
-/* ==================== 移动端卡片布局统一修复 ==================== */
-@media (max-width: 900px) {
-
-    /* 1. 强制所有统计类网格为2列 */
-    .admin-stats-grid,
-    .stats,
-    .quick-actions {
-        display: grid !important;
-        grid-template-columns: repeat(2, 1fr) !important;
-        gap: 8px !important;
-    }
-
-    /* 2. 修复卡片内容布局：强制横向排列 (左图标 右文字) */
-    .admin-stats-grid .stat-card,
-    .stats .stat-card,
-    .quick-actions .action-item {
-        /* Reset any conflicting styles */
-        width: 100% !important;
-        min-width: 0 !important;
-        margin-bottom: 0 !important;
-        min-height: 55px !important;
-        overflow: visible !important;
-
-        /* Flex row layout */
-        display: flex !important;
-        flex-direction: row !important;
-        align-items: center !important;
-        justify-content: flex-start !important;
-        padding: 10px !important;
-        gap: 10px !important;
-        text-align: left !important;
-        border-radius: 12px !important;
-    }
-    
-    /* 隐藏“点击查看”伪元素 */
-    .stats .stat-card::after {
-        display: none !important;
-    }
-
-    /* 3. 图标样式统一 */
-    .admin-stats-grid .stat-icon,
-    .stats .stat-icon,
-    .quick-actions .action-icon {
-        margin-bottom: 0 !important;
-        width: 36px !important;
-        height: 36px !important;
-        font-size: 18px !important;
-        flex-shrink: 0 !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-    }
-
-    /* 4. 文字内容区域 */
-    .admin-stats-grid .stat-content,
-    .stats .stat-content,
-    .quick-actions .action-info {
-        flex: 1 !important;
-        min-width: 0 !important;
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: flex-start !important;
-        justify-content: center !important;
-        text-align: left !important;
-    }
-
-    /* 5. 标题和副标题文字大小 */
-    .stat-content h3,
-    .action-info h4 {
-        font-size: 15px !important;
-        margin: 0 0 2px 0 !important;
-        line-height: 1.2 !important;
-        display: block !important;
-    }
-
-    .stat-content p,
-    .action-info p {
-        font-size: 10px !important;
-        margin: 0 !important;
-        display: block !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        max-width: 100% !important;
-    }
-
-    /* ==================== 
-       新增移动端适配规则 
-       ==================== */
-
-    /* 1. 播放监控 (.admin-session-card) */
-    .admin-session-card {
-        padding: 12px !important;
-    }
-
-    .session-header {
-        margin-bottom: 8px !important;
-    }
-
-    .now-playing-title {
-        font-size: 14px !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-    }
-
-    .session-user .user-info .device-info {
-        font-size: 11px !important;
-        flex-wrap: wrap !important;
-    }
-
-    /* 2. 套餐配置 (.plan-config-grid) */
-    .plan-config-grid,
-    .plan-prices-grid {
-        grid-template-columns: 1fr !important;
-        gap: 12px !important;
-    }
-
-    .price-field {
-        width: 100% !important;
-    }
-
-    .price-input-wrapper input {
-        width: 100% !important;
-    }
-
-    /* 3. 线路管理 (.line-item-compact) */
-    .line-item-compact {
-        flex-wrap: wrap !important;
-        gap: 8px !important;
-        height: auto !important;
-        padding: 12px !important;
-    }
-
-    .line-item-info {
-        width: 100% !important;
-        margin-bottom: 4px !important;
-    }
-
-    .line-item-details {
-        min-width: 0 !important;
-        flex: 1 !important;
-    }
-
-    .line-item-badges {
-        margin-left: 0 !important;
-        margin-right: auto !important;
-    }
-
-    .line-item-actions {
-        width: 100% !important;
-        justify-content: flex-end !important;
-        margin-top: 8px !important;
-        gap: 8px !important;
-    }
-
-    /* 4. 分类策略 (.category-item) */
-    .category-item-header,
-    .condition-row {
-        flex-direction: column !important;
-        align-items: flex-start !important;
-        gap: 8px !important;
-    }
-
-    .category-item-header input,
-    .condition-row input {
-        width: 100% !important;
-        max-width: none !important;
-    }
-
-    /* 5. 弹窗与 Toast (.toast) */
-    .toast {
-        left: 50% !important;
-        transform: translateX(-50%) !important;
-        width: auto !important;
-        min-width: 200px !important;
-        max-width: 90% !important;
-        white-space: normal !important;
-        top: 80px !important;
-        z-index: 999999 !important;
-    }
-
-    .toast.show {
-        transform: translateX(-50%) translateY(0) !important;
-    }
-
-    .toast-content,
-    .toast-message {
-        white-space: normal !important;
-        word-break: break-word !important;
-    }
-}
-
-/* ============================================
-   Admin后台移动端综合优化补充
-   ============================================ */
-
-/* 表格移动端优化 */
-@media (max-width: 768px) {
-    .admin-table-wrapper {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-    }
-    
-    .admin-table {
-        min-width: 600px;
-        border-radius: 12px;
-    }
-    
-    .admin-table th {
-        padding: 10px 12px;
-        font-size: 11px;
-    }
-    
-    .admin-table td {
-        padding: 10px 12px;
-        font-size: 13px;
-    }
-    
-    .btn-action {
-        padding: 5px 10px;
-        font-size: 11px;
-        margin-right: 4px;
-    }
-}
-
-@media (max-width: 480px) {
-    .admin-table {
-        min-width: 500px;
-        border-radius: 10px;
-    }
-    
-    .admin-table th {
-        padding: 8px 10px;
-        font-size: 10px;
-    }
-    
-    .admin-table td {
-        padding: 8px 10px;
-        font-size: 12px;
-    }
-    
-    .status-badge,
-    .plan-badge,
-    .priority-badge {
-        padding: 3px 8px;
-        font-size: 10px;
-    }
-    
-    .btn-action {
-        padding: 4px 8px;
-        font-size: 10px;
-        border-radius: 6px;
-    }
-}
-
-/* 筛选和搜索栏移动端优化 */
-@media (max-width: 768px) {
-    .filter-tabs {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-        flex-wrap: nowrap;
-        padding: 6px;
-    }
-    
-    .filter-tabs::-webkit-scrollbar {
-        display: none;
-    }
-    
-    .filter-tabs button {
-        padding: 10px 16px;
-        white-space: nowrap;
-        flex-shrink: 0;
-    }
-    
-    .header-actions {
-        padding: 12px;
-        border-radius: 12px;
-    }
-    
-    .search-box {
-        margin-bottom: 10px;
-    }
-    
-    .action-buttons {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-    
-    .action-buttons button {
-        width: 100%;
-        justify-content: center;
-    }
-}
-
-@media (max-width: 480px) {
-    .filter-tabs {
-        padding: 4px;
-        gap: 4px;
-    }
-    
-    .filter-tabs button {
-        padding: 8px 12px;
-        font-size: 12px;
-    }
-    
-    .header-actions {
-        padding: 10px;
-    }
-    
-    .search-box input {
-        height: 38px;
-        font-size: 14px;
-        padding: 8px 10px 8px 36px;
-    }
-}
-
-/* 弹窗和对话框移动端优化 */
-@media (max-width: 768px) {
-    .modal-content {
-        max-width: 95%;
-        margin: 20px auto;
-        border-radius: 16px;
-    }
-    
-    .modal-header {
-        padding: 14px 16px;
-    }
-    
-    .modal-header h3 {
-        font-size: 16px;
-    }
-    
-    .modal-body {
-        padding: 16px;
-    }
-    
-    .ticket-detail-modal {
-        max-width: 100%;
-        padding: 16px;
-    }
-    
-    .ticket-detail-layout {
-        grid-template-columns: 1fr;
-        gap: 16px;
-    }
-    
-    .ticket-info-compact {
-        grid-template-columns: 1fr;
-        padding: 12px;
-    }
-}
-
-@media (max-width: 480px) {
-    .modal-overlay {
-        padding: 10px;
-        align-items: flex-end;
-    }
-    
-    .modal-content {
-        max-width: 100%;
-        max-height: 90vh;
-        overflow-y: auto;
-        border-radius: 16px 16px 0 0;
-        margin: 0;
-    }
-    
-    .modal-header {
-        padding: 12px 14px;
-    }
-    
-    .modal-header h3 {
-        font-size: 15px;
-    }
-    
-    .modal-body {
-        padding: 14px;
-    }
-    
-    .ticket-detail-modal {
-        padding: 12px;
-    }
-    
-    .ticket-info-compact {
-        padding: 10px;
-        gap: 10px;
-    }
-    
-    .ticket-reply-section textarea {
-        min-height: 80px;
-        font-size: 14px;
-    }
-}
-
-/* 操作按钮和表单移动端触控优化 */
-@media (max-width: 768px) {
-    button,
-    .btn,
-    .btn-primary,
-    .btn-secondary,
-    .btn-action {
-        -webkit-tap-highlight-color: transparent;
-        touch-action: manipulation;
-        min-height: 38px;
-    }
-    
-    button:active,
-    .btn:active,
-    .btn-action:active {
-        transform: scale(0.98);
-    }
-    
-    input,
-    textarea,
-    select {
-        font-size: 16px; /* 防止iOS自动缩放 */
-        -webkit-appearance: none;
-        -moz-appearance: none;
-        appearance: none;
-    }
-    
-    .level-select {
-        padding: 8px 10px;
-        font-size: 14px;
-    }
-}
-
-@media (max-width: 480px) {
-    .btn-primary,
-    .btn-secondary {
-        padding: 10px 16px;
-        font-size: 13px;
-    }
-    
-    input[type="text"],
-    input[type="email"],
-    input[type="password"],
-    input[type="number"],
-    textarea {
-        padding: 10px 12px;
-        border-radius: 8px;
-    }
-}
-
-/* 顶部导航栏移动端优化 */
-@media (max-width: 768px) {
-    .admin-topbar {
-        padding: 12px 16px;
-    }
-    
-    .page-title {
-        font-size: 16px;
-    }
-    
-    .topbar-actions {
-        gap: 8px;
-    }
-    
-    .admin-user {
-        font-size: 12px;
-        padding: 6px 12px;
-    }
-}
-
-@media (max-width: 480px) {
-    .admin-topbar {
-        padding: 10px 14px;
-    }
-    
-    .page-title {
-        font-size: 15px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    
-    .topbar-actions {
-        gap: 6px;
-    }
-    
-    .admin-user {
-        font-size: 11px;
-        padding: 5px 10px;
-    }
-}
-
-/* Info-box 移动端优化 */
-@media (max-width: 768px) {
-    .info-box {
-        padding: 12px 16px;
-        border-radius: 12px;
-        font-size: 13px;
-        margin-bottom: 16px;
-    }
-    
-    .info-box ul {
-        padding-left: 16px;
-    }
-    
-    .info-box li {
-        margin: 5px 0;
-    }
-}
-
-@media (max-width: 480px) {
-    .info-box {
-        padding: 10px 14px;
-        border-radius: 10px;
-        font-size: 12px;
-        margin-bottom: 12px;
-    }
-    
-    .info-box ul {
-        padding-left: 14px;
-    }
-    
-    .info-box li {
-        margin: 4px 0;
-    }
-}
-
-/* 工单对话列表移动端优化 */
-@media (max-width: 768px) {
-    .ticket-messages-list {
-        padding: 10px;
-        gap: 10px;
-        max-height: 250px;
-    }
-    
-    .ticket-messages-list .chat-message {
-        padding: 10px 14px;
-        max-width: 90%;
-    }
-    
-    .ticket-messages-list .message-header {
-        gap: 8px;
-    }
-    
-    .ticket-messages-list .sender-name {
-        font-size: 11px;
-    }
-    
-    .ticket-messages-list .message-time {
-        font-size: 10px;
-    }
-    
-    .ticket-messages-list .message-content {
-        font-size: 13px;
-    }
-}
-
-@media (max-width: 480px) {
-    .ticket-messages-list {
-        padding: 8px;
-        gap: 8px;
-        max-height: 200px;
-    }
-    
-    .ticket-messages-list .chat-message {
-        padding: 8px 12px;
-        max-width: 95%;
-        border-radius: 10px;
-    }
-    
-    .ticket-messages-list .sender-name {
-        font-size: 10px;
-    }
-    
-    .ticket-messages-list .message-content {
-        font-size: 12px;
-    }
-}
-
-/* 播放监控卡片移动端优化 */
-@media (max-width: 768px) {
-    .admin-session-card {
-        border-radius: 12px;
-    }
-    
-    .session-user {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
-    }
-    
-    .session-progress-bar {
-        margin: 8px 0;
-    }
-}
-
-@media (max-width: 480px) {
-    .admin-session-card {
-        padding: 10px;
-    }
-    
-    .now-playing-title {
-        font-size: 13px;
-    }
-    
-    .session-user .user-info {
-        font-size: 12px;
-    }
-    
-    .session-actions {
-        flex-direction: column;
-        width: 100%;
-        gap: 6px;
-    }
-    
-    .session-actions button {
-        width: 100%;
-        font-size: 11px;
-        padding: 6px;
-    }
-}
-
-/* 通用卡片容器移动端优化 */
-@media (max-width: 768px) {
-    .card,
-    .settings-card,
-    .data-card {
-        border-radius: 12px;
-        margin-bottom: 16px;
-    }
-    
-    .card-header,
-    .settings-card-header {
-        padding: 12px 16px;
-    }
-    
-    .card-body,
-    .settings-card-body {
-        padding: 16px;
-    }
-}
-
-@media (max-width: 480px) {
-    .card,
-    .settings-card,
-    .data-card {
-        border-radius: 10px;
-        margin-bottom: 12px;
-    }
-    
-    .card-header,
-    .settings-card-header {
-        padding: 10px 14px;
-        font-size: 14px;
-    }
-    
-    .card-body,
-    .settings-card-body {
-        padding: 12px;
-    }
-}
-
-/* 侧边栏遮罩层移动端 */
-@media (max-width: 900px) {
-    #sidebarOverlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        z-index: 999;
-        display: none;
-        opacity: 0;
-        transition: opacity 0.3s ease;
-    }
-    
-    #sidebarOverlay.show {
-        display: block;
-        opacity: 1;
-    }
-    
-    .admin-sidebar.show {
-        transform: translateX(0);
-    }
 }

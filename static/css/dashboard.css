@@ -14438,3 +14438,463 @@
         overflow-y: auto;
     }
 }
+
+/* ============================================================
+   移动端全局增强 - 统一优化层
+   ============================================================ */
+
+/* ---- 平板端 (≤1024px) ---- */
+@media (max-width: 1024px) {
+    .sidebar {
+        width: 220px;
+    }
+    
+    .main-content {
+        margin-left: 220px;
+    }
+    
+    .container {
+        padding: 16px 20px;
+    }
+    
+    .plans-grid-new {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* ---- 手机端核心增强 (≤768px) ---- */
+@media (max-width: 768px) {
+    /* 侧边栏动画增强 */
+    .sidebar {
+        width: 280px;
+        z-index: 1000;
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+        transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        will-change: transform;
+    }
+    
+    /* 遮罩层过渡动画 */
+    .sidebar-overlay {
+        transition: opacity 0.35s ease;
+        opacity: 0;
+        pointer-events: none;
+    }
+    
+    .sidebar-overlay.show {
+        opacity: 1;
+        pointer-events: auto;
+        backdrop-filter: blur(2px);
+        -webkit-backdrop-filter: blur(2px);
+    }
+    
+    /* 移动端头部增强 */
+    .mobile-header {
+        height: 56px;
+        backdrop-filter: blur(12px) saturate(180%);
+        -webkit-backdrop-filter: blur(12px) saturate(180%);
+        background: rgba(255, 255, 255, 0.92);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+        box-shadow: 0 1px 8px rgba(0, 0, 0, 0.05);
+        padding: 0 12px;
+        padding-top: env(safe-area-inset-top);
+    }
+    
+    /* 主内容区 iOS 安全区域 */
+    .main-content {
+        padding-top: calc(56px + env(safe-area-inset-top) + 16px);
+        padding-bottom: calc(16px + env(safe-area-inset-bottom));
+        padding-left: calc(16px + env(safe-area-inset-left));
+        padding-right: calc(16px + env(safe-area-inset-right));
+    }
+    
+    /* Telegram 浮动按钮移动端位置 */
+    .telegram-floating-btn {
+        top: auto;
+        bottom: 24px;
+        right: 16px;
+        bottom: calc(24px + env(safe-area-inset-bottom));
+        width: 44px;
+        height: 44px;
+        box-shadow: 0 4px 12px rgba(0, 136, 204, 0.35);
+    }
+    
+    .telegram-floating-btn svg {
+        width: 20px;
+        height: 20px;
+    }
+    
+    /* 导航栏移动端优化 */
+    .navbar {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        border-radius: 0;
+        margin: 0;
+        width: 100%;
+    }
+    
+    /* 表单输入框防止 iOS 缩放 */
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    input[type="number"],
+    input[type="tel"],
+    input[type="search"],
+    input[type="url"],
+    select,
+    textarea {
+        font-size: 16px !important;
+    }
+    
+    /* 确保搜索框在移动端好用 */
+    .search-box {
+        padding: 6px;
+        border-radius: 10px;
+    }
+    
+    .search-box input {
+        border-radius: 8px;
+    }
+    
+    /* 所有按钮最小触摸面积 */
+    button, .btn, a.btn,
+    .tab-button,
+    .copy-btn,
+    .share-btn,
+    .redeem-btn,
+    .order-btn,
+    .page-btn {
+        min-height: 44px;
+        min-width: 44px;
+    }
+    
+    /* 个人中心页面增强 */
+    .profile-hero-content {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+    
+    /* 弹窗底部 sheet 模式统一 */
+    .invite-modal-overlay,
+    .announcement-dialog-overlay {
+        padding: 0;
+        align-items: flex-end;
+    }
+    
+    .invite-modal,
+    .announcement-dialog {
+        border-radius: 16px 16px 0 0;
+        max-height: 85vh;
+        overflow-y: auto;
+        animation: slideUpFromBottom 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    /* 套餐卡片移动端间距 */
+    .plan-card-new {
+        padding: 20px 16px;
+    }
+    
+    /* 工单详情全屏模式增强 */
+    .ticket-detail-modal {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+    
+    /* 线路信息移动端优化 */
+    .line-info-compact .line-url-new {
+        max-width: 100%;
+        font-size: 12px;
+    }
+    
+    /* 滚动性能优化 */
+    .main-content,
+    .sidebar,
+    .ticket-detail-modal,
+    .mobile-menu-drawer {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+    }
+    
+    /* 卡片圆角统一缩小 */
+    .stats, .tab-container, .search-section,
+    .subscription-hero-card, .redeem-card {
+        border-radius: 14px;
+    }
+}
+
+/* 底部弹出动画 */
+@keyframes slideUpFromBottom {
+    from {
+        transform: translateY(100%);
+        opacity: 0.5;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* ---- 小屏手机增强 (≤480px) ---- */
+@media (max-width: 480px) {
+    /* 侧边栏全屏宽度 */
+    .sidebar {
+        width: 100%;
+    }
+    
+    /* 移动端头部更紧凑 */
+    .mobile-header {
+        height: 50px;
+        padding: 0 10px;
+    }
+    
+    .mobile-logo {
+        font-size: 14px;
+    }
+    
+    .mobile-logo img {
+        width: 28px;
+        height: 28px;
+    }
+    
+    .mobile-user-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 7px;
+        font-size: 13px;
+    }
+    
+    .main-content {
+        padding-top: calc(50px + env(safe-area-inset-top) + 10px);
+        padding-left: calc(10px + env(safe-area-inset-left));
+        padding-right: calc(10px + env(safe-area-inset-right));
+    }
+    
+    /* 内容间距压缩 */
+    .container {
+        padding: 6px;
+    }
+    
+    .section-header h1 {
+        font-size: 20px;
+    }
+    
+    .section-header p {
+        font-size: 12px;
+    }
+    
+    /* 统计卡片网格 1 列 */
+    .stats-cards {
+        grid-template-columns: 1fr;
+    }
+    
+    .stats-grid-modern {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+    
+    /* 快捷操作 1 列 */
+    .quick-actions-modern {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+    
+    /* 标签页横向滚动 */
+    .tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        padding: 10px 8px 0;
+    }
+    
+    .tabs::-webkit-scrollbar {
+        display: none;
+    }
+    
+    .tab-button {
+        flex-shrink: 0;
+        padding: 8px 14px;
+        font-size: 12px;
+    }
+    
+    /* 搜索结果 1 列 */
+    .search-results {
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+    }
+    
+    /* 订单卡片紧凑模式 */
+    .order-card {
+        padding: 14px;
+    }
+    
+    .order-actions {
+        flex-direction: column;
+    }
+    
+    .order-btn {
+        width: 100%;
+        text-align: center;
+    }
+    
+    /* Telegram 按钮更小 */
+    .telegram-floating-btn {
+        width: 40px;
+        height: 40px;
+        bottom: calc(16px + env(safe-area-inset-bottom));
+        right: 12px;
+    }
+    
+    .telegram-floating-btn svg {
+        width: 18px;
+        height: 18px;
+    }
+    
+    /* 移动端菜单抽屉全宽 */
+    .mobile-menu-drawer {
+        width: 100%;
+        right: -100%;
+    }
+    
+    /* 所有弹窗底部 sheet 模式 */
+    .invite-modal,
+    .announcement-dialog,
+    .confirm-dialog,
+    .purchase-dialog,
+    .payment-dialog,
+    .cancel-order-dialog {
+        width: 100% !important;
+        max-width: 100% !important;
+        border-radius: 16px 16px 0 0;
+        margin: 0;
+    }
+    
+    /* 分页控件紧凑 */
+    .pagination-controls {
+        gap: 4px;
+    }
+    
+    .page-btn {
+        min-width: 28px;
+        height: 28px;
+        padding: 0 6px;
+        font-size: 11px;
+    }
+}
+
+/* ---- 横屏模式优化 ---- */
+@media (max-width: 768px) and (orientation: landscape) {
+    .mobile-header {
+        height: 44px;
+    }
+    
+    .main-content {
+        padding-top: calc(44px + 12px);
+    }
+    
+    /* 横屏统计卡片 2 列 */
+    .stats-cards {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .stats-grid-modern {
+        grid-template-columns: repeat(4, 1fr);
+    }
+    
+    /* 横屏弹窗不用底部 sheet */
+    .invite-modal,
+    .announcement-dialog,
+    .confirm-dialog {
+        border-radius: 16px;
+        max-height: 80vh;
+    }
+    
+    /* 横屏套餐卡片 2 列 */
+    .plans-grid-new {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    /* 搜索结果 3 列 */
+    .search-results {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+/* ---- 触摸设备优化 ---- */
+@media (hover: none) and (pointer: coarse) {
+    /* 禁用所有 hover 抬升效果 */
+    .stat-card:hover,
+    .plan-card-new:hover,
+    .benefit-item:hover,
+    .stats-cards .stat-card:hover,
+    .profile-stat-card:hover,
+    .my-device-card:hover,
+    .quick-action-item:hover {
+        transform: none;
+        box-shadow: inherit;
+    }
+    
+    /* 添加 active 按压反馈 */
+    .stat-card:active,
+    .plan-card-new:active,
+    .benefit-item:active,
+    .quick-action-item:active {
+        transform: scale(0.97);
+        transition: transform 0.1s;
+    }
+    
+    button:active, .btn:active, a.btn:active,
+    .tab-button:active,
+    .copy-btn:active,
+    .order-btn:active,
+    .redeem-btn:active {
+        transform: scale(0.96);
+        transition: transform 0.1s;
+    }
+    
+    /* 滚动条自动隐藏 */
+    * {
+        scrollbar-width: none;
+    }
+    
+    *::-webkit-scrollbar {
+        display: none;
+    }
+    
+    /* 禁止长按弹出菜单 */
+    img, a {
+        -webkit-touch-callout: none;
+    }
+    
+    /* 消除 iOS 点击 300ms 延迟 */
+    a, button, input, select, textarea, .tab-button {
+        touch-action: manipulation;
+    }
+    
+    /* 增大关闭按钮触摸面积 */
+    .invite-modal-close,
+    .mobile-menu-close,
+    .dialog-close-x {
+        min-width: 44px;
+        min-height: 44px;
+    }
+}
+
+/* ---- iOS 安全区域全局支持 ---- */
+@supports (padding: env(safe-area-inset-top)) {
+    .mobile-header {
+        padding-top: env(safe-area-inset-top);
+        height: calc(56px + env(safe-area-inset-top));
+    }
+    
+    .sidebar {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+    
+    .mobile-menu-drawer {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+}

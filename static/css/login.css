@@ -518,7 +518,7 @@ body.page-login {
             
             .form-input {
                 padding: 10px 13px;
-                font-size: 14px;
+                font-size: 16px;
             }
             
             .submit-btn {
@@ -528,5 +528,63 @@ body.page-login {
             
             .main-content {
                 padding: 12px 10px 28px;
+                padding-bottom: calc(28px + env(safe-area-inset-bottom));
+            }
+        }
+
+        /* 触摸设备优化 */
+        @media (hover: none) and (pointer: coarse) {
+            .submit-btn:hover {
+                transform: none;
+                box-shadow: none;
+            }
+            
+            .submit-btn:active {
+                transform: scale(0.97);
+                transition: transform 0.1s;
+            }
+            
+            .nav-links a:active,
+            .drawer-links a:active {
+                background: #f0f4ff;
+            }
+            
+            /* 最小触摸面积 */
+            .menu-toggle,
+            .drawer-close,
+            .submit-btn,
+            .forgot-link a {
+                min-height: 44px;
+                min-width: 44px;
+            }
+            
+            /* 防止 iOS 缩放 */
+            .form-input {
+                font-size: 16px !important;
+            }
+            
+            /* 消除点击延迟 */
+            a, button, input, .menu-toggle {
+                touch-action: manipulation;
+            }
+        }
+        
+        /* iOS 安全区域支持 */
+        @supports (padding: env(safe-area-inset-top)) {
+            .header {
+                padding-top: calc(16px + env(safe-area-inset-top));
+                margin-top: calc(20px + env(safe-area-inset-top));
+            }
+            
+            .mobile-drawer {
+                padding-top: calc(24px + env(safe-area-inset-top));
+                padding-bottom: env(safe-area-inset-bottom);
+            }
+            
+            @media (max-width: 768px) {
+                .header {
+                    margin-top: calc(10px + env(safe-area-inset-top));
+                    padding-top: calc(10px + env(safe-area-inset-top));
+                }
             }
         }

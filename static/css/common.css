@@ -351,3 +351,36 @@ select {
         font-size: 15px;
     }
 }
+
+/* 触摸设备优化 */
+@media (hover: none) and (pointer: coarse) {
+    .global-confirm-btn.confirm:hover,
+    .global-confirm-btn.cancel:hover {
+        transform: none;
+        box-shadow: none;
+    }
+    
+    .global-confirm-btn:active {
+        transform: scale(0.96);
+        transition: transform 0.1s;
+    }
+    
+    .global-confirm-btn {
+        min-height: 44px;
+    }
+    
+    /* 消除点击延迟 */
+    .global-confirm-btn {
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+    }
+}
+
+/* iOS 安全区域增强 */
+@supports (padding: env(safe-area-inset-bottom)) {
+    @media (max-width: 480px) {
+        .global-confirm-dialog {
+            padding-bottom: calc(24px + env(safe-area-inset-bottom));
+        }
+    }
+}

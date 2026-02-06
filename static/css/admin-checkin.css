@@ -303,3 +303,198 @@
 .empty-state-text {
     font-size: 14px;
 }
+
+/* ==================== 移动端响应式设计 ==================== */
+
+/* 平板端 */
+@media (max-width: 768px) {
+    /* Toggle 容器堆叠 */
+    .toggle-switch-container {
+        flex-direction: column;
+        padding: 14px;
+    }
+    
+    /* 套餐项内容堆叠 */
+    .plan-item-content {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    
+    .plan-item-actions {
+        width: 100%;
+    }
+    
+    .plan-item-actions button,
+    .plan-item-actions .btn {
+        flex: 1;
+        text-align: center;
+        min-height: 44px;
+    }
+    
+    .plan-item-details {
+        flex-wrap: wrap;
+        gap: 8px;
+        font-size: 13px;
+    }
+    
+    /* 弹窗移动端优化 */
+    .modal-medium {
+        width: 95%;
+        max-width: 100%;
+    }
+    
+    .modal-content {
+        border-radius: 16px;
+    }
+    
+    .modal-header {
+        padding: 16px 20px;
+    }
+    
+    .modal-header h3 {
+        font-size: 18px;
+    }
+    
+    .modal-body {
+        padding: 20px 16px;
+    }
+    
+    .modal-footer {
+        padding: 14px 16px;
+        flex-direction: column-reverse;
+    }
+    
+    .modal-footer button,
+    .modal-footer .btn {
+        width: 100%;
+        min-height: 44px;
+    }
+    
+    /* 套餐列表选项 */
+    .plan-option {
+        padding: 14px 12px;
+    }
+    
+    .plan-option-name {
+        font-size: 14px;
+    }
+    
+    .plan-option-meta {
+        font-size: 12px;
+    }
+    
+    /* 兑换套餐容器 */
+    .exchange-plans-container {
+        max-height: 350px;
+    }
+    
+    .exchange-plan-item {
+        padding: 14px 12px;
+    }
+}
+
+/* 小屏手机 */
+@media (max-width: 480px) {
+    /* 弹窗底部 sheet 模式 */
+    .modal.active {
+        align-items: flex-end;
+        padding: 0;
+    }
+    
+    .modal-content {
+        border-radius: 16px 16px 0 0;
+        width: 100%;
+        max-width: 100%;
+        max-height: 90vh;
+        animation: slideUpSheet 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    @keyframes slideUpSheet {
+        from {
+            transform: translateY(100%);
+            opacity: 0.5;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+    
+    .modal-header h3 {
+        font-size: 16px;
+    }
+    
+    .modal-close {
+        min-width: 44px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .plan-item-name {
+        font-size: 14px;
+    }
+    
+    .plans-list {
+        padding: 8px;
+        max-height: 250px;
+    }
+    
+    .empty-state {
+        padding: 24px 16px;
+    }
+    
+    .empty-state-icon {
+        font-size: 36px;
+    }
+}
+
+/* 触摸设备优化 */
+@media (hover: none) and (pointer: coarse) {
+    .exchange-plan-item:hover {
+        box-shadow: inherit;
+        border-color: inherit;
+    }
+    
+    .exchange-plan-item:active {
+        background: #f7fafc;
+        transition: background 0.1s;
+    }
+    
+    .plan-option:hover {
+        border-color: #e2e8f0;
+        background: #ffffff;
+    }
+    
+    .plan-option:active {
+        border-color: #4299e1;
+        background: #ebf8ff;
+    }
+    
+    /* 最小触摸面积 */
+    .toggle-switch {
+        min-width: 52px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+    
+    .modal-close,
+    .plan-item-actions button {
+        min-width: 44px;
+        min-height: 44px;
+    }
+    
+    a, button, input {
+        touch-action: manipulation;
+    }
+    
+    /* 防止 iOS 缩放 */
+    input[type="text"],
+    input[type="number"],
+    select, textarea {
+        font-size: 16px !important;
+    }
+}

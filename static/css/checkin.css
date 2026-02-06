@@ -589,4 +589,169 @@
     .checkin-mini-hint {
         display: none;
     }
+    
+    /* 签到按钮移动端增强 */
+    .checkin-btn {
+        width: 100%;
+        justify-content: center;
+        padding: 14px 24px;
+        min-height: 44px;
+    }
+    
+    /* 兑换记录移动端 */
+    .exchange-record-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    
+    .record-details {
+        width: 100%;
+        justify-content: flex-start;
+    }
+    
+    /* 签到卡片移动端 */
+    .checkin-card {
+        padding: 20px 16px;
+        border-radius: 14px;
+    }
+    
+    .coin-amount {
+        font-size: 24px;
+    }
+    
+    .stat-item {
+        padding: 6px 10px;
+    }
+    
+    .stat-value {
+        font-size: 20px;
+    }
+    
+    /* 签到成功动画移动端 */
+    .checkin-success-animation {
+        width: calc(100% - 40px);
+        max-width: 320px;
+        padding: 32px 24px;
+    }
+    
+    .success-icon {
+        font-size: 48px;
+    }
+    
+    .success-text {
+        font-size: 20px;
+    }
+    
+    .success-reward {
+        font-size: 18px;
+    }
+}
+
+/* 小屏手机优化 */
+@media (max-width: 480px) {
+    .checkin-card {
+        padding: 16px 12px;
+        border-radius: 12px;
+    }
+    
+    .coin-display {
+        gap: 8px;
+    }
+    
+    .coin-icon {
+        font-size: 24px;
+    }
+    
+    .coin-amount {
+        font-size: 22px;
+    }
+    
+    .coin-label {
+        font-size: 12px;
+    }
+    
+    .checkin-stats {
+        gap: 8px;
+    }
+    
+    .stat-item {
+        padding: 5px 8px;
+        border-radius: 6px;
+    }
+    
+    .stat-value {
+        font-size: 18px;
+    }
+    
+    .stat-label, .stat-unit {
+        font-size: 10px;
+    }
+    
+    .calendar-day {
+        padding: 4px 2px;
+        border-radius: 6px;
+    }
+    
+    .day-status {
+        font-size: 14px;
+    }
+    
+    .exchange-plan {
+        padding: 16px;
+    }
+    
+    .plan-name {
+        font-size: 14px;
+    }
+    
+    .plan-price {
+        font-size: 16px;
+    }
+    
+    .exchange-btn {
+        padding: 10px;
+        font-size: 13px;
+    }
+    
+    .exchange-records {
+        padding: 16px 12px;
+    }
+    
+    .records-header h3 {
+        font-size: 16px;
+    }
+}
+
+/* 触摸设备优化 */
+@media (hover: none) and (pointer: coarse) {
+    .checkin-btn:hover:not(:disabled),
+    .exchange-btn:hover:not(:disabled),
+    .exchange-plan:not(.disabled):hover,
+    .checkin-mini-btn:hover:not(:disabled) {
+        transform: none;
+        box-shadow: inherit;
+    }
+    
+    .checkin-btn:active:not(:disabled),
+    .exchange-btn:active:not(:disabled),
+    .checkin-mini-btn:active:not(:disabled) {
+        transform: scale(0.96);
+        transition: transform 0.1s;
+    }
+    
+    .exchange-plan:not(.disabled):active {
+        transform: scale(0.98);
+        transition: transform 0.1s;
+    }
+    
+    /* 最小触摸面积 */
+    .checkin-btn, .exchange-btn,
+    .checkin-mini-btn, .view-all-btn {
+        min-height: 44px;
+    }
+    
+    a, button {
+        touch-action: manipulation;
+    }
 }
