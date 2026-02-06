@@ -2147,6 +2147,20 @@ async function closeCurrentTicket() {
 async function loadInviteStats() {
     try {
         const response = await fetch('/api/admin/invite-stats');
+        if (!response.ok) {
+            if (response.status === 403) {
+                showToast('权限不足', '请重新登录管理后台', 'error');
+                return;
+            }
+            const errText = await response.text();
+            let errMsg = '服务器错误 (' + response.status + ')';
+            try {
+                const errData = JSON.parse(errText);
+                errMsg = errData.error || errMsg;
+            } catch(e) {}
+            showToast('加载失败', errMsg, 'error');
+            return;
+        }
         const data = await response.json();
         
         if (data.success) {
@@ -2161,7 +2175,7 @@ async function loadInviteStats() {
         }
     } catch (error) {
         console.error('加载邀请统计失败:', error);
-        showToast('网络错误', '请检查网络连接', 'error');
+        showToast('加载失败', '邀请统计加载异常: ' + error.message, 'error');
     }
 }
 

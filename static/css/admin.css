@@ -6813,10 +6813,17 @@ select.custom-select:focus,
     bottom: 0;
     background: rgba(0, 0, 0, 0.7);
     z-index: 999;
+    transition: opacity 0.3s ease;
 }
 
-.sidebar-overlay.active {
+.sidebar-overlay.active,
+.sidebar-overlay.show {
     display: block;
+}
+
+/* 默认隐藏移动端元素（桌面端不显示） */
+.mobile-header {
+    display: none;
 }
 
 /* ==================== 平板适配 (769px - 1024px) ==================== */
@@ -8289,7 +8296,7 @@ select.custom-select:focus,
     font-size: 16px;
 }
 
-/* ==================== 默认隐藏移动端元素 ==================== */
-.mobile-header {
-    display: none;
-}
+/* ==================== 移动端元素默认样式 ==================== */
+/* 注意: 此处不再设置 mobile-header 的 display，
+   因为该规则会覆盖 @media 中的 display: flex。
+   mobile-header 的默认隐藏已在 .mobile-header 原始定义中处理 */
