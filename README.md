@@ -659,6 +659,38 @@ A: 如果用户订阅未过期，则在当前到期时间基础上增加；如�
 
 ---
 
+## 📝 更新日志
+
+### v2.1.0 (2026-02-07) — 安全加固 & 代码优化
+
+#### 🔒 安全加固
+- **安全响应头** — `after_request` 添加 4 个安全头：
+  - `X-Content-Type-Options: nosniff` — 防止 MIME 类型嗅探
+  - `X-Frame-Options: SAMEORIGIN` — 防止点击劫持
+  - `X-XSS-Protection: 1; mode=block` — 浏览器内置 XSS 防护
+  - `Referrer-Policy: strict-origin-when-cross-origin` — 控制 Referrer 泄露
+- **Session Cookie 安全**：
+  - `SESSION_COOKIE_HTTPONLY = True` — 禁止 JS 读取 Cookie，防止 XSS 窃取
+  - `SESSION_COOKIE_SAMESITE = Lax` — 防止 CSRF 跨站请求伪造
+  - `PERMANENT_SESSION_LIFETIME = 7天` — Session 自动过期
+- **FLASK_DEBUG 默认关闭** — 默认值从 `True` 改为 `False`，生产环境不再暴露堆栈和源码（如需调试，设置环境变量 `FLASK_DEBUG=True`）
+- **清理后端调试输出** — 移除启动时 print 的 MoviePilot 配置信息，避免日志泄露
+
+#### 🧹 代码清理
+- **清理 console.log** — 清除 6 个 JS 文件中约 50+ 条调试日志，防止浏览器控制台暴露内部逻辑
+  - `admin.js`、`dashboard.js`、`checkin.js`、`admin-checkin.js`、`login.js`、`sw.js`
+  - 保留所有 `console.error` / `console.warn`（错误处理日志）
+
+#### 📦 缓存优化
+- **Gzip Vary 头** — 压缩响应后添加 `Vary: Accept-Encoding`，确保 CDN/代理正确缓存
+- **Service Worker 版本更新** — `emby-request-v1` → `v2`，浏览器自动清理旧缓存
+- **静态文件版本号统一** — 修复同一文件在不同模板版本号不一致的问题：
+  - `common.css` → v23（全站统一）
+  - `common.js` → v22（全站统一）
+  - 更新所有修改过的 JS/CSS 文件版本号
+
+---
+
 <p align="center">
   Made with ❤️ by <a href="https://github.com/qwer8856">qwer8856</a>
 </p>
