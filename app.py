@@ -5385,15 +5385,6 @@ def _build_default_notification_full(vars):
     
     lines.extend(info_lines)
     
-    # 简介（如果有且不是默认的"暂无简介"）
-    overview = vars.get('overview', '')
-    if overview and overview != '暂无简介' and len(overview) > 10:
-        lines.append("")
-        # 截断过长的简介
-        if len(overview) > 200:
-            overview = overview[:200] + "..."
-        lines.append(f"📝 {overview}")
-    
     return '\n'.join(lines)
 
 
