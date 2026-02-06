@@ -9330,59 +9330,128 @@ select.custom-select:focus,
         justify-content: center;
         padding: 10px;
         border-radius: 10px;
-        font-size: 13px;
-        font-weight: 600;
-        height: auto;
+        width: 100%;
+        box-sizing: border-box;
     }
 
-    /* 快捷操作区适配 */
-    .quick-actions {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-        /* 网格布局而非横向滚动 */
-        gap: 12px;
-        padding: 0;
-        overflow: visible;
-        margin-bottom: 24px;
-    }
-
-    .quick-actions .action-item {
+    .admin-stats-grid .stat-card,
+    .stats .stat-card {
         background: #fff;
         border-radius: 16px;
         padding: 16px;
-        border: 1px solid #e5e5e5;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         display: flex;
         flex-direction: column;
-        align-items: center;
-        text-align: center;
+        align-items: flex-start;
+        gap: 12px;
+        border: 1px solid #e5e5e5;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        color: inherit;
+        text-decoration: none;
+        width: auto !important;
+        /* 防止被挤压 */
         min-width: 0;
-        /* 防止溢出 */
+        /* 允许 flex item 缩小 */
+        height: auto;
     }
 
-    .quick-actions .action-icon {
-        width: 48px;
-        height: 48px;
+    /* 修复可能存在的空内容导致高度塌陷或其他布局问题 */
+    .admin-stats-grid .stat-card:empty,
+    .stats .stat-card:empty {
+        display: none;
+    }
+
+    .admin-stats-grid .stat-icon,
+    .stats .stat-icon {
+        width: 44px;
+        height: 44px;
+        font-size: 22px;
         border-radius: 12px;
-        font-size: 24px;
+        background: #f3f4f6;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: 12px;
-        background: #f3f4f6;
+        margin-bottom: 4px;
+        color: #3b82f6;
+        flex-shrink: 0;
     }
 
-    .quick-actions .action-info h4 {
-        font-size: 18px;
+    /* 特定状态的图标背景/颜色 */
+    .stats .stat-card.pending .stat-icon,
+    .admin-stats-grid .stat-card.pending .stat-icon {
+        color: #f59e0b;
+        background: #fffbeb;
+    }
+
+    .stats .stat-card.approved .stat-icon,
+    .admin-stats-grid .stat-card.approved .stat-icon {
+        color: #10b981;
+        background: #ecfdf5;
+    }
+
+    .stats .stat-card.completed .stat-icon,
+    .admin-stats-grid .stat-card.completed .stat-icon {
+        color: #3b82f6;
+        background: #eff6ff;
+    }
+
+    .stats .stat-card.rejected .stat-icon,
+    .admin-stats-grid .stat-card.rejected .stat-icon {
+        color: #ef4444;
+        background: #fef2f2;
+    }
+
+    /* 适配邀请统计等部分的特定样式 */
+    .admin-stats-grid .stat-card.success .stat-icon {
+        color: #10b981;
+        background: #ecfdf5;
+    }
+
+    .admin-stats-grid .stat-card.warning .stat-icon {
+        color: #f59e0b;
+        background: #fffbeb;
+    }
+
+    .admin-stats-grid .stat-card.rewards .stat-icon {
+        color: #ef4444;
+        background: #fef2f2;
+    }
+
+    .admin-stats-grid .stat-card.admin .stat-icon {
+        color: #7c3aed;
+        background: #ede9fe;
+    }
+
+    .admin-stats-grid .stat-content,
+    .stats .stat-content {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        width: 100%;
+        overflow: hidden;
+        /* 防止文字溢出撑开 */
+    }
+
+    .admin-stats-grid .stat-content h3,
+    .stats .stat-content h3 {
+        font-size: 20px;
+        /* 稍微调小一点以免换行 */
         font-weight: 700;
         color: #111827;
-        margin: 0 0 4px 0;
+        margin: 0;
+        line-height: 1.2;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
-    .quick-actions .action-info p {
+    .admin-stats-grid .stat-content p,
+    .stats .stat-content p {
         font-size: 13px;
         color: #6b7280;
         margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     /* 过滤 Tab 滚动优化 */
