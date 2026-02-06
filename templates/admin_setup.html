@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>首次配置 - Emby Request</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .setup-container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 480px;
+            padding: 40px;
+        }
+        
+        .setup-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .setup-header .icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        
+        .setup-header h1 {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        
+        .setup-header p {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .warning-box {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 24px;
+        }
+        
+        .warning-box h3 {
+            color: #856404;
+            font-size: 14px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .warning-box p {
+            color: #856404;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .form-group .hint {
+            font-size: 12px;
+            color: #999;
+            margin-top: 6px;
+        }
+        
+        .form-group .path-preview {
+            font-size: 12px;
+            color: #667eea;
+            margin-top: 6px;
+            font-family: monospace;
+        }
+        
+        .btn-submit {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-submit:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .error-message {
+            background: #fee2e2;
+            color: #dc2626;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+        
+        .success-message {
+            background: #d1fae5;
+            color: #059669;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+        
+        /* Toast 弹窗 */
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            z-index: 9999;
+            transform: translateX(120%);
+            transition: transform 0.3s ease;
+        }
+        
+        .toast.show {
+            transform: translateX(0);
+        }
+        
+        .toast.success {
+            background: #10b981;
+        }
+        
+        .toast.error {
+            background: #ef4444;
+        }
+        
+        /* 结果弹窗 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .modal-overlay.show {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 400px;
+            text-align: center;
+        }
+        
+        .modal-content .icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+        
+        .modal-content h2 {
+            color: #333;
+            margin-bottom: 12px;
+        }
+        
+        .modal-content p {
+            color: #666;
+            margin-bottom: 8px;
+        }
+        
+        .modal-content .new-path {
+            background: #f3f4f6;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 14px;
+            margin: 16px 0;
+            word-break: break-all;
+        }
+        
+        .modal-content .btn {
+            padding: 14px 32px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="setup-container">
+        <div class="setup-header">
+            <div class="icon">⚙️</div>
+            <h1>首次配置</h1>
+            <p>请设置您的管理员账号和后台入口</p>
+        </div>
+        
+        <div class="warning-box">
+            <h3>⚠️ 安全提示</h3>
+            <p>这是首次登录，请立即修改默认的管理员账号、密码和后台入口路径。配置完成后，您需要使用新的入口地址重新登录。</p>
+        </div>
+        
+        <div class="error-message" id="errorMsg"></div>
+        
+        <form id="setupForm">
+            <div class="form-group">
+                <label for="username">管理员用户名</label>
+                <input type="text" id="username" name="username" placeholder="请输入新的用户名" required minlength="2">
+                <div class="hint">至少2个字符</div>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">管理员密码</label>
+                <input type="password" id="password" name="password" placeholder="请输入新的密码" required minlength="6">
+                <div class="hint">至少6个字符，建议使用强密码</div>
+            </div>
+            
+            <div class="form-group">
+                <label for="confirm_password">确认密码</label>
+                <input type="password" id="confirm_password" name="confirm_password" placeholder="请再次输入密码" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="secret_path">后台入口路径</label>
+                <input type="text" id="secret_path" name="secret_path" placeholder="请输入随机路径" required minlength="5" pattern="[a-zA-Z0-9_-]+">
+                <div class="hint">至少5个字符，只能包含字母、数字、下划线和横线</div>
+                <div class="path-preview" id="pathPreview"></div>
+            </div>
+            
+            <button type="submit" class="btn-submit" id="submitBtn">保存配置</button>
+        </form>
+    </div>
+    
+    <!-- 成功弹窗 -->
+    <div class="modal-overlay" id="successModal">
+        <div class="modal-content">
+            <div class="icon">✅</div>
+            <h2>配置成功！</h2>
+            <p>您的新后台入口地址是：</p>
+            <div class="new-path" id="newPathDisplay"></div>
+            <p style="color: #ef4444; font-size: 13px;">请妥善保存此地址，这是访问管理后台的唯一入口！</p>
+            <button class="btn" onclick="goToNewPath()">前往新入口登录</button>
+        </div>
+    </div>
+    
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+    
+    <script>
+        let newPath = '';
+        
+        // 路径预览
+        document.getElementById('secret_path').addEventListener('input', function(e) {
+            const path = e.target.value.trim();
+            const preview = document.getElementById('pathPreview');
+            if (path) {
+                preview.textContent = `访问地址: ${window.location.origin}/${path}`;
+            } else {
+                preview.textContent = '';
+            }
+        });
+        
+        // 表单提交
+        document.getElementById('setupForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+            const secretPath = document.getElementById('secret_path').value.trim();
+            
+            // 前端验证
+            if (password !== confirmPassword) {
+                showError('两次输入的密码不一致');
+                return;
+            }
+            
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = '保存中...';
+            
+            try {
+                const response = await fetch('/api/admin/setup', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        password: password,
+                        confirm_password: confirmPassword,
+                        secret_path: secretPath
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    newPath = result.new_path;
+                    document.getElementById('newPathDisplay').textContent = window.location.origin + newPath;
+                    document.getElementById('successModal').classList.add('show');
+                } else {
+                    showError(result.error || '保存失败');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '保存配置';
+                }
+            } catch (err) {
+                showError('请求失败: ' + err.message);
+                submitBtn.disabled = false;
+                submitBtn.textContent = '保存配置';
+            }
+        });
+        
+        function showError(message) {
+            const errorMsg = document.getElementById('errorMsg');
+            errorMsg.textContent = message;
+            errorMsg.style.display = 'block';
+            setTimeout(() => {
+                errorMsg.style.display = 'none';
+            }, 5000);
+        }
+        
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast ' + type + ' show';
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+        
+        function goToNewPath() {
+            window.location.href = newPath;
+        }
+    </script>
+</body>
+</html>

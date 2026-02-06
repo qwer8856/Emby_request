@@ -1,0 +1,592 @@
+/* ==================== 签到系统样式 ==================== */
+
+/* 签到容器 */
+.checkin-container {
+    margin: 20px 0;
+}
+
+/* 签到卡片 */
+.checkin-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 16px;
+    padding: 24px;
+    color: white;
+    box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
+    margin-bottom: 20px;
+}
+
+/* 签到信息区域 */
+.checkin-info-area {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    gap: 20px;
+}
+
+/* 签到状态盒子 */
+.checkin-status-box {
+    flex: 1;
+}
+
+/* 积分显示 */
+.coin-display {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.coin-icon {
+    font-size: 32px;
+}
+
+.coin-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.coin-label {
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+.coin-amount {
+    font-size: 28px;
+    font-weight: bold;
+}
+
+/* 签到统计 */
+.checkin-stats {
+    display: flex;
+    gap: 20px;
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+}
+
+.stat-label {
+    font-size: 12px;
+    opacity: 0.9;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: bold;
+    margin: 4px 0;
+}
+
+.stat-unit {
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+/* 签到操作盒子 */
+.checkin-action-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+/* 签到按钮 */
+.checkin-btn {
+    background: white;
+    color: #667eea;
+    border: none;
+    border-radius: 12px;
+    padding: 16px 32px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.checkin-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+}
+
+.checkin-btn:disabled, .checkin-btn.disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+.checkin-btn .btn-icon {
+    font-size: 20px;
+}
+
+.checkin-hint {
+    font-size: 12px;
+    opacity: 0.9;
+}
+
+/* 签到日历 */
+.checkin-calendar {
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    padding-top: 16px;
+}
+
+.calendar-title {
+    font-size: 14px;
+    margin-bottom: 12px;
+    opacity: 0.9;
+}
+
+.calendar-days {
+    display: flex;
+    gap: 8px;
+    justify-content: space-around;
+}
+
+.calendar-day {
+    flex: 1;
+    text-align: center;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.calendar-day.checked {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.calendar-day.today {
+    border: 2px solid white;
+}
+
+.day-label {
+    font-size: 11px;
+    margin-bottom: 4px;
+    opacity: 0.9;
+}
+
+.day-status {
+    font-size: 18px;
+}
+
+/* 兑换套餐区域 */
+.exchange-section {
+    margin-bottom: 20px;
+}
+
+.exchange-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 16px;
+    color: var(--text-primary);
+}
+
+.exchange-plans {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 16px;
+}
+
+.exchange-plan {
+    background: white;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px;
+    transition: all 0.3s ease;
+}
+
+.exchange-plan:not(.disabled):hover {
+    border-color: #667eea;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+    transform: translateY(-2px);
+}
+
+.exchange-plan.disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.plan-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.plan-name {
+    font-size: 16px;
+    font-weight: bold;
+    color: var(--text-primary);
+}
+
+.plan-price {
+    font-size: 18px;
+    font-weight: bold;
+    color: #667eea;
+}
+
+.plan-duration {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+.exchange-btn {
+    width: 100%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.exchange-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.exchange-btn.disabled, .exchange-btn:disabled {
+    background: #cbd5e0;
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+.no-plans {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+/* 兑换记录 */
+.exchange-records {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.records-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.records-header h3 {
+    font-size: 18px;
+    font-weight: bold;
+    color: var(--text-primary);
+}
+
+.view-all-btn {
+    background: none;
+    border: none;
+    color: #667eea;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.view-all-btn:hover {
+    text-decoration: underline;
+}
+
+.records-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.exchange-record-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: #f7fafc;
+    border-radius: 8px;
+    border-left: 3px solid #667eea;
+}
+
+.record-info {
+    flex: 1;
+}
+
+.record-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.record-time {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.record-details {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.record-cost {
+    font-size: 14px;
+    font-weight: bold;
+    color: #e53e3e;
+}
+
+.record-days {
+    font-size: 14px;
+    font-weight: bold;
+    color: #38a169;
+}
+
+.no-records {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+/* 签到成功动画 */
+.checkin-success-animation {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    border-radius: 16px;
+    padding: 40px;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
+    text-align: center;
+    z-index: 10000;
+    animation: bounceIn 0.5s ease;
+}
+
+.checkin-success-animation.fade-out {
+    animation: fadeOut 0.3s ease forwards;
+}
+
+.success-icon {
+    font-size: 64px;
+    margin-bottom: 16px;
+}
+
+.success-text {
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+}
+
+.success-reward {
+    font-size: 20px;
+    color: #667eea;
+    font-weight: bold;
+}
+
+@keyframes bounceIn {
+    0% {
+        transform: translate(-50%, -50%) scale(0.3);
+        opacity: 0;
+    }
+    50% {
+        transform: translate(-50%, -50%) scale(1.05);
+    }
+    70% {
+        transform: translate(-50%, -50%) scale(0.9);
+    }
+    100% {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes fadeOut {
+    to {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.8);
+    }
+}
+
+/* ==================== 签到迷你卡片样式（正方形） ==================== */
+.checkin-mini-card {
+    flex-shrink: 0;
+    width: 180px;
+    min-height: 100%;
+    background: white;
+    border-radius: 14px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e5e7eb;
+    overflow: hidden;
+    display: flex;
+    align-items: stretch;
+}
+
+.checkin-mini-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 16px 14px;
+    box-sizing: border-box;
+    text-align: center;
+}
+
+.checkin-mini-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.checkin-mini-icon {
+    font-size: 16px;
+}
+
+.checkin-mini-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+}
+
+.checkin-mini-coins {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 10px;
+}
+
+.coin-icon-mini {
+    font-size: 18px;
+}
+
+.coin-value-mini {
+    font-size: 22px;
+    font-weight: bold;
+    color: #667eea;
+}
+
+.coin-name-mini {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.checkin-mini-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 20px;
+    padding: 8px 24px;
+    font-size: 13px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.checkin-mini-btn:hover:not(:disabled) {
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.checkin-mini-btn:disabled, .checkin-mini-btn.disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none !important;
+    background: #9ca3af;
+    box-shadow: none;
+}
+
+.checkin-mini-hint {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-top: 6px;
+    min-height: 16px;
+}
+
+/* 签到兑换区域 */
+.checkin-exchange-section {
+    margin: 20px 0;
+}
+
+.checkin-exchange-section .exchange-title {
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 12px;
+    color: var(--text-primary);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .checkin-info-area {
+        flex-direction: column;
+    }
+    
+    .exchange-plans {
+        grid-template-columns: 1fr;
+    }
+    
+    .checkin-stats {
+        width: 100%;
+        justify-content: space-around;
+    }
+    
+    .calendar-days {
+        gap: 4px;
+    }
+    
+    .calendar-day {
+        padding: 6px 4px;
+    }
+    
+    .day-label {
+        font-size: 10px;
+    }
+    
+    .day-status {
+        font-size: 16px;
+    }
+    
+    /* 签到迷你卡片移动端适配 */
+    .checkin-mini-card {
+        width: 100%;
+        height: auto;
+        min-height: 100px;
+    }
+    
+    .checkin-mini-content {
+        flex-direction: row;
+        justify-content: space-between;
+        padding: 14px 16px;
+        gap: 12px;
+    }
+    
+    .checkin-mini-header {
+        margin-bottom: 0;
+    }
+    
+    .checkin-mini-coins {
+        margin-bottom: 0;
+        flex: 1;
+        justify-content: center;
+    }
+    
+    .checkin-mini-hint {
+        display: none;
+    }
+}
