@@ -1,0 +1,2940 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理面板 - Emby管理系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}?v=12">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=17">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-checkin.css') }}?v=1">
+    <!-- 防止刷新页面时闪屏 -->
+    <style id="preload-style">
+        .admin-section {
+            display: none !important;
+        }
+    </style>
+    <!-- 禁用搜索框自动填充的样式 -->
+    <style>
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active {
+            -webkit-box-shadow: 0 0 0 30px white inset !important;
+            box-shadow: 0 0 0 30px white inset !important;
+        }
+
+        .search-box input,
+        .filter-input {
+            -webkit-text-security: none;
+        }
+    </style>
+    <style>
+        /* 单选按钮样式 */
+        .radio-label {
+            display: inline-flex;
+            align-items: center;
+            cursor: pointer;
+            font-size: 14px;
+            user-select: none;
+        }
+
+        .radio-label input[type="radio"] {
+            margin-right: 6px;
+            cursor: pointer;
+        }
+
+        .radio-label:hover {
+            color: var(--primary-color);
+        }
+
+        /* 复选框样式 */
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            font-size: 14px;
+            user-select: none;
+            padding: 8px 0;
+        }
+
+        .checkbox-label input[type="checkbox"] {
+            margin-right: 8px;
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+        }
+
+        .checkbox-label:hover {
+            color: var(--primary-color);
+        }
+
+        .checkbox-label span {
+            font-weight: 500;
+        }
+    </style>
+    <script>
+        (function () {
+            var hash = window.location.hash.slice(1);
+            var validSections = ['requests', 'users', 'orders', 'redeem', 'playback', 'tickets', 'invites', 'plans', 'knowledge', 'settings'];
+            // 如果没有hash或hash是requests（默认），移除预加载样式让默认的active生效
+            if (!hash || hash === 'requests' || validSections.indexOf(hash) === -1) {
+                var style = document.getElementById('preload-style');
+                if (style) style.remove();
+            }
+        })();
+    </script>
+</head>
+
+<body class="page-admin">
+    <!-- 移动端顶部栏 -->
+    <header class="mobile-header">
+        <button class="mobile-menu-toggle" id="mobileMenuToggle" onclick="toggleSidebar()">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+        <div class="mobile-logo">
+            {% if site_config.site_logo %}
+            <img src="{{ site_config.site_logo }}" alt="Logo">
+            {% endif %}
+            <span>{{ site_config.site_name or 'Emby' }}</span>
+        </div>
+        <div class="mobile-user-avatar">{{ (session.get('username', 'A'))[0].upper() }}</div>
+    </header>
+
+    <div class="admin-layout">
+        <!-- 侧边栏导航 -->
+        <aside class="admin-sidebar">
+            <div class="sidebar-header">
+                <div class="logo-icon">
+                    <span>📋</span>
+                </div>
+                <span class="logo-text">管理面板</span>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-section="requests"
+                    onclick="switchAdminSection('requests', event)">
+                    <span class="nav-icon">📋</span>
+                    <span class="nav-text">求片管理</span>
+                </a>
+                <a href="#" class="nav-item" data-section="users" onclick="switchAdminSection('users', event)">
+                    <span class="nav-icon">👥</span>
+                    <span class="nav-text">用户管理</span>
+                </a>
+                <a href="#" class="nav-item" data-section="orders" onclick="switchAdminSection('orders', event)">
+                    <span class="nav-icon">📦</span>
+                    <span class="nav-text">订单管理</span>
+                </a>
+                <a href="#" class="nav-item" data-section="redeem" onclick="switchAdminSection('redeem', event)">
+                    <span class="nav-icon">🎟️</span>
+                    <span class="nav-text">兑换码管理</span>
+                </a>
+                <a href="#" class="nav-item" data-section="playback" onclick="switchAdminSection('playback', event)">
+                    <span class="nav-icon">📺</span>
+                    <span class="nav-text">播放监控</span>
+                </a>
+                <a href="#" class="nav-item" data-section="tickets" onclick="switchAdminSection('tickets', event)">
+                    <span class="nav-icon">🎫</span>
+                    <span class="nav-text">工单管理</span>
+                </a>
+                <a href="#" class="nav-item" data-section="invites" onclick="switchAdminSection('invites', event)">
+                    <span class="nav-icon">🎁</span>
+                    <span class="nav-text">邀请统计</span>
+                </a>
+                <a href="#" class="nav-item" data-section="plans" onclick="switchAdminSection('plans', event)">
+                    <span class="nav-icon">💰</span>
+                    <span class="nav-text">套餐配置</span>
+                </a>
+                <a href="#" class="nav-item" data-section="knowledge" onclick="switchAdminSection('knowledge', event)">
+                    <span class="nav-icon">📚</span>
+                    <span class="nav-text">知识库</span>
+                </a>
+                <a href="#" class="nav-item" data-section="settings" onclick="switchAdminSection('settings', event)">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">系统设置</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="sidebar-footer-row">
+                    <a href="javascript:void(0)" class="nav-item-compact" onclick="adminLogout()">
+                        <span class="nav-icon">🚪</span>
+                        <span class="nav-text">退出后台</span>
+                    </a>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 侧边栏遮罩层（移动端用） -->
+        <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+        <!-- 主内容区 -->
+        <main class="admin-main">
+            <!-- 顶部导航栏 -->
+            <div class="admin-topbar">
+                <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+                <h1 class="page-title" id="pageTitle">求片管理</h1>
+                <div class="topbar-actions">
+                    <span class="admin-user">{{ session.get('username', '管理员') }}</span>
+                </div>
+            </div>
+
+            <div class="admin-content">
+                <!-- 求片管理部分 -->
+                <section id="section-requests" class="admin-section active">
+                    <!-- 快捷操作区 -->
+                    <div class="quick-actions">
+                        <div class="action-item" onclick="filterRequests('pending')">
+                            <div class="action-icon pending">⏳</div>
+                            <div class="action-info">
+                                <h4>{{ stats.pending }}</h4>
+                                <p>待处理</p>
+                            </div>
+                        </div>
+                        <div class="action-item" onclick="filterRequests('downloading')">
+                            <div class="action-icon downloading">📥</div>
+                            <div class="action-info">
+                                <h4>{{ stats.downloading }}</h4>
+                                <p>下载中</p>
+                            </div>
+                        </div>
+                        <div class="action-item" onclick="filterRequests('downloaded')">
+                            <div class="action-icon downloaded">📦</div>
+                            <div class="action-info">
+                                <h4>{{ stats.downloaded }}</h4>
+                                <p>待入库</p>
+                            </div>
+                        </div>
+                        <div class="action-item" onclick="syncDownloads()">
+                            <div class="action-icon sync">🔄</div>
+                            <div class="action-info">
+                                <h4>同步</h4>
+                                <p>下载状态</p>
+                            </div>
+                        </div>
+                        <div class="action-item" onclick="refreshDashboard()">
+                            <div class="action-icon refresh">↻</div>
+                            <div class="action-info">
+                                <h4>刷新</h4>
+                                <p>更新数据</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stats">
+                        <div class="stat-card total" onclick="filterRequests('all')" style="cursor: pointer;">
+                            <div class="stat-icon">📊</div>
+                            <div class="stat-content">
+                                <h3>{{ stats.total }}</h3>
+                                <p>总求片数</p>
+                            </div>
+                        </div>
+                        <div class="stat-card pending" onclick="filterRequests('pending')" style="cursor: pointer;">
+                            <div class="stat-icon">⏳</div>
+                            <div class="stat-content">
+                                <h3>{{ stats.pending }}</h3>
+                                <p>待处理</p>
+                            </div>
+                        </div>
+                        <div class="stat-card approved" onclick="filterRequests('approved')" style="cursor: pointer;">
+                            <div class="stat-icon">✅</div>
+                            <div class="stat-content">
+                                <h3>{{ stats.approved }}</h3>
+                                <p>已批准</p>
+                            </div>
+                        </div>
+                        <div class="stat-card completed" onclick="filterRequests('completed')" style="cursor: pointer;">
+                            <div class="stat-icon">🎉</div>
+                            <div class="stat-content">
+                                <h3>{{ stats.completed }}</h3>
+                                <p>已完成</p>
+                            </div>
+                        </div>
+                        <div class="stat-card rejected" onclick="filterRequests('rejected')" style="cursor: pointer;">
+                            <div class="stat-icon">❌</div>
+                            <div class="stat-content">
+                                <h3>{{ stats.rejected }}</h3>
+                                <p>已拒绝</p>
+                            </div>
+                        </div>
+                        <div class="stat-card downloading" onclick="filterRequests('downloading')"
+                            style="cursor: pointer;">
+                            <div class="stat-icon">📥</div>
+                            <div class="stat-content">
+                                <h3>{{ stats.downloading }}</h3>
+                                <p>下载中</p>
+                            </div>
+                        </div>
+                        <div class="stat-card downloaded" onclick="filterRequests('downloaded')"
+                            style="cursor: pointer;">
+                            <div class="stat-icon">📦</div>
+                            <div class="stat-content">
+                                <h3>{{ stats.downloaded }}</h3>
+                                <p>待入库</p>
+                            </div>
+                        </div>
+                        <div class="stat-card failed" onclick="filterRequests('failed')" style="cursor: pointer;">
+                            <div class="stat-icon">⚠️</div>
+                            <div class="stat-content">
+                                <h3>{{ stats.failed }}</h3>
+                                <p>失败</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 统计图表区域 -->
+                    <div class="chart-section">
+                        <div class="chart-container">
+                            <h3>📈 近30天求片趋势</h3>
+                            <canvas id="dailyChart"></canvas>
+                        </div>
+                        <div class="chart-container chart-small">
+                            <h3>📊 类型分布</h3>
+                            <canvas id="typeChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="requests-section">
+                        <div class="section-header">
+                            <h2>📋 求片管理</h2>
+                            <div class="header-actions">
+                                <!-- 搜索框 -->
+                                <div class="search-box">
+                                    <input type="text" id="searchInput" placeholder="🔍 搜索影片名称、用户..."
+                                        onkeyup="searchRequests()" autocomplete="off" autocorrect="off"
+                                        autocapitalize="off" spellcheck="false" data-form-type="other">
+                                </div>
+                                <!-- 导出按钮 -->
+                                <button class="export-btn" onclick="exportRequests()" title="导出当前数据">📤 导出</button>
+                                <!-- 批量操作按钮 -->
+                                <div class="batch-actions" id="batchActions" style="display: none;">
+                                    <span class="selected-count">已选择 <strong id="selectedCount">0</strong> 条</span>
+                                    <button class="batch-btn batch-approve" onclick="batchUpdate('approved')">✅
+                                        批量批准</button>
+                                    <button class="batch-btn batch-complete" onclick="batchUpdate('completed')">🎉
+                                        批量完成</button>
+                                    <button class="batch-btn batch-reject" onclick="showBatchNoteModal()">❌
+                                        批量拒绝</button>
+                                    <button class="batch-btn batch-delete" onclick="batchDelete()">🗑️ 批量删除</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="filter-tabs">
+                            <button class="{{ 'active' if current_status == 'all' else '' }}"
+                                onclick="filterRequests('all')">全部</button>
+                            <button class="{{ 'active' if current_status == 'pending' else '' }}"
+                                onclick="filterRequests('pending')">待处理</button>
+                            <button class="{{ 'active' if current_status in ['approved', 'processing'] else '' }}"
+                                onclick="filterRequests('approved')">已批准</button>
+                            <button class="{{ 'active' if current_status == 'completed' else '' }}"
+                                onclick="filterRequests('completed')">已完成</button>
+                            <button class="{{ 'active' if current_status == 'rejected' else '' }}"
+                                onclick="filterRequests('rejected')">已拒绝</button>
+                            <button class="{{ 'active' if current_status == 'downloading' else '' }}"
+                                onclick="filterRequests('downloading')">下载中</button>
+                            <button class="{{ 'active' if current_status == 'downloaded' else '' }}"
+                                onclick="filterRequests('downloaded')">待入库</button>
+                            <button class="{{ 'active' if current_status == 'failed' else '' }}"
+                                onclick="filterRequests('failed')">失败</button>
+                        </div>
+
+                        <table class="request-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px;"><input type="checkbox" id="selectAll"
+                                            onchange="toggleSelectAll()"></th>
+                                    <th>影片信息</th>
+                                    <th>用户</th>
+                                    <th>类型</th>
+                                    <th>状态</th>
+                                    <th>求片时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="requestTableBody">
+                                {% for req in requests %}
+                                <tr data-status="{{ req.status }}" data-id="{{ req.id }}"
+                                    data-request-id="{{ req.id }}">
+                                    <td data-label="选择"><input type="checkbox" class="row-checkbox" value="{{ req.id }}"
+                                            onchange="updateSelectedCount()"></td>
+                                    <td data-label="影片信息">
+                                        <div class="movie-info">
+                                            {% if req.poster_path %}
+                                            <img src="{{ tmdb_image_base }}{{ req.poster_path }}" alt="{{ req.title }}">
+                                            {% else %}
+                                            <div
+                                                style="width: 50px; height: 75px; background: #ddd; border-radius: 5px; display: flex; align-items: center; justify-content: center;">
+                                                🎬</div>
+                                            {% endif %}
+                                            <div class="details">
+                                                <h4>{{ req.title }}</h4>
+                                                <p>{{ req.year }} | TMDB ID: {{ req.tmdb_id }}</p>
+                                                {% if req.admin_note %}
+                                                <p style="color: #e74c3c;">备注: {{ req.admin_note }}</p>
+                                                {% endif %}
+                                                {% if req.download_task %}
+                                                {% if req.status == 'completed' %}
+                                                <!-- 已入库状态 -->
+                                                <div class="download-progress completed" data-request-id="{{ req.id }}">
+                                                    <div class="progress-track">
+                                                        <div class="progress-fill" style="width: 100%;"></div>
+                                                    </div>
+                                                    <div class="progress-meta">
+                                                        <span class="progress-value" style="color: #059669;">✅
+                                                            已入库</span>
+                                                    </div>
+                                                </div>
+                                                {% elif req.download_task.progress and req.download_task.progress >= 100
+                                                %}
+                                                <!-- 已下载完成，待入库 -->
+                                                <div class="download-progress completed" data-request-id="{{ req.id }}">
+                                                    <div class="progress-track">
+                                                        <div class="progress-fill" style="width: 100%;"></div>
+                                                    </div>
+                                                    <div class="progress-meta">
+                                                        <span class="progress-value" style="color: #f59e0b;">📦
+                                                            已下载完成</span>
+                                                    </div>
+                                                </div>
+                                                {% else %}
+                                                <!-- 下载中 -->
+                                                <div class="download-progress" data-request-id="{{ req.id }}"
+                                                    data-progress="{{ req.download_task.progress or 0 }}"
+                                                    data-speed="{{ req.download_task.download_speed or 0 }}"
+                                                    data-eta="{{ req.download_task.eta if req.download_task.eta is not none else -1 }}">
+                                                    <div class="progress-track">
+                                                        <div class="progress-fill"
+                                                            style="width: {{ (req.download_task.progress or 0)|round(1) }}%;">
+                                                        </div>
+                                                    </div>
+                                                    <div class="progress-meta">
+                                                        <span class="progress-value">{{ (req.download_task.progress or
+                                                            0)|round(1) }}%</span>
+                                                        <span class="progress-speed">0 B/s</span>
+                                                        <span class="progress-eta">ETA --:--:--</span>
+                                                    </div>
+                                                </div>
+                                                {% endif %}
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td data-label="用户">{{ req.user.name or '未知用户' }}</td>
+                                    <td data-label="类型">
+                                        <div
+                                            style="display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">
+                                            {% if req.media_type == 'movie' %}
+                                            <span
+                                                style="background: #667eea; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; white-space: nowrap;">🎬
+                                                电影</span>
+                                            {% else %}
+                                            <span
+                                                style="background: #764ba2; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; white-space: nowrap;">📺
+                                                剧集</span>
+                                            {% if req.get_request_scope() %}
+                                            <span
+                                                style="background: #10b981; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; white-space: nowrap;">{{
+                                                req.get_request_scope() }}</span>
+                                            {% endif %}
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td data-label="状态">
+                                        <span class="status-badge {{ req.status }}">
+                                            {% if req.status == 'pending' %}待处理
+                                            {% elif req.status == 'approved' %}已批准
+                                            {% elif req.status == 'processing' %}已批准
+                                            {% elif req.status == 'completed' %}已完成
+                                            {% elif req.status == 'rejected' %}已拒绝
+                                            {% elif req.status == 'downloading' %}下载中
+                                            {% elif req.status == 'downloaded' %}待入库
+                                            {% elif req.status == 'failed' %}下载失败
+                                            {% endif %}
+                                        </span>
+                                    </td>
+                                    <td data-label="求片时间">{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                    <td data-label="操作">
+                                        <div class="action-buttons">
+                                            {% if req.status == 'pending' %}
+                                            <button class="btn-approve" data-id="{{ req.id }}"
+                                                onclick="showApproveModal(this.dataset.id)">批准</button>
+                                            <button class="btn-reject" data-id="{{ req.id }}"
+                                                onclick="showNoteModal(this.dataset.id, 'rejected')">拒绝</button>
+                                            {% elif req.status == 'approved' or req.status == 'processing' %}
+                                            <button class="btn-complete" data-id="{{ req.id }}"
+                                                onclick="updateStatus(this.dataset.id, 'completed')">已入库</button>
+                                            {% elif req.status == 'downloaded' or req.status == 'downloading' %}
+                                            <button class="btn-complete" data-id="{{ req.id }}"
+                                                onclick="updateStatus(this.dataset.id, 'completed')"
+                                                title="手动标记为已入库">已入库</button>
+                                            {% endif %}
+                                            {% if mp_enabled and req.status in ['pending', 'approved', 'processing',
+                                            'failed', 'downloaded'] %}
+                                            <button class="btn-secondary" data-request="{{ req.id }}"
+                                                data-title="{{ req.title }}" data-year="{{ req.year }}"
+                                                data-media-type="{{ req.media_type }}"
+                                                data-request-type="{{ req.request_type or 'all' }}"
+                                                data-season="{{ req.season_number or '' }}"
+                                                data-episode="{{ req.episode_number or '' }}"
+                                                onclick="openPtModal(this)">PT搜索</button>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+
+                        <!-- 分页导航 -->
+                        {% if pagination and pagination.pages > 1 %}
+                        <div class="pagination">
+                            {% if pagination.has_prev %}
+                            <a href="?status={{ current_status }}&page={{ pagination.prev_num }}"
+                                class="page-btn">上一页</a>
+                            {% endif %}
+
+                            {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2,
+                            right_current=2) %}
+                            {% if page_num %}
+                            {% if page_num == pagination.page %}
+                            <span class="page-btn active">{{ page_num }}</span>
+                            {% else %}
+                            <a href="?status={{ current_status }}&page={{ page_num }}" class="page-btn">{{ page_num
+                                }}</a>
+                            {% endif %}
+                            {% else %}
+                            <span class="page-ellipsis">...</span>
+                            {% endif %}
+                            {% endfor %}
+
+                            {% if pagination.has_next %}
+                            <a href="?status={{ current_status }}&page={{ pagination.next_num }}"
+                                class="page-btn">下一页</a>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </section>
+
+                <!-- 订阅管理部分 -->
+                <section id="section-subscriptions" class="admin-section">
+                    <div class="section-header">
+                        <h2>💎 订阅管理</h2>
+                        <div class="header-actions">
+                            <div class="search-box">
+                                <input type="text" id="subscriptionSearch" placeholder="🔍 搜索用户..."
+                                    onkeyup="searchSubscriptions()" autocomplete="off" autocorrect="off"
+                                    autocapitalize="off" spellcheck="false" data-form-type="other">
+                            </div>
+                            <select id="subscriptionStatusFilter" onchange="loadSubscriptions()">
+                                <option value="">全部状态</option>
+                                <option value="active">生效中</option>
+                                <option value="expired">已过期</option>
+                                <option value="cancelled">已取消</option>
+                            </select>
+                            <button class="btn btn-secondary" onclick="syncSubscriptionRecords()"
+                                title="为有订阅但没有订阅记录的用户补充创建记录">
+                                🔄 同步订阅记录
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="admin-stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">💎</div>
+                            <div class="stat-content">
+                                <h3 id="totalSubscriptions">0</h3>
+                                <p>总订阅数</p>
+                            </div>
+                        </div>
+                        <div class="stat-card active">
+                            <div class="stat-icon">✅</div>
+                            <div class="stat-content">
+                                <h3 id="activeSubscriptions">0</h3>
+                                <p>生效中</p>
+                            </div>
+                        </div>
+                        <div class="stat-card expired">
+                            <div class="stat-icon">⏰</div>
+                            <div class="stat-content">
+                                <h3 id="expiredSubscriptions">0</h3>
+                                <p>已过期</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <table class="admin-table" id="subscriptionsTable">
+                        <thead>
+                            <tr>
+                                <th>用户名</th>
+                                <th>TG ID</th>
+                                <th>用户类型</th>
+                                <th>注册时间</th>
+                                <th>到期时间</th>
+                                <th>状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="subscriptionsTableBody">
+                            <tr>
+                                <td colspan="7" class="loading-cell">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <!-- 订单管理部分 -->
+                <section id="section-orders" class="admin-section">
+                    <div class="section-header">
+                        <h2>📦 订单管理</h2>
+                        <div class="header-actions">
+                            <div class="search-box">
+                                <input type="text" id="orderSearch" placeholder="🔍 搜索订单号..." onkeyup="searchOrders()"
+                                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                    data-form-type="other">
+                            </div>
+                            <select id="orderStatusFilter" onchange="loadOrders()">
+                                <option value="">全部状态</option>
+                                <option value="pending">待支付</option>
+                                <option value="paid">已支付</option>
+                                <option value="cancelled">已取消</option>
+                                <option value="refunded">已退款</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="admin-stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">📦</div>
+                            <div class="stat-content">
+                                <h3 id="totalOrders">0</h3>
+                                <p>总订单数</p>
+                            </div>
+                        </div>
+                        <div class="stat-card pending">
+                            <div class="stat-icon">⏳</div>
+                            <div class="stat-content">
+                                <h3 id="pendingOrders">0</h3>
+                                <p>待支付</p>
+                            </div>
+                        </div>
+                        <div class="stat-card paid">
+                            <div class="stat-icon">💰</div>
+                            <div class="stat-content">
+                                <h3 id="paidOrders">0</h3>
+                                <p>已支付</p>
+                            </div>
+                        </div>
+                        <div class="stat-card revenue">
+                            <div class="stat-icon">💵</div>
+                            <div class="stat-content">
+                                <h3 id="totalRevenue">¥0</h3>
+                                <p>总收入</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <table class="admin-table" id="ordersTable">
+                        <thead>
+                            <tr>
+                                <th>订单号</th>
+                                <th>用户</th>
+                                <th>套餐</th>
+                                <th>金额</th>
+                                <th>支付方式</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ordersTableBody">
+                            <tr>
+                                <td colspan="8" class="loading-cell">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <!-- 兑换码管理部分 -->
+                <section id="section-redeem" class="admin-section">
+                    <div class="section-header">
+                        <h2>🎟️ 兑换码管理</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-primary" onclick="showGenerateRedeemDialog()">
+                                <span>➕</span> 生成兑换码
+                            </button>
+                            <button class="btn btn-danger" id="batchDeleteRedeemBtn" style="display: none;"
+                                onclick="showDeleteRedeemConfirm()">
+                                <span>🗑️</span> 批量删除 (<span id="selectedRedeemCount">0</span>)
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="admin-stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">🎟️</div>
+                            <div class="stat-content">
+                                <h3 id="totalCodes">0</h3>
+                                <p>总兑换码</p>
+                            </div>
+                        </div>
+                        <div class="stat-card success">
+                            <div class="stat-icon">✅</div>
+                            <div class="stat-content">
+                                <h3 id="usedCodes">0</h3>
+                                <p>已使用</p>
+                            </div>
+                        </div>
+                        <div class="stat-card warning">
+                            <div class="stat-icon">⏳</div>
+                            <div class="stat-content">
+                                <h3 id="unusedCodes">0</h3>
+                                <p>未使用</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="filter-bar">
+                        <select id="codeTypeFilter" onchange="loadRedeemCodes()">
+                            <option value="">全部类型</option>
+                            <option value="new">新订阅</option>
+                            <option value="renew">续费</option>
+                        </select>
+                        <select id="codeStatusFilter" onchange="loadRedeemCodes()">
+                            <option value="">全部状态</option>
+                            <option value="unused">未使用</option>
+                            <option value="used">已使用</option>
+                        </select>
+                    </div>
+
+                    <table class="admin-table" id="redeemCodesTable">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px;"><input type="checkbox" id="selectAllRedeem"
+                                        onchange="toggleSelectAllRedeem()"></th>
+                                <th>兑换码</th>
+                                <th>类型</th>
+                                <th>套餐</th>
+                                <th>天数</th>
+                                <th>状态</th>
+                                <th>使用者</th>
+                                <th>使用时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="redeemCodesTableBody">
+                            <tr>
+                                <td colspan="9" class="loading-cell">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <!-- 播放监控部分 -->
+                <section id="section-playback" class="admin-section">
+                    <div class="section-header">
+                        <h2>📺 播放监控</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-secondary" onclick="syncAllPlaybackHistory()">
+                                📥 同步历史
+                            </button>
+                            <button class="btn btn-primary" onclick="refreshAdminPlayback()">
+                                🔄 刷新数据
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 实时统计 -->
+                    <div class="playback-admin-stats" id="adminPlaybackStats">
+                        <div class="stat-box">
+                            <div class="stat-value" id="adminTotalSessions">-</div>
+                            <div class="stat-label">正在播放</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-value" id="adminTotalDevices">-</div>
+                            <div class="stat-label">注册设备</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-value" id="adminTotalHistory">-</div>
+                            <div class="stat-label">播放记录</div>
+                        </div>
+                    </div>
+
+                    <!-- 选项卡 -->
+                    <div class="playback-tabs">
+                        <button class="tab-btn active" onclick="switchPlaybackTab('sessions')">实时会话</button>
+                        <button class="tab-btn" onclick="switchPlaybackTab('devices')">设备管理</button>
+                        <button class="tab-btn" onclick="switchPlaybackTab('blacklist')">设备黑名单</button>
+                        <button class="tab-btn" onclick="switchPlaybackTab('history')">播放历史</button>
+                    </div>
+
+                    <!-- 实时会话 -->
+                    <div id="playbackTabSessions" class="playback-tab-content active">
+                        <div class="admin-sessions-grid" id="adminSessionsContainer">
+                            <div class="loading-placeholder">
+                                <div class="loading-spinner"></div>
+                                <span>加载中...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 设备管理 -->
+                    <div id="playbackTabDevices" class="playback-tab-content">
+                        <div class="filter-bar">
+                            <input type="text" id="deviceSearchInput" placeholder="搜索用户/设备名称..."
+                                onkeyup="searchAdminDevices()" autocomplete="off" autocorrect="off" autocapitalize="off"
+                                spellcheck="false" data-form-type="other">
+                        </div>
+                        <div class="admin-table-container">
+                            <table class="admin-table">
+                                <thead>
+                                    <tr>
+                                        <th>用户</th>
+                                        <th>设备名称</th>
+                                        <th>客户端</th>
+                                        <th>最后活跃</th>
+                                        <th>最后IP</th>
+                                        <th>状态</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adminDevicesBody">
+                                    <tr>
+                                        <td colspan="7" class="loading-cell">加载中...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="pagination" id="devicesPagination"></div>
+                    </div>
+
+                    <!-- 播放历史 -->
+                    <div id="playbackTabHistory" class="playback-tab-content">
+                        <div class="filter-bar">
+                            <input type="text" id="historySearchInput" placeholder="搜索媒体名称..."
+                                onkeyup="searchAdminHistory()" autocomplete="off" autocorrect="off" autocapitalize="off"
+                                spellcheck="false" data-form-type="other">
+                        </div>
+                        <div class="admin-table-container">
+                            <table class="admin-table">
+                                <thead>
+                                    <tr>
+                                        <th>用户</th>
+                                        <th>媒体</th>
+                                        <th>类型</th>
+                                        <th>设备</th>
+                                        <th>进度</th>
+                                        <th>开始时间</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adminHistoryBody">
+                                    <tr>
+                                        <td colspan="6" class="loading-cell">加载中...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="pagination" id="historyPagination"></div>
+                    </div>
+
+                    <!-- 设备黑名单 -->
+                    <div id="playbackTabBlacklist" class="playback-tab-content">
+                        <div class="section-header">
+                            <div class="header-actions">
+                                <button class="btn-primary" onclick="showAddBlacklistModal()">➕ 添加规则</button>
+                            </div>
+                        </div>
+
+                        <div class="info-box warning">
+                            <strong>💡 功能说明：</strong>
+                            <ul>
+                                <li>支持使用通配符（* 和 ?）匹配客户端和设备名称</li>
+                                <li><strong>停止播放：</strong>禁用该设备，但不禁用用户账号</li>
+                                <li><strong>停止+禁号：</strong>禁用设备并自动禁用用户账号</li>
+                                <li>检测到黑名单设备时会自动发送通知给管理员</li>
+                            </ul>
+                        </div>
+
+                        <div class="admin-table-container">
+                            <table class="admin-table" id="blacklistTable">
+                                <thead>
+                                    <tr>
+                                        <th>规则名称</th>
+                                        <th>客户端匹配</th>
+                                        <th>设备名称匹配</th>
+                                        <th>处理方式</th>
+                                        <th>状态</th>
+                                        <th>创建时间</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="blacklistTableBody">
+                                    <tr>
+                                        <td colspan="7" class="loading-cell">加载中...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 工单管理部分 -->
+                <section id="section-tickets" class="admin-section">
+                    <div class="section-header">
+                        <h2>🎫 工单管理</h2>
+                        <div class="header-actions">
+                            <div class="search-box">
+                                <input type="text" id="ticketSearch" placeholder="🔍 搜索工单..." onkeyup="searchTickets()"
+                                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                    data-form-type="other">
+                            </div>
+                            <select id="ticketStatusFilter" onchange="loadTickets()">
+                                <option value="">全部状态</option>
+                                <option value="open">待处理</option>
+                                <option value="in_progress">处理中</option>
+                                <option value="closed">已关闭</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="admin-stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">🎫</div>
+                            <div class="stat-content">
+                                <h3 id="totalTickets">0</h3>
+                                <p>总工单数</p>
+                            </div>
+                        </div>
+                        <div class="stat-card open">
+                            <div class="stat-icon">🔴</div>
+                            <div class="stat-content">
+                                <h3 id="openTickets">0</h3>
+                                <p>待处理</p>
+                            </div>
+                        </div>
+                        <div class="stat-card in-progress">
+                            <div class="stat-icon">🟡</div>
+                            <div class="stat-content">
+                                <h3 id="inProgressTickets">0</h3>
+                                <p>处理中</p>
+                            </div>
+                        </div>
+                        <div class="stat-card closed">
+                            <div class="stat-icon">⚫</div>
+                            <div class="stat-content">
+                                <h3 id="closedTickets">0</h3>
+                                <p>已关闭</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <table class="admin-table" id="ticketsTable">
+                        <thead>
+                            <tr>
+                                <th>工单号</th>
+                                <th>用户</th>
+                                <th>类别</th>
+                                <th>主题</th>
+                                <th>优先级</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ticketsTableBody">
+                            <tr>
+                                <td colspan="8" class="loading-cell">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <!-- 邀请统计部分 -->
+                <section id="section-invites" class="admin-section">
+                    <div class="section-header">
+                        <h2>🎁 邀请统计</h2>
+                        <div class="header-actions">
+                            <button class="btn-primary" onclick="exportInviteStats()">📤 导出数据</button>
+                        </div>
+                    </div>
+
+                    <div class="admin-stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">🔗</div>
+                            <div class="stat-content">
+                                <h3 id="totalInvites">0</h3>
+                                <p>总邀请数</p>
+                            </div>
+                        </div>
+                        <div class="stat-card success">
+                            <div class="stat-icon">✅</div>
+                            <div class="stat-content">
+                                <h3 id="successfulInvites">0</h3>
+                                <p>成功邀请</p>
+                            </div>
+                        </div>
+                        <div class="stat-card rewards">
+                            <div class="stat-icon">🎁</div>
+                            <div class="stat-content">
+                                <h3 id="totalRewards">¥0</h3>
+                                <p>累计返利</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="invite-charts">
+                        <div class="chart-container">
+                            <h3>📈 近30天邀请趋势</h3>
+                            <canvas id="inviteTrendChart"></canvas>
+                        </div>
+                        <div class="chart-container chart-small">
+                            <h3>🏆 邀请排行榜</h3>
+                            <div id="inviteRankList" class="rank-list">
+                                <div class="loading-placeholder">加载中...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section-header" style="margin-top: 30px;">
+                        <h3>邀请记录</h3>
+                    </div>
+                    <table class="admin-table" id="invitesTable">
+                        <thead>
+                            <tr>
+                                <th>邀请人</th>
+                                <th>被邀请人</th>
+                                <th>邀请码</th>
+                                <th>奖励类型</th>
+                                <th>奖励金额</th>
+                                <th>状态</th>
+                                <th>邀请时间</th>
+                            </tr>
+                        </thead>
+                        <tbody id="invitesTableBody">
+                            <tr>
+                                <td colspan="7" class="loading-cell">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <!-- 用户管理部分 -->
+                <section id="section-users" class="admin-section">
+                    <div class="section-header">
+                        <h2>👥 用户管理</h2>
+                        <div class="header-actions">
+                            <div class="search-box">
+                                <input type="text" id="userSearch" placeholder="🔍 搜索用户名/TG ID..."
+                                    onkeyup="searchUsers()" autocomplete="off" autocorrect="off" autocapitalize="off"
+                                    spellcheck="false" data-form-type="other">
+                            </div>
+                            <select id="userRoleFilter" onchange="loadUsers()">
+                                <option value="">全部角色</option>
+                                <option value="admin">管理员</option>
+                                <option value="user">普通用户</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="admin-stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">👥</div>
+                            <div class="stat-content">
+                                <h3 id="totalUsers">0</h3>
+                                <p>总用户数</p>
+                            </div>
+                        </div>
+                        <div class="stat-card admin">
+                            <div class="stat-icon">👑</div>
+                            <div class="stat-content">
+                                <h3 id="adminUsers">0</h3>
+                                <p>管理员</p>
+                            </div>
+                        </div>
+                        <div class="stat-card active">
+                            <div class="stat-icon">✨</div>
+                            <div class="stat-content">
+                                <h3 id="subscribedUsers">0</h3>
+                                <p>订阅用户</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <table class="admin-table" id="usersTable">
+                        <thead>
+                            <tr>
+                                <th>用户ID</th>
+                                <th>用户名</th>
+                                <th>Telegram ID</th>
+                                <th>角色</th>
+                                <th>订阅状态</th>
+                                <th>求片数</th>
+                                <th>注册时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody">
+                            <tr>
+                                <td colspan="8" class="loading-cell">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+
+
+                <!-- 套餐配置部分 -->
+                <section id="section-plans" class="admin-section">
+                    <div class="section-header">
+                        <h2>📦 套餐配置</h2>
+                        <div class="section-actions">
+                            <button class="btn-primary" onclick="addNewPlan()">
+                                <span>➕</span> 添加套餐
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 默认权益配置（未订阅用户和白名单用户） -->
+                    <div class="default-benefits-card">
+                        <div class="default-benefits-header">
+                            <h3>🎁 默认权益配置</h3>
+                            <p class="default-benefits-tip">配置未订阅用户和白名单用户在"我的订阅"页面显示的权益（最多8个）</p>
+                        </div>
+
+                        <div class="default-benefits-section">
+                            <h4>👤 未订阅用户权益</h4>
+                            <div class="benefits-config-list" id="unsubscribedBenefitsList"></div>
+                            <button class="btn-secondary btn-xs" onclick="addDefaultBenefit('unsubscribed')">➕
+                                添加</button>
+                        </div>
+
+                        <div class="default-benefits-section">
+                            <h4>👑 白名单用户权益</h4>
+                            <div class="benefits-config-list" id="whitelistBenefitsList"></div>
+                            <button class="btn-secondary btn-xs" onclick="addDefaultBenefit('whitelist')">➕ 添加</button>
+                        </div>
+
+                        <div class="default-benefits-actions">
+                            <button class="btn-primary btn-sm" onclick="saveDefaultBenefits()">
+                                <span>💾</span> 保存默认权益
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="plans-config-container">
+                        <div class="plans-config-tips">
+                            <p>💡 配置可购买的订阅套餐，设置套餐名称、时长、价格和订阅权益。保存后立即在前端生效。</p>
+                        </div>
+
+                        <div class="plans-config-list" id="plansConfigList">
+                            <!-- 套餐列表将通过JS加载，每个套餐都是可折叠卡片 -->
+                            <div class="loading-placeholder">加载中...</div>
+                        </div>
+
+                        <div class="plans-config-footer">
+                            <button class="btn-primary btn-lg" onclick="savePlansConfig()">
+                                <span>💾</span> 保存所有套餐
+                            </button>
+                            <span class="save-hint">保存后立即在前端购买页面生效</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 添加/编辑线路弹窗 -->
+                <div class="modal" id="lineModal" style="display: none;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="lineModalTitle">添加线路</h3>
+                            <button class="modal-close" onclick="closeLineModal()">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <input type="hidden" id="editLineId">
+                            <div class="form-group">
+                                <label for="lineName">线路名称 *</label>
+                                <input type="text" id="lineName" placeholder="如：主线路、备用线路" class="form-input">
+                            </div>
+                            <div class="form-group">
+                                <label for="lineServerUrl">服务器地址 *</label>
+                                <input type="text" id="lineServerUrl" placeholder="如：emby.example.com"
+                                    class="form-input">
+                                <span class="form-hint">不带协议前缀(http/https)</span>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group half">
+                                    <label for="linePort">端口</label>
+                                    <input type="number" id="linePort" value="8096" class="form-input">
+                                </div>
+                                <div class="form-group half">
+                                    <label for="lineHttps">使用HTTPS</label>
+                                    <select id="lineHttps" class="form-input">
+                                        <option value="false">否 (HTTP)</option>
+                                        <option value="true">是 (HTTPS)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="lineAccessLevel">访问级别 *</label>
+                                <select id="lineAccessLevel" class="form-input">
+                                    <option value="whitelist">白名单用户专属</option>
+                                    <option value="subscriber">订阅用户可见</option>
+                                </select>
+                                <span class="form-hint">白名单用户可以看到所有线路，订阅用户只能看到"订阅用户可见"的线路</span>
+                            </div>
+                            <div class="form-group">
+                                <label for="lineDescription">线路描述</label>
+                                <textarea id="lineDescription" placeholder="如：香港节点，速度快" class="form-input"
+                                    rows="2"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="lineSortOrder">排序顺序</label>
+                                <input type="number" id="lineSortOrder" value="0" class="form-input">
+                                <span class="form-hint">数字越小越靠前</span>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn-secondary" onclick="closeLineModal()">取消</button>
+                            <button class="btn-primary" onclick="saveLine()">保存</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 知识库管理部分 -->
+                <section id="section-knowledge" class="admin-section">
+                    <div class="section-header">
+                        <h2>📚 知识库管理</h2>
+                        <div class="header-actions">
+                            <button class="btn-primary" onclick="openAddKnowledgeModal()">➕ 添加条目</button>
+                            <button class="btn-secondary" onclick="openCategoryModal()">🏷️ 分类管理</button>
+                        </div>
+                    </div>
+
+                    <!-- 筛选栏 -->
+                    <div class="filter-bar">
+                        <div class="search-box">
+                            <input type="text" id="knowledgeSearch" placeholder="🔍 搜索问题..." onkeyup="searchKnowledge()"
+                                autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                data-form-type="other">
+                        </div>
+                        <select id="knowledgeCategoryFilter" onchange="filterKnowledgeByCategory()">
+                            <option value="">全部分类</option>
+                        </select>
+                    </div>
+
+                    <!-- 知识库列表 -->
+                    <div class="knowledge-list" id="knowledgeList">
+                        <div class="empty-state">
+                            <span class="empty-icon">📚</span>
+                            <p>暂无知识库条目</p>
+                            <button class="btn-primary" onclick="openAddKnowledgeModal()">添加第一条</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 添加/编辑知识库条目弹窗 -->
+                <div id="knowledgeModal" class="modal" style="display: none;">
+                    <div class="modal-content" style="max-width: 600px;">
+                        <div class="modal-header">
+                            <h3 id="knowledgeModalTitle">添加知识库条目</h3>
+                            <button class="modal-close" onclick="closeKnowledgeModal()">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <input type="hidden" id="knowledgeItemId">
+                            <div class="form-group">
+                                <label>分类</label>
+                                <select id="knowledgeCategory" class="form-input">
+                                    <option value="account">账户相关</option>
+                                    <option value="request">求片相关</option>
+                                    <option value="playback">播放问题</option>
+                                    <option value="payment">支付问题</option>
+                                    <option value="other">其他</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>问题 <span class="required">*</span></label>
+                                <input type="text" id="knowledgeQuestion" class="form-input" placeholder="请输入问题">
+                            </div>
+                            <div class="form-group">
+                                <label>回答 <span class="required">*</span> <span
+                                        style="font-size: 12px; color: #64748b; font-weight: normal;">（仅支持 HTML
+                                        格式）</span></label>
+                                <textarea id="knowledgeAnswer" class="form-input" rows="6"
+                                    placeholder="请输入，例如：&#10;&lt;p&gt;这是一段文字&lt;/p&gt;&#10;&lt;ul&gt;&#10;  &lt;li&gt;列表项1&lt;/li&gt;&#10;  &lt;li&gt;列表项2&lt;/li&gt;&#10;&lt;/ul&gt;"></textarea>
+                                <div style="font-size: 12px; color: #94a3b8; margin-top: 6px;">
+                                    常用标签：<code>&lt;p&gt;</code> 段落、<code>&lt;ul&gt;&lt;li&gt;</code>
+                                    无序列表、<code>&lt;ol&gt;&lt;li&gt;</code> 有序列表、<code>&lt;b&gt;</code> 加粗
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn-secondary" onclick="closeKnowledgeModal()">取消</button>
+                            <button class="btn-primary" onclick="saveKnowledgeItem()">保存</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 分类管理弹窗 -->
+                <div id="categoryModal" class="modal" style="display: none;">
+                    <div class="modal-content" style="max-width: 500px;">
+                        <div class="modal-header">
+                            <h3>分类管理</h3>
+                            <button class="modal-close" onclick="closeCategoryModal()">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="categoryList" class="category-list">
+                                <!-- 分类列表动态加载 -->
+                            </div>
+                            <div class="add-category-form" style="margin-top: 15px; display: flex; gap: 10px;">
+                                <input type="text" id="newCategoryId" class="form-input" placeholder="分类ID（英文）"
+                                    style="flex: 1;">
+                                <input type="text" id="newCategoryName" class="form-input" placeholder="分类名称"
+                                    style="flex: 1;">
+                                <button class="btn-primary" onclick="addCategory()">添加</button>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn-secondary" onclick="closeCategoryModal()">关闭</button>
+                            <button class="btn-primary" onclick="saveCategories()">保存分类</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 删除确认弹窗 -->
+                <div id="deleteKnowledgeModal" class="modal" style="display: none;">
+                    <div class="modal-content" style="max-width: 400px;">
+                        <div class="modal-header">
+                            <h3>确认删除</h3>
+                            <button class="modal-close" onclick="closeDeleteKnowledgeModal()">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <p>确定要删除这条知识库条目吗？此操作不可恢复。</p>
+                            <input type="hidden" id="deleteKnowledgeId">
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn-secondary" onclick="closeDeleteKnowledgeModal()">取消</button>
+                            <button class="btn-danger" onclick="confirmDeleteKnowledge()">确认删除</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 系统设置部分 -->
+                <section id="section-settings" class="admin-section">
+                    <div class="section-header">
+                        <h2>⚙️ 系统设置</h2>
+                    </div>
+
+                    <!-- 前端配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🎨 前端配置</h3>
+                            </div>
+                            <span class="status-badge" id="siteConfigStatus">已配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置网站名称、联系方式等前端显示信息，保存后刷新页面即可生效。</p>
+
+                            <div class="settings-form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="siteName">网站名称</label>
+                                        <input type="text" id="siteName" placeholder="Emby" class="form-input">
+                                        <span class="form-hint">显示在侧边栏和页面顶部</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="siteSubtitle">网站副标题</label>
+                                        <input type="text" id="siteSubtitle" placeholder="管理系统" class="form-input">
+                                        <span class="form-hint">显示在网站名称下方</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="siteTitle">页面标题</label>
+                                    <input type="text" id="siteTitle" placeholder="Emby管理系统" class="form-input">
+                                    <span class="form-hint">浏览器标签页显示的标题</span>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="siteLogo">网站 LOGO</label>
+                                        <input type="text" id="siteLogo" placeholder="https://example.com/logo.png"
+                                            class="form-input">
+                                        <span class="form-hint">LOGO 图片 URL，留空则不显示 LOGO</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="shopUrl">定价/购买链接</label>
+                                        <input type="text" id="shopUrl" placeholder="https://shop.example.com"
+                                            class="form-input">
+                                        <span class="form-hint">顶部导航"定价"按钮链接，留空则不显示</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="telegramGroup">Telegram 群组链接</label>
+                                    <input type="text" id="telegramGroup" placeholder="https://t.me/your_group"
+                                        class="form-input">
+                                    <span class="form-hint">Telegram 群组完整链接，留空则不显示 Telegram 按钮</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="panelUrl">面板登录链接</label>
+                                    <input type="text" id="panelUrl" placeholder="https://your-domain.com"
+                                        class="form-input">
+                                    <span class="form-hint">用户注册成功后显示的面板登录链接，留空则不显示</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="supportEmail">支持邮箱</label>
+                                    <input type="email" id="supportEmail" placeholder="support@example.com"
+                                        class="form-input">
+                                    <span class="form-hint">技术支持页面显示的联系邮箱</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="registerMode">注册模式</label>
+                                    <select id="registerMode" class="form-input">
+                                        <option value="open">开放注册 - 任何人都可以注册</option>
+                                        <option value="invite">仅邀请注册 - 需要邀请码才能注册</option>
+                                        <option value="closed">关闭注册 - 禁止新用户注册</option>
+                                    </select>
+                                    <span class="form-hint">控制网站的注册方式</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="useImageProxy" checked>
+                                        <span>启用 TMDB 图片代理</span>
+                                    </label>
+                                    <span class="form-hint">大陆用户建议开启（解决图片无法加载问题），海外用户可关闭以加速图片加载</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="welcomeMessage">欢迎语</label>
+                                    <input type="text" id="welcomeMessage" placeholder="欢迎使用 Emby 管理系统！"
+                                        class="form-input">
+                                    <span class="form-hint">使用文档页面显示的欢迎语</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>快速链接配置</label>
+                                    <div id="customLinksContainer" class="custom-links-container">
+                                        <!-- 动态生成的链接配置项 -->
+                                    </div>
+                                    <button type="button" class="btn-secondary btn-sm" onclick="addCustomLink()"
+                                        style="margin-top: 10px;">
+                                        <span>➕</span> 添加链接
+                                    </button>
+                                    <span class="form-hint">配置技术支持页面的快速链接</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="customCss">自定义 CSS（可选）</label>
+                                    <textarea id="customCss" placeholder="/* 自定义样式 */" class="form-input"
+                                        rows="4"></textarea>
+                                    <span class="form-hint">添加自定义CSS样式，会注入到页面head中</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveSiteConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="loadSiteConfig()">
+                                    <span>🔄</span> 重新加载
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 系统公告 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>📢 系统公告</h3>
+                            </div>
+                            <span class="status-badge" id="announcementsStatus">0 条公告</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">管理系统公告，公告将显示在用户仪表盘首页。</p>
+
+                            <div class="settings-actions" style="margin-bottom: 16px;">
+                                <button class="btn-primary" onclick="openAnnouncementModal()">
+                                    <span>➕</span> 发布公告
+                                </button>
+                            </div>
+
+                            <div class="announcements-list-compact" id="announcementsListCompact">
+                                <div class="loading-placeholder">加载中...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 线路管理 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🔗 线路管理</h3>
+                            </div>
+                            <span class="status-badge" id="linesStatus">0 条线路</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置 Emby 服务器连接线路，支持多线路负载和白名单专属线路。</p>
+
+                            <div class="settings-actions" style="margin-bottom: 16px;">
+                                <button class="btn-primary" onclick="showAddLineModal()">
+                                    <span>➕</span> 添加线路
+                                </button>
+                            </div>
+
+                            <div class="lines-stats-mini">
+                                <div class="stat-mini">
+                                    <span class="stat-mini-value" id="totalLines">0</span>
+                                    <span class="stat-mini-label">总线路</span>
+                                </div>
+                                <div class="stat-mini">
+                                    <span class="stat-mini-value" id="activeLines">0</span>
+                                    <span class="stat-mini-label">已启用</span>
+                                </div>
+                                <div class="stat-mini">
+                                    <span class="stat-mini-value" id="whitelistLines">0</span>
+                                    <span class="stat-mini-label">白名单专属</span>
+                                </div>
+                            </div>
+
+                            <div class="lines-list-compact" id="linesList">
+                                <div class="loading-placeholder">
+                                    <div class="spinner"></div>
+                                    <p>加载中...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 支付配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>💳 支付配置</h3>
+                            </div>
+                            <span class="status-badge" id="paymentStatus">未配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置易支付接口，支持支付宝、微信等多种支付方式。配置完成后用户可在线购买订阅套餐。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label for="epayUrl">易支付接口地址</label>
+                                    <input type="text" id="epayUrl" placeholder="https://pay.example.com"
+                                        class="form-input">
+                                    <span class="form-hint">易支付服务商提供的接口地址，不带最后的斜杠</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="epayPid">商户ID (PID)</label>
+                                    <input type="text" id="epayPid" placeholder="10001" class="form-input">
+                                    <span class="form-hint">易支付分配的商户号</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="epayKey">商户密钥 (KEY)</label>
+                                    <input type="password" id="epayKey" placeholder="请输入商户密钥" class="form-input">
+                                    <span class="form-hint">易支付分配的商户密钥，用于签名验证</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="epayNotifyUrl">异步通知地址（可选）</label>
+                                    <input type="text" id="epayNotifyUrl" placeholder="留空则自动使用当前域名" class="form-input">
+                                    <span class="form-hint">支付成功后易支付服务器通知的地址，一般留空即可</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="epayReturnUrl">同步跳转地址（可选）</label>
+                                    <input type="text" id="epayReturnUrl" placeholder="留空则自动使用当前域名" class="form-input">
+                                    <span class="form-hint">支付成功后用户跳转的页面地址，一般留空即可</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="savePaymentConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="testPaymentConfig()">
+                                    <span>🔧</span> 测试连接
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>填写易支付服务商提供的接口地址、商户ID和商户密钥后点击保存</li>
+                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
+                                    <li>异步通知地址默认为：<code>你的域名/api/payment/notify</code>（一般留空即可）</li>
+                                    <li>同步跳转地址默认为：<code>你的域名/dashboard#purchase</code>（一般留空即可）</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MoviePilot 配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🎬 MoviePilot 配置</h3>
+                            </div>
+                            <span class="status-badge" id="mpStatus">未配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置 MoviePilot 连接，用于搜索和推送下载任务。支持用户名密码或 Token 认证。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label for="mpUrl">MoviePilot 地址</label>
+                                    <input type="text" id="mpUrl" placeholder="http://127.0.0.1:3000"
+                                        class="form-input">
+                                    <span class="form-hint">MoviePilot Web UI 地址，不带末尾斜杠</span>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="mpUsername">用户名</label>
+                                        <input type="text" id="mpUsername" placeholder="admin" class="form-input">
+                                        <span class="form-hint">MoviePilot 登录用户名</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="mpPassword">密码</label>
+                                        <input type="password" id="mpPassword" placeholder="请输入密码" class="form-input">
+                                        <span class="form-hint">MoviePilot 登录密码</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="mpToken">API Token（可选）</label>
+                                    <input type="text" id="mpToken" placeholder="留空则使用用户名密码登录" class="form-input">
+                                    <span class="form-hint">如已有 Token 可直接填写，优先级高于用户名密码</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveMoviePilotConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="testMoviePilotConfig()">
+                                    <span>🔧</span> 测试连接
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>MoviePilot 用于搜索 PT 站点的种子资源</li>
+                                    <li>可以使用<strong>用户名+密码</strong>或直接提供 <strong>API Token</strong></li>
+                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
+                                    <li>确保 MoviePilot 已正确配置 PT 站点索引器</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- qBittorrent 配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>📥 qBittorrent 配置</h3>
+                            </div>
+                            <span class="status-badge" id="qbStatus">未配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置 qBittorrent 下载客户端，用于自动下载种子文件。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label for="qbUrl">qBittorrent 地址</label>
+                                    <input type="text" id="qbUrl" placeholder="http://127.0.0.1:8080"
+                                        class="form-input">
+                                    <span class="form-hint">qBittorrent Web UI 地址，不带末尾斜杠</span>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="qbUsername">用户名</label>
+                                        <input type="text" id="qbUsername" placeholder="admin" class="form-input">
+                                        <span class="form-hint">qBittorrent Web UI 用户名</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="qbPassword">密码</label>
+                                        <input type="password" id="qbPassword" placeholder="请输入密码" class="form-input">
+                                        <span class="form-hint">qBittorrent Web UI 密码</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="qbCategory">下载分类</label>
+                                        <input type="text" id="qbCategory" placeholder="emby-request"
+                                            class="form-input">
+                                        <span class="form-hint">下载任务的分类标签，便于管理</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="qbSavePath">保存路径（可选）</label>
+                                        <input type="text" id="qbSavePath" placeholder="留空使用默认路径" class="form-input">
+                                        <span class="form-hint">下载文件保存路径，留空使用 qB 默认设置</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveQbittorrentConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="testQbittorrentConfig()">
+                                    <span>🔧</span> 测试连接
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>qBittorrent 用于自动下载搜索到的种子</li>
+                                    <li>需要开启 qBittorrent 的 <strong>Web UI</strong> 功能</li>
+                                    <li>建议设置专门的分类，便于管理求片下载任务</li>
+                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Emby 服务器配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>📺 Emby 服务器配置</h3>
+                            </div>
+                            <span class="status-badge" id="embyStatus">未配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置 Emby 服务器连接，用于检查媒体库和接收入库通知。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label for="embyUrl">Emby 服务器地址</label>
+                                    <input type="text" id="embyUrl" placeholder="http://127.0.0.1:8096"
+                                        class="form-input">
+                                    <span class="form-hint">Emby 服务器 Web 地址，不带末尾斜杠</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="embyApiKey">API Key</label>
+                                    <input type="text" id="embyApiKey" placeholder="请输入 Emby API Key"
+                                        class="form-input">
+                                    <span class="form-hint">在 Emby 控制台 → 设置 → API 密钥 中生成</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="embyWebhookSecret">Webhook 密钥（可选）</label>
+                                    <input type="text" id="embyWebhookSecret" placeholder="留空则不验证 Webhook 密钥"
+                                        class="form-input">
+                                    <span class="form-hint">用于验证 Emby Webhook 请求的合法性</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveEmbyConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="testEmbyConfig()">
+                                    <span>🔧</span> 测试连接
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>Emby 用于检查媒体库是否已存在所求影片</li>
+                                    <li>配置 Webhook 可在入库时自动更新求片状态</li>
+                                    <li>Webhook URL: <code>你的域名/api/webhook/emby</code></li>
+                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 订阅管理配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>📅 订阅过期管理</h3>
+                            </div>
+                            <span class="status-badge" id="subscriptionExpireStatus">已配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置订阅过期后的账号处理策略，包括禁用和删除时机。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label>过期处理策略</label>
+                                    <div class="checkbox-group" style="margin-top: 8px;">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="expireAutoDisable" checked>
+                                            <span>订阅过期后自动禁用 Emby 账号</span>
+                                        </label>
+                                    </div>
+                                    <span class="form-hint">启用后，订阅过期的用户将无法登录 Emby</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="expireDeleteDays">过期后删除 Emby 账号（天）</label>
+                                    <div class="input-with-hint">
+                                        <input type="number" id="expireDeleteDays" placeholder="0" class="form-input"
+                                            min="0" max="365" value="0">
+                                        <span class="unit-label">天</span>
+                                    </div>
+                                    <span class="form-hint">设为 0 表示不删除；过期超过该天数后将自动删除 Emby 服务器上的账号</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>删除选项</label>
+                                    <div class="checkbox-group" style="margin-top: 8px;">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="expireDeleteWebAccount">
+                                            <span>同时删除网站账号</span>
+                                        </label>
+                                    </div>
+                                    <span class="form-hint">启用后，删除 Emby 账号时也会删除网站用户数据；不启用则仅删除 Emby 账号，用户可重新绑定</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveSubscriptionExpireConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="loadSubscriptionExpireConfig()">
+                                    <span>🔄</span> 重新加载
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>系统每小时自动检查一次订阅过期状态</li>
+                                    <li>过期禁用：立即禁用 Emby 账号，用户无法播放</li>
+                                    <li>过期删除 Emby 账号：从 Emby 服务器删除账号</li>
+                                    <li>同时删除网站账号：连同网站用户数据一起删除</li>
+                                    <li>建议设置删除天数（如30天），给用户续费的缓冲时间</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Telegram BOT配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>📱 Telegram BOT配置</h3>
+                            </div>
+                            <span class="status-badge" id="telegramStatus">未配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置 Telegram Bot 用于发送求片通知和状态更新。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label for="tgBotToken">Bot Token</label>
+                                    <input type="text" id="tgBotToken"
+                                        placeholder="123456789:ABCdefGhIjKlmNoPqRsTuVwXyZ" class="form-input">
+                                    <span class="form-hint">从 @BotFather 获取的 Bot Token</span>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="tgChatId">通知群组 Chat ID</label>
+                                        <input type="text" id="tgChatId" placeholder="-1001234567890"
+                                            class="form-input">
+                                        <span class="form-hint">求片通知发送到的群组 ID</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="tgGroupId">入库通知群组 ID（可选）</label>
+                                        <input type="text" id="tgGroupId" placeholder="留空则使用上方 Chat ID"
+                                            class="form-input">
+                                        <span class="form-hint">入库通知专用群组，留空同上</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="tgGiftDays">赠送天数（/kk 命令）</label>
+                                        <input type="number" id="tgGiftDays" placeholder="30" min="1" max="365"
+                                            class="form-input" style="width: 150px;">
+                                        <span class="form-hint">管理员使用 /kk 命令赠送的默认天数</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="tgBotAdmins">BOT 管理员</label>
+                                    <input type="text" id="tgBotAdmins" placeholder="123456789, 987654321"
+                                        class="form-input">
+                                    <span class="form-hint">可以使用 /kk 命令的 Telegram ID，多个用逗号分隔，留空则所有群成员可用</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="tgBotPhoto">欢迎图片 URL</label>
+                                    <input type="text" id="tgBotPhoto" placeholder="https://example.com/welcome.jpg"
+                                        class="form-input">
+                                    <span class="form-hint">/start 命令显示的欢迎图片，支持 JPG/PNG，建议尺寸 800x400，留空使用默认图片</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveTelegramConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="setTelegramWebhook()">
+                                    <span>🔗</span> 设置 Webhook
+                                </button>
+                                <button class="btn-secondary" onclick="testTelegramConfig()">
+                                    <span>🔧</span> 测试连接
+                                </button>
+                                <button class="btn-secondary" onclick="registerTelegramCommands()">
+                                    <span>📋</span> 注册命令菜单
+                                </button>
+                            </div>
+
+                            <!-- 显示当前状态 -->
+                            <div
+                                style="margin-top: 10px; padding: 8px 12px; background: var(--card-bg); border-radius: 6px; border: 1px solid var(--border-color);">
+                                <span style="color: var(--text-secondary); font-size: 13px;">Webhook状态：</span>
+                                <span id="telegramModeDisplay" class="badge badge-secondary">未配置</span>
+                                <span style="color: var(--text-secondary); font-size: 12px; margin-left: 10px;">
+                                    💡 需要 HTTPS 域名才能使用 Webhook
+                                </span>
+                            </div>
+
+                            <!-- 通知模板配置 -->
+                            <div class="settings-divider"
+                                style="margin: 20px 0; border-top: 1px dashed var(--border-color);"></div>
+                            <h4 style="margin-bottom: 15px; color: var(--text-primary);">📝 通知模板配置</h4>
+                            <p class="settings-desc" style="margin-bottom: 15px;">自定义求片通知和入库通知的消息格式，留空则使用默认模板。支持HTML格式。
+                            </p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label for="tgRequestTemplate">求片通知模板</label>
+                                    <textarea id="tgRequestTemplate" class="form-input" rows="8"
+                                        placeholder="留空使用默认模板，可用变量：{user} {admin} {title} {year} {category} {tmdb_id} {tmdb_url} {time} {scope} {overview}"></textarea>
+                                    <span class="form-hint">用户发起求片时发送的通知。可用变量见下方说明。</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="tgCompletionTemplate">入库通知模板</label>
+                                    <textarea id="tgCompletionTemplate" class="form-input" rows="8"
+                                        placeholder="留空使用默认模板，可用变量：{user} {title} {year} {category} {rating} {quality} {size} {file_count}"></textarea>
+                                    <span class="form-hint">影片入库完成时发送的通知。可用变量见下方说明。</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveTelegramTemplates()">
+                                    <span>💾</span> 保存模板
+                                </button>
+                                <button class="btn-secondary" onclick="resetTelegramTemplates()">
+                                    <span>🔄</span> 恢复默认
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>在 Telegram 搜索 @BotFather 创建机器人获取 Token</li>
+                                    <li>使用 @userinfobot 获取群组 Chat ID</li>
+                                    <li>确保机器人已添加到群组并有发送消息权限</li>
+                                    <li>测试连接会发送一条测试消息到群组</li>
+                                </ul>
+                                <h4 style="margin-top: 15px;">📝 模板变量说明</h4>
+                                <ul>
+                                    <li><code>{user}</code> - 用户名（带@链接）</li>
+                                    <li><code>{admin}</code> - 管理员提醒（仅求片通知）</li>
+                                    <li><code>{title}</code> - 影片名称</li>
+                                    <li><code>{year}</code> - 上映年份</li>
+                                    <li><code>{category}</code> - 分类（电影/国产剧/美剧/日韩剧等）</li>
+                                    <li><code>{tmdb_id}</code> - TMDB ID（仅求片通知）</li>
+                                    <li><code>{tmdb_url}</code> - TMDB链接（仅求片通知）</li>
+                                    <li><code>{time}</code> - 时间（仅求片通知）</li>
+                                    <li><code>{scope}</code> - 求片范围（仅剧集求片通知）</li>
+                                    <li><code>{overview}</code> - 简介（仅求片通知）</li>
+                                    <li><code>{rating}</code> - 评分（仅入库通知）</li>
+                                    <li><code>{quality}</code> - 质量（仅入库通知）</li>
+                                    <li><code>{size}</code> - 大小（仅入库通知）</li>
+                                    <li><code>{file_count}</code> - 文件数量（仅入库通知）</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 入库通知配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🔔 入库通知设置</h3>
+                            </div>
+                            <span class="status-badge configured" id="libraryNotificationStatus">已配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置媒体入库时发送到 Telegram 的通知内容和样式。</p>
+
+                            <!-- Tab 切换 -->
+                            <div class="notification-tabs"
+                                style="margin-bottom: 20px; border-bottom: 2px solid var(--border-color);">
+                                <button class="tab-button active" onclick="switchNotificationTab('request')">
+                                    <span>📬</span> 求片通知
+                                </button>
+                                <button class="tab-button" onclick="switchNotificationTab('general')">
+                                    <span>📢</span> 通用入库通知
+                                </button>
+                            </div>
+
+                            <!-- 求片通知配置 -->
+                            <div id="requestNotificationTab" class="notification-tab-content" style="display: block;">
+                                <h4 style="margin-bottom: 15px; color: var(--text-primary);">📬 求片入库通知（@用户提醒）</h4>
+                                <p class="settings-desc" style="margin-bottom: 15px;">当求片请求的媒体入库时，自动发送通知并@求片用户。</p>
+
+                                <div class="settings-form">
+                                    <div class="form-group">
+                                        <label>推送目标</label>
+                                        <div style="display: flex; gap: 20px; margin-top: 8px;">
+                                            <label class="radio-label">
+                                                <input type="radio" name="requestSendTo" value="group" checked>
+                                                <span>推送至群组</span>
+                                            </label>
+                                            <label class="radio-label">
+                                                <input type="radio" name="requestSendTo" value="personal">
+                                                <span>推送至个人</span>
+                                            </label>
+                                        </div>
+                                        <span class="form-hint">群组：发送到通知群组；个人：发送给求片用户（需用户绑定 Telegram）</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="requestShowOverview" checked>
+                                            <span>显示影片简介</span>
+                                        </label>
+                                        <span class="form-hint">通知中包含影片简介信息</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="requestShowPoster" checked>
+                                            <span>显示影片海报</span>
+                                        </label>
+                                        <span class="form-hint">通知中附带影片海报图片</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 通用入库通知配置 -->
+                            <div id="generalNotificationTab" class="notification-tab-content" style="display: none;">
+                                <h4 style="margin-bottom: 15px; color: var(--text-primary);">📢 通用入库通知（所有媒体入库）</h4>
+                                <p class="settings-desc" style="margin-bottom: 15px;">任何媒体入库时都发送通知，不限于求片请求。</p>
+
+                                <div class="settings-form">
+                                    <div class="form-group">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="generalLibraryEnabled">
+                                            <span>启用通用入库通知</span>
+                                        </label>
+                                        <span class="form-hint">开启后，所有媒体入库都会发送通知（包括非求片的媒体）</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="generalLibraryChatId">通知目标 Chat ID</label>
+                                        <input type="text" id="generalLibraryChatId" placeholder="留空使用默认通知群组"
+                                            class="form-input">
+                                        <span class="form-hint">指定发送通知的群组或频道 ID，留空使用默认通知群组</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="generalLibraryBotToken">专用 Bot Token（可选）</label>
+                                        <input type="text" id="generalLibraryBotToken" placeholder="留空使用默认机器人"
+                                            class="form-input">
+                                        <span class="form-hint">⚠️ 建议入库通知使用专用机器人，避免消息量大时触发Telegram限流</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="generalShowPoster" checked>
+                                            <span>显示影片海报</span>
+                                        </label>
+                                        <span class="form-hint">通知中附带影片海报图片</span>
+                                    </div>
+
+                                    <div class="settings-tips" style="margin-top: 20px;">
+                                        <h4>📌 通知格式说明</h4>
+                                        <p>入库通知使用简洁的内置模板，自动显示以下信息：</p>
+                                        <ul>
+                                            <li>📺 标题、年份、季集信息</li>
+                                            <li>📚 媒体类型（电影/剧集/动漫）</li>
+                                            <li>⭐️ TMDB评分</li>
+                                            <li>🎬 TMDB ID</li>
+                                            <li>🕒 入库时间</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions" style="margin-top: 20px;">
+                                <button class="btn-primary" onclick="saveLibraryNotificationConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="loadSystemConfig()">
+                                    <span>🔄</span> 重新加载
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 搜索配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🔍 搜索设置</h3>
+                            </div>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置 PT 站点搜索策略和下载监控参数。</p>
+
+                            <div class="settings-form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="searchStrategy">搜索策略</label>
+                                        <select id="searchStrategy" class="form-input">
+                                            <option value="all">全部搜索 - 搜索所有站点并聚合结果</option>
+                                            <option value="first">优先匹配 - 找到结果后停止搜索</option>
+                                        </select>
+                                        <span class="form-hint">推荐使用「全部搜索」获取更全面的结果</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="pollInterval">下载状态轮询间隔（秒）</label>
+                                        <input type="number" id="pollInterval" placeholder="10" class="form-input"
+                                            min="5" max="60">
+                                        <span class="form-hint">检查下载进度的时间间隔，建议 10-30 秒</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveSearchConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>搜索策略影响 PT 站点的资源搜索方式</li>
+                                    <li>轮询间隔越短下载状态更新越及时，但会增加服务器负担</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TMDB 配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🎬 TMDB API 配置</h3>
+                            </div>
+                            <span class="status-badge" id="tmdbStatus">未配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置 TMDB API 用于搜索影片信息、获取海报和详情。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label for="tmdbApiKey">TMDB API Key</label>
+                                    <input type="text" id="tmdbApiKey" placeholder="请输入 TMDB API Key"
+                                        class="form-input">
+                                    <span class="form-hint">从 <a href="https://www.themoviedb.org/settings/api"
+                                            target="_blank">TMDB 官网</a> 获取 API Key</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveTmdbConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="testTmdbConfig()">
+                                    <span>🔧</span> 测试连接
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>访问 <a href="https://www.themoviedb.org/signup" target="_blank">TMDB 官网</a> 注册账号
+                                    </li>
+                                    <li>在设置 → API 中申请 API Key</li>
+                                    <li>TMDB 用于搜索影片信息、获取海报和详细介绍</li>
+                                    <li>海报图片自动通过服务器代理加载（使用环境变量中的代理配置）</li>
+                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 二级分类策略配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>📂 二级分类策略</h3>
+                            </div>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置电影和电视剧的分类规则，用于通知消息中的分类显示。规则按顺序匹配，匹配到即返回。</p>
+
+                            <!-- 电影分类 -->
+                            <div class="category-section">
+                                <h4 style="margin: 15px 0 10px; color: var(--text-primary);">🎬 电影分类</h4>
+                                <div id="movieCategoryList" class="category-list"></div>
+                                <button class="btn-secondary btn-sm" onclick="addCategory('movie')"
+                                    style="margin-top: 10px;">
+                                    <span>➕</span> 添加电影分类
+                                </button>
+                            </div>
+
+                            <!-- 电视剧分类 -->
+                            <div class="category-section" style="margin-top: 20px;">
+                                <h4 style="margin: 15px 0 10px; color: var(--text-primary);">📺 电视剧分类</h4>
+                                <div id="tvCategoryList" class="category-list"></div>
+                                <button class="btn-secondary btn-sm" onclick="addCategory('tv')"
+                                    style="margin-top: 10px;">
+                                    <span>➕</span> 添加电视剧分类
+                                </button>
+                            </div>
+
+                            <div class="settings-actions" style="margin-top: 20px;">
+                                <button class="btn-primary" onclick="saveCategoryConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="resetCategoryConfig()">
+                                    <span>🔄</span> 恢复默认
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>分类按<strong>从上到下</strong>的顺序依次匹配，匹配到即返回该分类名</li>
+                                    <li>最后一个无条件的分类作为<strong>默认分类</strong>（当所有条件都不匹配时使用）</li>
+                                    <li><strong>内容类型</strong>：16=动画, 99=纪录片, 10762=儿童, 10764=真人秀, 10767=脱口秀</li>
+                                    <li><strong>国家/地区</strong>：CN=中国大陆, TW=台湾, HK=香港, US=美国, JP=日本, KR=韩国, GB=英国</li>
+                                    <li><strong>语言</strong>：zh/cn=中文, en=英语, ja=日语, ko=韩语</li>
+                                    <li>同一分类下的多个条件是<strong>且（AND）</strong>的关系</li>
+                                    <li>同一条件内的多个值是<strong>或（OR）</strong>的关系</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 签到系统配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🎯 签到系统配置</h3>
+                            </div>
+                            <span class="status-badge" id="checkinStatus">未开启</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置每日签到功能，用户签到可获得积分，积分可兑换订阅套餐。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <div class="toggle-switch-container">
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="checkinEnabled" onchange="toggleCheckinConfig()">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                        <div class="toggle-label-text">
+                                            <strong>启用网页签到功能</strong>
+                                            <span class="form-hint">开启后，用户仪表盘会显示签到卡片</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <div class="toggle-switch-container">
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="checkinBotEnabled">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                        <div class="toggle-label-text">
+                                            <strong>启用BOT签到功能</strong>
+                                            <span class="form-hint">开启后，用户可以在Telegram BOT处使用 /checkin 命令签到</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="checkinConfigDetails" style="display: none;">
+                                    <div class="form-group">
+                                        <label for="coinName">货币名称</label>
+                                        <input type="text" id="coinName" placeholder="积分" class="form-input"
+                                            maxlength="10">
+                                        <span class="form-hint">积分的显示名称，例如：积分、金币、豆子等</span>
+                                    </div>
+
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="coinMin">最少获得</label>
+                                            <input type="number" id="coinMin" placeholder="1" class="form-input" min="1"
+                                                max="100">
+                                            <span class="form-hint">签到最少获得的积分数</span>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="coinMax">最多获得</label>
+                                            <input type="number" id="coinMax" placeholder="10" class="form-input"
+                                                min="1" max="100">
+                                            <span class="form-hint">签到最多获得的积分数</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label>兑换套餐配置</label>
+                                        <div id="exchangePlansContainer" class="exchange-plans-container">
+                                            <!-- 动态生成的兑换套餐配置项 -->
+                                        </div>
+                                        <button type="button" class="btn-secondary btn-sm"
+                                            onclick="openPlanSelectModal()" style="margin-top: 10px;">
+                                            <span>➕</span> 添加套餐
+                                        </button>
+                                        <span class="form-hint">配置用户可以用积分兑换的订阅套餐</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveCheckinConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="loadCheckinConfig()">
+                                    <span>🔄</span> 重新加载
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>签到功能关闭时，用户仪表盘不会显示签到卡片</li>
+                                    <li>每个用户每天只能签到一次，签到获得的积分数在配置范围内随机</li>
+                                    <li>连续签到可以累计天数，断签后重新计算</li>
+                                    <li>用户可以使用积分兑换配置的订阅套餐，兑换后订阅时间会自动延长</li>
+                                    <li>管理员可以在用户管理界面手动赠送或扣除用户积分</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 求片限制配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🎯 求片限制配置</h3>
+                            </div>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置不同等级用户的每日求片次数限制。</p>
+
+                            <div class="settings-form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="limitLevelA">A级（白名单用户）</label>
+                                        <input type="number" id="limitLevelA" placeholder="3" class="form-input" min="0"
+                                            max="99">
+                                        <span class="form-hint">白名单用户每日求片次数</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="limitLevelB">B级（注册用户）</label>
+                                        <input type="number" id="limitLevelB" placeholder="1" class="form-input" min="0"
+                                            max="99">
+                                        <span class="form-hint">普通注册用户每日求片次数</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="limitLevelC">C级（已禁用）</label>
+                                        <input type="number" id="limitLevelC" placeholder="0" class="form-input" min="0"
+                                            max="99">
+                                        <span class="form-hint">被禁用用户每日求片次数（通常为0）</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="limitLevelD">D级（无账号）</label>
+                                        <input type="number" id="limitLevelD" placeholder="0" class="form-input" min="0"
+                                            max="99">
+                                        <span class="form-hint">未绑定账号用户每日求片次数</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveRequestLimitConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li><strong>A级</strong>：白名单用户，拥有最高求片权限</li>
+                                    <li><strong>B级</strong>：普通注册用户</li>
+                                    <li><strong>C级</strong>：被禁用的用户，建议设为 0</li>
+                                    <li><strong>D级</strong>：未绑定 Emby 账号的用户，建议设为 0</li>
+                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 操作日志 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>📝 操作日志</h3>
+                            </div>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <!-- 筛选栏 -->
+                            <div class="activity-logs-filters">
+                                <div class="filter-group">
+                                    <input type="text" id="logUserSearch" class="filter-input" placeholder="🔍 搜索用户名..."
+                                        onkeyup="searchActivityLogs()" autocomplete="off" autocorrect="off"
+                                        autocapitalize="off" spellcheck="false" data-form-type="other">
+                                </div>
+                                <div class="filter-group">
+                                    <select id="logActionFilter" class="filter-select" onchange="loadAllActivityLogs()">
+                                        <option value="">📋 全部操作</option>
+                                        <option value="login">🔐 登录</option>
+                                        <option value="logout">🚪 登出</option>
+                                        <option value="register">📝 注册</option>
+                                        <option value="request_movie">🎬 求片</option>
+                                        <option value="redeem_code">🎟️ 兑换码</option>
+                                        <option value="create_order">🛒 创建订单</option>
+                                        <option value="payment_success">💳 支付成功</option>
+                                        <option value="password_change">🔑 修改密码</option>
+                                        <option value="account_banned">⛔ 封禁</option>
+                                        <option value="account_unbanned">✅ 解封</option>
+                                        <option value="level_change">📊 等级变更</option>
+                                        <option value="view_lines">🔗 查看线路</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <select id="logStatusFilter" class="filter-select" onchange="loadAllActivityLogs()">
+                                        <option value="">🔘 全部状态</option>
+                                        <option value="success">✅ 成功</option>
+                                        <option value="failed">❌ 失败</option>
+                                    </select>
+                                </div>
+                                <button class="btn-refresh" onclick="loadAllActivityLogs(1)">
+                                    🔄 刷新
+                                </button>
+                            </div>
+
+                            <!-- 日志列表 -->
+                            <div class="activity-logs-list" id="activityLogsList">
+                                <div class="loading-cell">加载中...</div>
+                            </div>
+
+                            <!-- 分页 -->
+                            <div class="pagination" id="activityLogsPagination"></div>
+                        </div>
+                    </div>
+
+                    <!-- 系统信息 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>📊 系统信息</h3>
+                            </div>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <div class="system-info-grid">
+                                <div class="info-item">
+                                    <span class="info-label">系统版本</span>
+                                    <span class="info-value">v1.0.0</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">运行环境</span>
+                                    <span class="info-value">Python Flask</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">数据库</span>
+                                    <span class="info-value">MySQL</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- 加载动画遮罩 -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <p id="loadingText">处理中...</p>
+        </div>
+    </div>
+
+    <div class="modal" id="noteModal">
+        <div class="modal-content">
+            <h3 id="noteModalTitle">添加备注</h3>
+            <textarea id="adminNote" placeholder="请输入备注信息（可选）"></textarea>
+            <div class="modal-buttons">
+                <button class="btn-cancel" onclick="closeModal()">取消</button>
+                <button class="btn-confirm" onclick="confirmUpdate()">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 删除确认弹窗 -->
+    <div class="confirm-overlay" id="deleteConfirmOverlay" onclick="closeDeleteConfirm()">
+        <div class="confirm-dialog delete-confirm-dialog" onclick="event.stopPropagation()">
+            <div class="icon">🗑️</div>
+            <h3>确认删除</h3>
+            <div class="delete-info">
+                <div class="delete-warning">⚠️ 此操作不可恢复！</div>
+                <div class="delete-count">即将删除 <strong id="deleteCount">0</strong> 条记录</div>
+                <p class="delete-hint">删除后将同时移除关联的下载任务</p>
+            </div>
+            <div class="buttons">
+                <button class="btn-cancel" onclick="closeDeleteConfirm()">取消</button>
+                <button class="btn-delete" onclick="confirmBatchDelete()">确认删除</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="ptModal">
+        <div class="modal-content pt-modal">
+            <div class="pt-modal-inner">
+                <div class="pt-modal-header">
+                    <h3>MoviePilot 搜索</h3>
+                    <button class="pt-close-btn" onclick="closePtModal()">✕</button>
+                </div>
+                <div class="pt-search-bar">
+                    <input type="text" id="ptKeyword" placeholder="输入关键字搜索种子..." autocomplete="off" autocorrect="off"
+                        autocapitalize="off" spellcheck="false" data-form-type="other" />
+                    <button class="pt-search-btn" onclick="searchPtTorrents()">搜索</button>
+                </div>
+                <div class="pt-toolbar">
+                    <div class="pt-summary" id="ptSummary">输入关键字后可获取候选种子</div>
+                    <div class="pt-filter-buttons">
+                        <div class="pt-sort-group">
+                            <span>排序:</span>
+                            <button class="pt-chip active" data-sort="seeders"
+                                onclick="setPtSort('seeders', this)">做种最多</button>
+                            <button class="pt-chip" data-sort="size" onclick="setPtSort('size', this)">体积最小</button>
+                            <button class="pt-chip" data-sort="created" onclick="setPtSort('created', this)">最新</button>
+                        </div>
+                        <div class="pt-filter-group">
+                            <span>筛选:</span>
+                            <button class="pt-chip" data-filter="free"
+                                onclick="togglePtFreeFilter(this)">仅看促销/免费</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="pt-results" id="ptResults">
+                    <p class="pt-placeholder">输入关键字后开始搜索</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加/编辑黑名单规则弹窗 -->
+    <div class="modal" id="blacklistModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="blacklistModalTitle">添加黑名单规则</h3>
+                <button class="modal-close" onclick="closeBlacklistModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="blacklistForm" onsubmit="saveBlacklistRule(event)">
+                    <input type="hidden" id="blacklistRuleId">
+
+                    <div class="form-group">
+                        <label for="blacklistRuleName">规则名称 *</label>
+                        <input type="text" id="blacklistRuleName" required placeholder="例如：禁止Infuse播放">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="blacklistClientPattern">客户端匹配模式</label>
+                        <input type="text" id="blacklistClientPattern"
+                            placeholder="例如：*Infuse* 或 Emby Web（支持通配符 * 和 ?）">
+                        <small>留空表示不限制客户端</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="blacklistDevicePattern">设备名称匹配模式</label>
+                        <input type="text" id="blacklistDevicePattern" placeholder="例如：*iPhone* 或 iPad（支持通配符）">
+                        <small>留空表示不限制设备名称</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="blacklistAction">处理方式 *</label>
+                        <select id="blacklistAction" required>
+                            <option value="stop_only">仅停止播放（禁用设备）</option>
+                            <option value="stop_and_ban">停止播放并禁用账号</option>
+                        </select>
+                        <small>⚠️ 停止+禁号会自动禁用检测到的用户账号，请谨慎使用</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="blacklistDescription">规则描述</label>
+                        <textarea id="blacklistDescription" rows="3" placeholder="说明此规则的用途"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="blacklistEnabled" checked>
+                            <span>启用此规则</span>
+                        </label>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button type="button" class="btn-secondary" onclick="closeBlacklistModal()">取消</button>
+                        <button type="submit" class="btn-primary">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 工单详情/回复弹窗 - 横版布局 -->
+    <div class="modal" id="ticketDetailModal">
+        <div class="modal-content ticket-detail-modal">
+            <div class="modal-header">
+                <h3>🎫 工单详情 <span id="ticketDetailNo"></span></h3>
+                <button class="modal-close" onclick="closeTicketDetailModal()">✕</button>
+            </div>
+            <div class="ticket-detail-layout">
+                <!-- 左侧：工单信息 -->
+                <div class="ticket-detail-left">
+                    <div class="ticket-info-compact">
+                        <div class="info-row">
+                            <span class="info-label">用户</span>
+                            <span class="info-value" id="ticketDetailUser"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">类别</span>
+                            <span class="info-value" id="ticketDetailCategory"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">优先级</span>
+                            <span class="info-value" id="ticketDetailPriority"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">状态</span>
+                            <span class="info-value" id="ticketDetailStatus"></span>
+                        </div>
+                    </div>
+
+                    <div class="ticket-content-section">
+                        <div class="content-block">
+                            <label>📌 主题</label>
+                            <p id="ticketDetailSubject"></p>
+                        </div>
+                        <div class="content-block">
+                            <label>📝 问题描述</label>
+                            <p id="ticketDetailDescription"></p>
+                        </div>
+                    </div>
+
+                    <div class="ticket-status-info">
+                        <div class="status-note">
+                            <span class="note-icon">ℹ️</span>
+                            <span class="note-text">状态自动管理：回复→处理中，用户回复→待处理，3天无回复→关闭</span>
+                        </div>
+                        <button class="btn-close-ticket" onclick="closeCurrentTicket()">关闭工单</button>
+                    </div>
+                </div>
+
+                <!-- 右侧：对话和回复 -->
+                <div class="ticket-detail-right">
+                    <div class="ticket-chat-section">
+                        <label>💬 对话记录</label>
+                        <div id="ticketMessages" class="ticket-messages-list"></div>
+                    </div>
+
+                    <div class="ticket-reply-section">
+                        <label>✉️ 回复工单</label>
+                        <textarea id="ticketReplyInput" placeholder="请输入您的回复内容..." rows="3"></textarea>
+                        <button class="ticket-send-btn" onclick="submitTicketReply()">
+                            <span class="btn-icon">✉️</span>
+                            <span class="btn-text">发送回复</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 生成兑换码弹窗 -->
+    <div class="modal-overlay" id="generateRedeemOverlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🎫 生成兑换码</h3>
+                <button class="modal-close" onclick="hideGenerateRedeemDialog()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="redeemCodeType">兑换类型</label>
+                    <select id="redeemCodeType">
+                        <option value="new">新购套餐</option>
+                        <option value="renew">套餐续费</option>
+                    </select>
+                    <span class="form-hint">新购：用于新开通套餐 | 续费：用于延长现有套餐</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="redeemPlanType">套餐类型</label>
+                    <select id="redeemPlanType">
+                        <option value="">请选择套餐</option>
+                        {% for plan in plans %}
+                        <option value="{{ plan.id }}">{{ plan.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="redeemDuration">有效时长（月）</label>
+                    <select id="redeemDuration">
+                        <option value="1">1个月</option>
+                        <option value="3">3个月</option>
+                        <option value="6">6个月</option>
+                        <option value="12">12个月</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="redeemCount">生成数量</label>
+                    <input type="number" id="redeemCount" min="1" max="100" value="1">
+                    <span class="form-hint">单次最多生成100个</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideGenerateRedeemDialog()">取消</button>
+                <button class="btn btn-primary" onclick="generateRedeemCodes()">生成</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 删除兑换码确认弹窗 -->
+    <div class="confirm-overlay" id="deleteRedeemOverlay" onclick="hideDeleteRedeemConfirm()">
+        <div class="confirm-dialog delete-confirm-dialog" onclick="event.stopPropagation()">
+            <div class="icon">🗑️</div>
+            <h3>确认删除兑换码</h3>
+            <div class="delete-info">
+                <div class="delete-warning">⚠️ 此操作不可恢复！</div>
+                <div class="delete-count">即将删除 <strong id="deleteRedeemCount">0</strong> 个兑换码</div>
+                <p class="delete-hint">删除后兑换码将无法使用</p>
+            </div>
+            <div class="buttons">
+                <button class="btn-cancel" onclick="hideDeleteRedeemConfirm()">取消</button>
+                <button class="btn-delete" onclick="confirmDeleteRedeemCodes()">确认删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 公告编辑弹窗 -->
+    <div class="modal-overlay" id="announcementModalOverlay" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="announcementModalTitle">📢 发布公告</h3>
+                <button class="modal-close" onclick="closeAnnouncementModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="announcementId">
+                <div class="form-group">
+                    <label for="announcementTitle">公告标题 <span class="required">*</span></label>
+                    <input type="text" id="announcementTitle" placeholder="请输入公告标题" maxlength="200">
+                </div>
+                <div class="form-group">
+                    <label for="announcementContent">公告内容 <span class="required">*</span></label>
+                    <textarea id="announcementContent" rows="5" placeholder="请输入公告内容，支持简单HTML"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="announcementType">公告类型</label>
+                        <select id="announcementType">
+                            <option value="info">📘 通知</option>
+                            <option value="warning">⚠️ 警告</option>
+                            <option value="success">✅ 成功</option>
+                            <option value="error">❌ 错误</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="announcementPinned"> 置顶显示
+                        </label>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="announcementStartTime">开始时间（可选）</label>
+                        <input type="datetime-local" id="announcementStartTime">
+                    </div>
+                    <div class="form-group">
+                        <label for="announcementEndTime">结束时间（可选）</label>
+                        <input type="datetime-local" id="announcementEndTime">
+                    </div>
+                </div>
+                <div class="form-hint">不设置时间则立即生效且永久有效</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeAnnouncementModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveAnnouncement()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用模态框 -->
+    <div class="modal-overlay" id="genericModalOverlay" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="genericModalTitle">标题</h3>
+                <button class="modal-close" onclick="closeGenericModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="genericModalBody">
+                <!-- 动态内容 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 用户详情弹窗 -->
+    <div class="modal" id="userDetailModal" style="display: none;">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h3 id="userDetailTitle">用户详情</h3>
+                <button class="modal-close" onclick="closeUserDetailModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- 标签页导航 -->
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="switchUserDetailTab('info')">📋 基本信息</button>
+                    <button class="tab-btn" onclick="switchUserDetailTab('activity')">📝 操作记录</button>
+                    <button class="tab-btn" onclick="switchUserDetailTab('subscriptions')">💎 订阅记录</button>
+                    <button class="tab-btn" onclick="switchUserDetailTab('devices')">📱 设备列表</button>
+                    <button class="tab-btn" onclick="switchUserDetailTab('requests')">🎬 求片记录</button>
+                </div>
+
+                <!-- 基本信息 -->
+                <div class="tab-content active" id="tab-info">
+                    <div class="user-info-grid" id="userInfoContent">
+                        <div class="info-loading">加载中...</div>
+                    </div>
+                </div>
+
+                <!-- 操作记录 -->
+                <div class="tab-content" id="tab-activity">
+                    <div class="activity-filter">
+                        <select id="activityTypeFilter" onchange="loadUserActivityLogs()">
+                            <option value="">全部操作</option>
+                            <option value="login">登录</option>
+                            <option value="logout">登出</option>
+                            <option value="request_movie">求片</option>
+                            <option value="payment_success">支付</option>
+                            <option value="redeem_code">兑换码</option>
+                            <option value="password_change">修改密码</option>
+                            <option value="view_lines">查看线路</option>
+                        </select>
+                    </div>
+                    <div class="activity-list" id="activityLogContent">
+                        <div class="info-loading">加载中...</div>
+                    </div>
+                    <div class="pagination" id="activityPagination"></div>
+                </div>
+
+                <!-- 订阅记录 -->
+                <div class="tab-content" id="tab-subscriptions">
+                    <div class="subscriptions-list" id="subscriptionsContent">
+                        <div class="info-loading">加载中...</div>
+                    </div>
+                </div>
+
+                <!-- 设备列表 -->
+                <div class="tab-content" id="tab-devices">
+                    <div class="devices-list" id="devicesContent">
+                        <div class="info-loading">加载中...</div>
+                    </div>
+                </div>
+
+                <!-- 求片记录 -->
+                <div class="tab-content" id="tab-requests">
+                    <div class="requests-list" id="requestsContent">
+                        <div class="info-loading">加载中...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 套餐选择模态弹窗 -->
+    <div id="planSelectModal" class="modal">
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h3>选择兑换套餐</h3>
+                <span class="modal-close" onclick="closePlanSelectModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>可用套餐列表</label>
+                    <div id="availablePlansList" class="plans-list">
+                        <!-- 动态加载套餐列表 -->
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="planCoins">所需积分</label>
+                    <input type="number" id="planCoins" placeholder="请输入所需积分" class="form-input" min="1">
+                    <span class="form-hint">用户兑换该套餐需要消耗的积分数量</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closePlanSelectModal()">取消</button>
+                <button class="btn-primary" onclick="confirmAddPlan()">确认添加</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/common.js') }}?v=12"></script>
+    <script src="{{ url_for('static', filename='js/admin.js') }}?v=29"></script>
+    <script src="{{ url_for('static', filename='js/admin-checkin.js') }}?v=6"></script>
+
+</body>
+
+</html>

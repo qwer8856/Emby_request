@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>注册 - {{ site_config.site_name or 'Emby' }}</title>
+    {% if site_config.site_logo %}
+    <link rel="icon" href="{{ site_config.site_logo }}" type="image/png">
+    {% endif %}
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .register-wrapper {
+            display: flex;
+            width: 100%;
+            max-width: 900px;
+            background: white;
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e5e5e5;
+        }
+        
+        /* 左侧装饰区域 */
+        .register-banner {
+            flex: 1;
+            background: #f8f7f4;
+            padding: 60px 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .register-banner::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 60%);
+            animation: pulse 15s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+        
+        .banner-content {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .banner-logo {
+            width: 100px;
+            height: 100px;
+            border-radius: 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .banner-title {
+            font-size: 32px;
+            font-weight: 700;
+            color: #1a1a1a;
+            margin-bottom: 16px;
+        }
+        
+        .banner-desc {
+            font-size: 16px;
+            color: #4a4a4a;
+            line-height: 1.6;
+            max-width: 280px;
+        }
+        
+        .banner-features {
+            margin-top: 40px;
+            text-align: left;
+        }
+        
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #1a1a1a;
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+        
+        .feature-icon {
+            width: 32px;
+            height: 32px;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+        
+        /* 右侧表单区域 */
+        .register-form-section {
+            flex: 1;
+            padding: 50px 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        
+        .form-header {
+            margin-bottom: 32px;
+        }
+        
+        .form-header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1a1a1a;
+            margin-bottom: 8px;
+        }
+        
+        .form-header p {
+            font-size: 15px;
+            color: #4a4a4a;
+        }
+        
+        .message {
+            padding: 12px 16px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+        
+        .message.show { display: block; }
+        .message.error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .message.success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+        
+        .invite-badge {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            color: #b45309;
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 13px;
+            margin-bottom: 24px;
+            border: 1px solid #fcd34d;
+        }
+        
+        .invite-badge .badge-icon {
+            font-size: 20px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+        
+        .input-wrapper {
+            position: relative;
+        }
+        
+        .input-wrapper .input-icon {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #999999;
+            font-size: 18px;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 14px 14px 14px 44px;
+            border: 2px solid #e5e5e5;
+            border-radius: 12px;
+            font-size: 15px;
+            transition: all 0.3s;
+            background: #fafafa;
+            color: #1a1a1a;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            background: white;
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+        }
+        
+        .form-group input.error {
+            border-color: #ef4444;
+            background: #fef2f2;
+        }
+        
+        .form-group .hint {
+            color: #666666;
+            font-size: 12px;
+            margin-top: 6px;
+        }
+        
+        .form-group .error-text {
+            color: #dc2626;
+            font-size: 12px;
+            margin-top: 6px;
+        }
+        
+        .password-strength {
+            margin-top: 8px;
+            height: 4px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .password-strength .bar {
+            height: 100%;
+            width: 0;
+            transition: all 0.3s;
+            border-radius: 4px;
+        }
+        
+        .password-strength.weak .bar { width: 33%; background: linear-gradient(90deg, #ef4444, #f87171); }
+        .password-strength.medium .bar { width: 66%; background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        .password-strength.strong .bar { width: 100%; background: linear-gradient(90deg, #10b981, #34d399); }
+        
+        .register-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 8px;
+        }
+        
+        .register-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .register-btn:active {
+            transform: translateY(0);
+        }
+        
+        .register-btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        #sendCodeBtn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #5a67d8 0%, #6b46a0 100%);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+        
+        #sendCodeBtn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        
+        .login-link {
+            text-align: center;
+            margin-top: 24px;
+            font-size: 14px;
+            color: #6b7280;
+        }
+        
+        .login-link a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .login-link a:hover {
+            text-decoration: underline;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .register-wrapper {
+                flex-direction: column;
+                max-width: 420px;
+            }
+            
+            .register-banner {
+                padding: 40px 30px;
+            }
+            
+            .banner-features {
+                display: none;
+            }
+            
+            .banner-title {
+                font-size: 24px;
+            }
+            
+            .banner-desc {
+                font-size: 14px;
+            }
+            
+            .register-form-section {
+                padding: 30px 24px;
+            }
+            
+            .form-header h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="register-wrapper">
+        <!-- 左侧装饰区域 -->
+        <div class="register-banner">
+            <div class="banner-content">
+                {% if site_config.site_logo %}
+                <img src="{{ site_config.site_logo }}" alt="Logo" class="banner-logo" onerror="this.style.display='none'">
+                {% endif %}
+                <h2 class="banner-title">{{ site_config.site_name or 'Emby' }} {{ site_config.site_subtitle or '管理系统' }}</h2>
+                <p class="banner-desc">加入我们，畅享海量高清影视资源，开启你的专属观影之旅</p>
+                
+                <div class="banner-features">
+                    <div class="feature-item">
+                        <span class="feature-icon">🎬</span>
+                        <span>海量高清影视资源</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-icon">⚡</span>
+                        <span>极速求片响应</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-icon">📱</span>
+                        <span>多端同步观看</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-icon">🎁</span>
+                        <span>邀请好友得奖励</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 右侧表单区域 -->
+        <div class="register-form-section">
+            <div class="form-header">
+                <h1>创建账户</h1>
+                <p>填写以下信息完成注册</p>
+            </div>
+            
+            <div class="message" id="message"></div>
+            
+            {% if invite_code %}
+            <div class="invite-badge">
+                <span class="badge-icon">🎁</span>
+                <span>使用邀请码注册，双方都可获得额外奖励！</span>
+            </div>
+            {% elif register_mode == 'invite' %}
+            <div class="invite-badge" style="background: #fef3c7; border-color: #fbbf24;">
+                <span class="badge-icon">⚠️</span>
+                <span>当前为仅邀请注册模式，需要邀请码才能注册</span>
+            </div>
+            {% endif %}
+            
+            <form id="registerForm" onsubmit="return handleRegister(event)">
+                <div class="form-group">
+                    <label for="username">用户名</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">👤</span>
+                        <input type="text" id="username" name="username" placeholder="请输入用户名" required 
+                               minlength="3" maxlength="20" oninput="validateUsername()">
+                    </div>
+                    <div class="hint">3-20个字符，支持字母、数字、下划线</div>
+                    <div class="error-text" id="usernameError"></div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">密码</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">🔒</span>
+                        <input type="password" id="password" name="password" placeholder="请输入密码" required
+                               minlength="6" maxlength="32" oninput="checkPasswordStrength()">
+                    </div>
+                    <div class="password-strength" id="passwordStrength">
+                        <div class="bar"></div>
+                    </div>
+                    <div class="hint">6-32个字符，建议包含字母和数字</div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="confirmPassword">确认密码</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">🔐</span>
+                        <input type="password" id="confirmPassword" name="confirmPassword" placeholder="请再次输入密码" required
+                               oninput="validateConfirmPassword()">
+                    </div>
+                    <div class="error-text" id="confirmPasswordError"></div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="inviteCode">邀请码 {% if register_mode == 'invite' %}<span style="color: #dc2626; font-weight: 600;">(必填)</span>{% else %}<span style="color: #9ca3af; font-weight: 400;">(选填)</span>{% endif %}</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">🎫</span>
+                        <input type="text" id="inviteCode" name="inviteCode" placeholder="{% if register_mode == 'invite' %}请输入邀请码{% else %}如有邀请码请输入{% endif %}"
+                               value="{{ invite_code or '' }}" {% if invite_code %}readonly style="background: #f0fdf4;"{% endif %} {% if register_mode == 'invite' %}required{% endif %}>
+                    </div>
+                </div>
+                
+                <button type="submit" class="register-btn" id="registerBtn">
+                    立即注册
+                </button>
+            </form>
+            
+            <div class="login-link">
+                已有账户？<a href="{{ url_for('login') }}">立即登录</a>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function showMessage(text, type) {
+            const msg = document.getElementById('message');
+            msg.textContent = text;
+            msg.className = `message show ${type}`;
+        }
+        
+        function hideMessage() {
+            document.getElementById('message').className = 'message';
+        }
+        
+        function validateUsername() {
+            const input = document.getElementById('username');
+            const error = document.getElementById('usernameError');
+            const value = input.value.trim();
+            
+            if (value.length > 0 && value.length < 3) {
+                error.textContent = '用户名至少3个字符';
+                input.classList.add('error');
+                return false;
+            }
+            
+            if (value.length > 0 && !/^[a-zA-Z0-9_]+$/.test(value)) {
+                error.textContent = '用户名只能包含字母、数字、下划线';
+                input.classList.add('error');
+                return false;
+            }
+            
+            error.textContent = '';
+            input.classList.remove('error');
+            return value.length >= 3;
+        }
+        
+        function checkPasswordStrength() {
+            const password = document.getElementById('password').value;
+            const strength = document.getElementById('passwordStrength');
+            
+            if (password.length < 6) {
+                strength.className = 'password-strength';
+                return;
+            }
+            
+            let score = 0;
+            if (password.length >= 8) score++;
+            if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score++;
+            if (/[0-9]/.test(password)) score++;
+            if (/[^a-zA-Z0-9]/.test(password)) score++;
+            
+            if (score <= 1) {
+                strength.className = 'password-strength weak';
+            } else if (score <= 2) {
+                strength.className = 'password-strength medium';
+            } else {
+                strength.className = 'password-strength strong';
+            }
+        }
+        
+        function validateConfirmPassword() {
+            const password = document.getElementById('password').value;
+            const confirm = document.getElementById('confirmPassword');
+            const error = document.getElementById('confirmPasswordError');
+            
+            if (confirm.value.length > 0 && confirm.value !== password) {
+                error.textContent = '两次输入的密码不一致';
+                confirm.classList.add('error');
+                return false;
+            }
+            
+            error.textContent = '';
+            confirm.classList.remove('error');
+            return confirm.value === password && confirm.value.length > 0;
+        }
+        
+        async function handleRegister(e) {
+            e.preventDefault();
+            hideMessage();
+            
+            if (!validateUsername()) {
+                showMessage('请检查用户名格式', 'error');
+                return false;
+            }
+            
+            if (!validateConfirmPassword()) {
+                showMessage('两次输入的密码不一致', 'error');
+                return false;
+            }
+            
+            const btn = document.getElementById('registerBtn');
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '注册中...';
+            
+            try {
+                const formData = {
+                    username: document.getElementById('username').value.trim(),
+                    password: document.getElementById('password').value,
+                    invite_code: document.getElementById('inviteCode').value.trim()
+                };
+                
+                const response = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('🎉 注册成功！正在跳转到登录页面...', 'success');
+                    setTimeout(() => { window.location.href = '/login'; }, 2000);
+                } else {
+                    showMessage(data.error || '注册失败，请稍后重试', 'error');
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                }
+            } catch (error) {
+                console.error('注册错误:', error);
+                showMessage('网络错误，请稍后重试', 'error');
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+            
+            return false;
+        }
+    </script>
+</body>
+</html>

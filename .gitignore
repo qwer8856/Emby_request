@@ -1,0 +1,141 @@
+# ==================== 环境和配置文件 ====================
+# 敏感配置文件（包含密码、API密钥等）
+.env
+.env.local
+.env.*.local
+config.local.py
+secrets.json
+
+# ==================== 授权模块（编译后分发）====================
+license_core.py
+# license_core*.so 需要上传到 GitHub
+# license_core*.pyd
+
+# ==================== Python ====================
+# 字节码
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C 扩展（排除 license_core）
+*.so
+!license_core*.so
+
+# 分发/打包
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# 单元测试 / 覆盖率
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# 虚拟环境
+venv/
+ENV/
+env/
+.venv/
+
+# ==================== Flask ====================
+instance/
+.webassets-cache
+
+# ==================== 数据库 ====================
+*.db
+*.sqlite
+*.sqlite3
+movie_requests.db
+
+# ==================== 日志文件 ====================
+logs/
+*.log
+*.log.*
+
+# ==================== IDE 和编辑器 ====================
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# ==================== 操作系统 ====================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+
+# ==================== 其他 ====================
+# 临时文件
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# 内部设计文档（可能包含敏感信息）
+docs/
+
+# Telegram 教程文档（内部使用，不公开）
+TG_TUTORIAL.md
+
+# 一次性迁移脚本
+migrate_*.py
+
+# Node modules (如果使用前端构建工具)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# 上传文件目录
+uploads/

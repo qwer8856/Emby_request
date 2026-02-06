@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - {{ site_config.site_title or 'Emby管理系统' }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}?v=8">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}?v=7">
+    {% if site_config and site_config.custom_css %}
+    <style>{{ site_config.custom_css | safe }}</style>
+    {% endif %}
+</head>
+<body class="page-login">
+    <!-- 顶部导航 -->
+    <div class="header">
+        <div class="logo">
+            {% if site_config.site_logo %}
+            <div class="logo-icon">
+                <img src="{{ site_config.site_logo }}" alt="Logo">
+            </div>
+            {% endif %}
+            <span>{{ site_config.site_name or 'Emby' }} {{ site_config.site_subtitle or '管理系统' }}</span>
+        </div>
+        <div class="nav-links">
+            {% if site_config.shop_url %}
+            <a href="{{ site_config.shop_url }}" target="_blank">
+                <span class="nav-icon">
+                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M17 18C15.89 18 15 18.89 15 20C15 20.5304 15.2107 21.0391 15.5858 21.4142C15.9609 21.7893 16.4696 22 17 22C17.5304 22 18.0391 21.7893 18.4142 21.4142C18.7893 21.0391 19 20.5304 19 20C19 19.4696 18.7893 18.9609 18.4142 18.5858C18.0391 18.2107 17.5304 18 17 18ZM1 2V4H3L6.6 11.59L5.24 14.04C5.09 14.32 5 14.65 5 15C5 15.5304 5.21071 16.0391 5.58579 16.4142C5.96086 16.7893 6.46957 17 7 17H19V15H7.42C7.3537 15 7.29011 14.9737 7.24322 14.9268C7.19634 14.8799 7.17 14.8163 7.17 14.75C7.17 14.7 7.18 14.66 7.2 14.63L8.1 13H15.55C16.3 13 16.96 12.58 17.3 11.97L20.88 5.5C20.95 5.34 21 5.17 21 5C21 4.73478 20.8946 4.48043 20.7071 4.29289C20.5196 4.10536 20.2652 4 20 4H5.21L4.27 2M7 18C5.89 18 5 18.89 5 20C5 20.5304 5.21071 21.0391 5.58579 21.4142C5.96086 21.7893 6.46957 22 7 22C7.53043 22 8.03914 21.7893 8.41421 21.4142C8.78929 21.0391 9 20.5304 9 20C9 19.4696 8.78929 18.9609 8.41421 18.5858C8.03914 18.2107 7.53043 18 7 18Z"/>
+                    </svg>
+                </span>
+                定价
+            </a>
+            {% endif %}
+            {% if site_config.telegram_group %}
+            <a href="{{ site_config.telegram_group }}" target="_blank">
+                <span class="nav-icon">
+                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M9.78 18.65L10.06 14.42L17.74 7.5C18.08 7.19 17.67 7.04 17.22 7.31L7.74 13.3L3.64 12C2.76 11.75 2.75 11.14 3.84 10.7L19.81 4.54C20.54 4.21 21.24 4.72 20.96 5.84L18.24 18.65C18.05 19.56 17.5 19.78 16.74 19.36L12.6 16.3L10.61 18.23C10.38 18.46 10.19 18.65 9.78 18.65Z"/>
+                    </svg>
+                </span>
+                Telegram
+            </a>
+            {% endif %}
+        </div>
+        <div class="right-menu">
+            <button class="menu-toggle" id="menuToggle" aria-label="打开导航菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </div>
+
+    <div class="drawer-overlay" id="drawerOverlay"></div>
+    <div class="mobile-drawer" id="mobileDrawer" aria-hidden="true">
+        <div class="drawer-header">
+            <span>快速链接</span>
+            <button class="drawer-close" id="drawerClose" aria-label="关闭导航">&times;</button>
+        </div>
+        <div class="drawer-links" id="drawerLinks"></div>
+    </div>
+    
+    <!-- 登录表单 -->
+    <div class="main-content">
+        <div class="login-container">
+            <div class="welcome-text">
+                <div class="welcome-title">欢迎使用 {{ site_config.site_title or 'Emby 管理系统' }}</div>
+                <div class="welcome-subtitle">
+                    登录您的账号<br>
+                    开始管理您的Emby
+                </div>
+            </div>
+            
+            <form id="loginForm">
+                <div class="form-group">
+                    <label class="form-label">用户名</label>
+                    <input type="text" id="username" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">登录密码</label>
+                    <input type="password" id="password" class="form-input" placeholder="••••••••" required>
+                    <div class="form-hint">请保护好您的密码</div>
+                </div>
+                
+                <div class="forgot-password-link" style="text-align: right; margin-bottom: 15px;">
+                    <a href="{{ url_for('forgot_password_page') }}" style="color: #6b7280; font-size: 13px; text-decoration: none;">忘记密码？</a>
+                </div>
+                
+                <button type="submit" class="submit-btn">登录</button>
+                
+                <div class="error" id="error">{{ error_message }}</div>
+                
+                {% if register_mode != 'closed' %}
+                <div class="register-link" style="text-align: center; margin-top: 20px; font-size: 14px; color: #6b7280;">
+                    还没有账户？<a href="{{ url_for('register_page') }}" style="color: #3b82f6; text-decoration: none; font-weight: 500;">立即注册</a>
+                    {% if register_mode == 'invite' %}
+                    <span style="color: #f59e0b; font-size: 12px; display: block; margin-top: 4px;">（需要邀请码）</span>
+                    {% endif %}
+                </div>
+                {% else %}
+                <div class="register-link" style="text-align: center; margin-top: 20px; font-size: 14px; color: #9ca3af;">
+                    注册功能已关闭
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/common.js') }}?v=8"></script>
+    <script src="{{ url_for('static', filename='js/login.js') }}?v=7"></script>
+
+</body>
+</html>

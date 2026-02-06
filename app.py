@@ -1,0 +1,18172 @@
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, abort, has_app_context as flask_has_app_context
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import joinedload
+from datetime import datetime, timedelta, timezone
+from dotenv import load_dotenv
+from flask import Response
+import gzip
+import requests
+import json
+import os
+import random
+from functools import wraps
+import logging
+from logging.handlers import RotatingFileHandler
+import hashlib
+import time
+import threading
+from threading import Lock, Thread, Event
+from typing import Optional, Union
+from urllib.parse import quote_plus, quote
+import xml.etree.ElementTree as ET
+import re
+from PIL import Image, ImageDraw, ImageFont
+from io import BytesIO
+
+# ==================== 授权验证 ====================
+from license import require_license
+require_license()  # 验证失败会退出程序
+
+# ==================== 辅助函数（需要在配置函数之前定义）====================
+def has_app_context():
+    """检查是否在 Flask 应用上下文中"""
+    try:
+        return flask_has_app_context()
+    except:
+        return False
+
+
+# ==================== 数据库配置缓存（在 db 初始化前定义）====================
+_db_config_cache = {}  # 内存缓存，减少数据库查询
+_db_config_cache_time = {}  # 缓存时间
+DB_CONFIG_CACHE_TTL = 60  # 缓存有效期（秒）
+
+
+def get_db_config(key: str, default=None, use_cache=True):
+    """从数据库获取配置（带缓存）- 延迟加载"""
+    global _db_config_cache, _db_config_cache_time
+    
+    # 检查缓存
+    if use_cache and key in _db_config_cache:
+        if time.time() - _db_config_cache_time.get(key, 0) < DB_CONFIG_CACHE_TTL:
+            return _db_config_cache[key]
+    
+    try:
+        # 确保在应用上下文中
+        if not has_app_context():
+            return default
+        
+        # 延迟导入，避免循环依赖
+        from flask import current_app
+        
+        # 直接查询数据库（不依赖 SystemConfig 类）
+        result = db.session.execute(
+            db.text("SELECT config_value FROM system_config WHERE config_key = :key"),
+            {'key': key}
+        ).fetchone()
+        
+        if result and result[0]:
+            value = json.loads(result[0])
+            # 更新缓存
+            _db_config_cache[key] = value
+            _db_config_cache_time[key] = time.time()
+            return value
+        
+        return default
+    except Exception as e:
+        # 表可能不存在，静默返回默认值
+        return default
+
+
+def set_db_config(key: str, value: dict, description: str = None):
+    """保存配置到数据库 - 延迟加载"""
+    global _db_config_cache, _db_config_cache_time
+    
+    try:
+        if not has_app_context():
+            return False
+        
+        config_value = json.dumps(value, ensure_ascii=False)
+        now = datetime.now()
+        
+        # 使用 UPSERT 操作（兼容 MySQL 和 SQLite）
+        existing = db.session.execute(
+            db.text("SELECT id FROM system_config WHERE config_key = :key"),
+            {'key': key}
+        ).fetchone()
+        
+        if existing:
+            db.session.execute(
+                db.text("""UPDATE system_config 
+                          SET config_value = :value, description = :desc, updated_at = :now 
+                          WHERE config_key = :key"""),
+                {'key': key, 'value': config_value, 'desc': description, 'now': now}
+            )
+        else:
+            db.session.execute(
+                db.text("""INSERT INTO system_config (config_key, config_value, description, updated_at) 
+                          VALUES (:key, :value, :desc, :now)"""),
+                {'key': key, 'value': config_value, 'desc': description, 'now': now}
+            )
+        
+        db.session.commit()
+        
+        # 更新缓存
+        _db_config_cache[key] = value
+        _db_config_cache_time[key] = time.time()
+        
+        return True
+    except Exception as e:
+        print(f"[WARNING] 保存配置到数据库 {key} 失败: {e}")
+        db.session.rollback()
+        return False
+
+
+def clear_db_config_cache(key: str = None):
+    """清除配置缓存"""
+    global _db_config_cache, _db_config_cache_time
+    
+    if key:
+        _db_config_cache.pop(key, None)
+        _db_config_cache_time.pop(key, None)
+    else:
+        _db_config_cache.clear()
+        _db_config_cache_time.clear()
+
+
+def get_all_db_configs():
+    """获取所有数据库配置"""
+    try:
+        if not has_app_context():
+            return {}
+        
+        results = db.session.execute(
+            db.text("SELECT config_key, config_value FROM system_config")
+        ).fetchall()
+        
+        configs = {}
+        for row in results:
+            try:
+                configs[row[0]] = json.loads(row[1]) if row[1] else None
+            except:
+                configs[row[0]] = row[1]
+        
+        return configs
+    except Exception as e:
+        print(f"[WARNING] 获取所有配置失败: {e}")
+        return {}
+
+
+def delete_db_config(key: str):
+    """删除指定配置"""
+    try:
+        if not has_app_context():
+            return False
+        
+        db.session.execute(
+            db.text("DELETE FROM system_config WHERE config_key = :key"),
+            {'key': key}
+        )
+        db.session.commit()
+        clear_db_config_cache(key)
+        return True
+    except Exception as e:
+        print(f"[WARNING] 删除配置 {key} 失败: {e}")
+        db.session.rollback()
+        return False
+
+
+def get_all_db_configs(prefix: str = None):
+    """获取所有配置（可选前缀过滤）"""
+    try:
+        if not has_app_context():
+            return {}
+        
+        if prefix:
+            result = db.session.execute(
+                db.text("SELECT config_key, config_value FROM system_config WHERE config_key LIKE :prefix"),
+                {'prefix': f'{prefix}%'}
+            )
+        else:
+            result = db.session.execute(
+                db.text("SELECT config_key, config_value FROM system_config")
+            )
+        
+        configs = {}
+        for row in result:
+            key = row[0]
+            try:
+                value = json.loads(row[1]) if row[1] else {}
+            except:
+                value = row[1]
+            configs[key] = value
+        
+        return configs
+    except Exception as e:
+        print(f"[WARNING] 获取配置列表失败: {e}")
+        return {}
+
+
+# 创建持久化的 requests Session（连接池复用）
+http_session = requests.Session()
+http_session.headers.update({'User-Agent': 'Emby-Request-System/1.0'})
+
+# ==================== TMDB API 缓存 ====================
+class TMDBCache:
+    """TMDB API 响应缓存（内存缓存）"""
+    def __init__(self, default_ttl=300):  # 默认缓存5分钟
+        self._cache = {}
+        self._lock = Lock()
+        self.default_ttl = default_ttl
+    
+    def _make_key(self, prefix, *args):
+        """生成缓存键"""
+        return f"{prefix}:{':'.join(str(a) for a in args)}"
+    
+    def get(self, key):
+        """获取缓存"""
+        with self._lock:
+            if key in self._cache:
+                data, expire_time = self._cache[key]
+                if time.time() < expire_time:
+                    return data
+                else:
+                    del self._cache[key]
+        return None
+    
+    def set(self, key, value, ttl=None):
+        """设置缓存"""
+        if ttl is None:
+            ttl = self.default_ttl
+        with self._lock:
+            self._cache[key] = (value, time.time() + ttl)
+    
+    def clear_expired(self):
+        """清理过期缓存"""
+        with self._lock:
+            now = time.time()
+            expired_keys = [k for k, (_, exp) in self._cache.items() if now >= exp]
+            for key in expired_keys:
+                del self._cache[key]
+    
+    def stats(self):
+        """返回缓存统计"""
+        with self._lock:
+            return {
+                'size': len(self._cache),
+                'keys': list(self._cache.keys())[:10]  # 只返回前10个键
+            }
+
+# 创建全局缓存实例
+tmdb_cache = TMDBCache(default_ttl=86400)  # 1天缓存（86400秒）
+
+# 加载环境变量
+load_dotenv()
+
+app = Flask(__name__)
+
+# 从环境变量读取配置
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
+
+# 数据库配置 - 支持两种方式
+# 方式1: 直接使用 DATABASE_URI（兼容旧配置）
+# 方式2: 使用分离的配置项（推荐）
+if os.getenv('DATABASE_URI'):
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI')
+else:
+    # 从分离的配置项构建数据库URI
+    db_host = os.getenv('DB_HOST', 'localhost')
+    db_port = os.getenv('DB_PORT', '3306')
+    db_user = os.getenv('DB_USER', 'root')
+    db_password = os.getenv('DB_PASSWORD', '')
+    db_name = os.getenv('DB_NAME', 'emby_database')
+    
+    if db_password:
+        app.config['SQLALCHEMY_DATABASE_URI'] = f'mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
+    else:
+        # 如果没有设置密码，默认使用SQLite
+        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///movie_requests.db'
+
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# 减少 werkzeug 日志噪音（过滤掉静态资源和图片代理请求）
+import logging
+import re
+
+class RequestFilter(logging.Filter):
+    """过滤掉图片代理等高频请求的日志"""
+    def filter(self, record):
+        msg = record.getMessage()
+        # 过滤掉图片代理请求日志
+        if '/api/tmdb-image/' in msg:
+            return False
+        # 过滤掉静态资源请求
+        if '/static/' in msg:
+            return False
+        return True
+
+
+class SensitiveDataFilter(logging.Filter):
+    """脱敏敏感信息（IP地址、Telegram ID、chat_id等）"""
+    
+    # 需要脱敏的模式
+    PATTERNS = [
+        # IP 地址
+        (re.compile(r'\b(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}\b'), r'\1.***'),
+        # chat_id, user_id, telegram_id 等数字ID（保留前3位后2位）
+        (re.compile(r'(chat_id|user_id|telegram_id|tg_id|from_id)\s*[=:]\s*(\d{3})\d+(\d{2})\b', re.IGNORECASE), r'\1=\2***\3'),
+        # Telegram ID 格式（纯数字，8位以上）
+        (re.compile(r'(Telegram\s*[=:]\s*)(\d{3})\d{3,}(\d{2})\b'), r'\1\2***\3'),
+        # embyid
+        (re.compile(r'(embyid\s*[=:]\s*)([a-f0-9]{8})[a-f0-9-]+([a-f0-9]{4})\b', re.IGNORECASE), r'\1\2***\3'),
+    ]
+    
+    def filter(self, record):
+        # 对日志消息进行脱敏处理
+        msg = record.getMessage()
+        for pattern, replacement in self.PATTERNS:
+            msg = pattern.sub(replacement, msg)
+        # 更新 record 的消息
+        record.msg = msg
+        record.args = ()
+        return True
+
+
+# 应用过滤器到 werkzeug logger
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.addFilter(RequestFilter())
+
+# 应用脱敏过滤器到 app logger
+app.logger.addFilter(SensitiveDataFilter())
+
+# 数据库连接池优化
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': 10,              # 连接池大小
+    'pool_recycle': 3600,         # 连接回收时间（秒）
+    'pool_pre_ping': True,        # 连接前测试
+    'max_overflow': 20,           # 超出 pool_size 后最多创建的连接数
+    'pool_timeout': 30,           # 获取连接的超时时间
+}
+
+db = SQLAlchemy(app)
+db_initialized = False
+
+# 求片限制配置
+# A级(白名单用户): 3次/天
+# B级(注册用户): 1次/天
+# 每日求片限制说明：
+# 管理员: 无限制
+# A级用户 (lv='a', 白名单): 从配置读取 request_limit.level_a (默认3次/天)
+# B级用户 (有有效订阅): 从配置读取 request_limit.level_b (默认1次/天)
+# C级用户 (lv='c', 已禁用): 从配置读取 request_limit.level_c (默认0次/天)
+# D级用户 (未订阅): 从配置读取 request_limit.level_d (默认0次/天)
+# 注意: MAX_DAILY_REQUESTS 已弃用，请在管理后台的"系统设置 → 求片限制"中配置
+MAX_DAILY_REQUESTS = int(os.getenv('MAX_DAILY_REQUESTS', 3))  # 已弃用: 请使用后台配置
+
+TMDB_API_KEY = os.getenv('TMDB_API_KEY', '')  # 从环境变量获取TMDB API密钥
+TMDB_BASE_URL = 'https://api.themoviedb.org/3'
+TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500'
+
+# 代理配置（如果需要）
+PROXY_URL = os.getenv('PROXY_URL', '')  # 例如: http://127.0.0.1:7890
+if PROXY_URL:
+    http_session.proxies = {
+        'http': PROXY_URL,
+        'https': PROXY_URL
+    }
+    app.logger.info(f'使用代理: {PROXY_URL}')
+
+# 管理员配置 - 现在从配置文件读取，环境变量仅作为备用
+# 这些变量会在应用启动时被 init_admin_config() 更新
+ADMIN_SECRET_PATH = None  # 动态从配置文件读取
+ADMIN_USERNAME = None     # 动态从配置文件读取
+ADMIN_PASSWORD = None     # 动态从配置文件读取（哈希值）
+
+# 旧的管理员用户名列表（兼容旧代码，但不再使用）
+ADMIN_USERNAMES = []
+
+# Telegram BOT配置
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
+# 上片管理员配置（多个管理员用逗号分隔，格式: @username1,@username2）
+UPLOAD_ADMINS = os.getenv('UPLOAD_ADMINS', '')
+# 入库通知群组（发送入库完成通知并@用户）
+TELEGRAM_GROUP_ID = os.getenv('TELEGRAM_GROUP_ID', '')
+
+# Telegram Webhook 配置
+TELEGRAM_CONFIGURED_URL = ''  # 用户配置的服务器地址
+
+# 公告弹窗配置（从环境变量读取，默认禁用）
+ANNOUNCEMENT_ENABLED = os.getenv('ANNOUNCEMENT_ENABLED', 'false').lower() == 'true'
+ANNOUNCEMENT_CONTENT = os.getenv('ANNOUNCEMENT_CONTENT', '')
+
+# ==================== PT 站配置 ====================
+# MoviePilot API 配置
+MOVIEPILOT_URL = os.getenv('MOVIEPILOT_URL', '').rstrip('/')
+MOVIEPILOT_USERNAME = os.getenv('MOVIEPILOT_USERNAME', '')
+MOVIEPILOT_PASSWORD = os.getenv('MOVIEPILOT_PASSWORD', '')
+MOVIEPILOT_TOKEN = os.getenv('MOVIEPILOT_TOKEN', '')  # 可选：直接提供 JWT Token
+
+# 调试输出
+print(f"[DEBUG] MOVIEPILOT_URL = '{MOVIEPILOT_URL}'")
+print(f"[DEBUG] MOVIEPILOT_USERNAME = '{MOVIEPILOT_USERNAME}'")
+
+# qBittorrent 配置
+QBITTORRENT_BASE_URL = os.getenv('QBITTORRENT_BASE_URL', '').rstrip('/')
+QBITTORRENT_USERNAME = os.getenv('QBITTORRENT_USERNAME', '')
+QBITTORRENT_PASSWORD = os.getenv('QBITTORRENT_PASSWORD', '')
+QBITTORRENT_CATEGORY = os.getenv('QBITTORRENT_CATEGORY', 'emby-request')
+QBITTORRENT_SAVE_PATH = os.getenv('QBITTORRENT_SAVE_PATH', '')
+DOWNLOAD_POLL_INTERVAL = int(os.getenv('DOWNLOAD_POLL_INTERVAL', '12'))
+ENABLE_DOWNLOAD_MONITOR = os.getenv('ENABLE_DOWNLOAD_MONITOR', 'true').lower() == 'true'
+
+# Emby 服务器配置
+EMBY_URL = os.getenv('EMBY_URL', '').rstrip('/')
+EMBY_API_KEY = os.getenv('EMBY_API_KEY', '')
+EMBY_WEBHOOK_SECRET = os.getenv('EMBY_WEBHOOK_SECRET', '')  # 可选的 Webhook 密钥验证
+
+# ==================== 代理配置 ====================
+# 支持 HTTP/HTTPS 和 SOCKS5 代理，用于中国大陆服务器访问外网
+HTTP_PROXY = os.getenv('HTTP_PROXY', '') or os.getenv('http_proxy', '')
+HTTPS_PROXY = os.getenv('HTTPS_PROXY', '') or os.getenv('https_proxy', '')
+SOCKS5_PROXY = os.getenv('SOCKS5_PROXY', '') or os.getenv('socks5_proxy', '')
+ALL_PROXY = os.getenv('ALL_PROXY', '') or os.getenv('all_proxy', '')
+NO_PROXY = os.getenv('NO_PROXY', 'localhost,127.0.0.1') or os.getenv('no_proxy', 'localhost,127.0.0.1')
+
+
+def get_proxy_config():
+    """获取代理配置"""
+    proxies = {}
+    
+    # 优先使用 SOCKS5 代理
+    if SOCKS5_PROXY:
+        proxies = {
+            'http': SOCKS5_PROXY,
+            'https': SOCKS5_PROXY
+        }
+    # 其次使用 ALL_PROXY
+    elif ALL_PROXY:
+        proxies = {
+            'http': ALL_PROXY,
+            'https': ALL_PROXY
+        }
+    # 最后使用 HTTP/HTTPS 代理
+    elif HTTP_PROXY or HTTPS_PROXY:
+        if HTTP_PROXY:
+            proxies['http'] = HTTP_PROXY
+        if HTTPS_PROXY:
+            proxies['https'] = HTTPS_PROXY
+    
+    return proxies if proxies else None
+
+
+def get_proxied_session():
+    """获取配置了代理的 requests Session"""
+    session = requests.Session()
+    proxy_config = get_proxy_config()
+    if proxy_config:
+        session.proxies.update(proxy_config)
+    return session
+
+
+# 创建全局代理 Session（用于访问外网服务如 Telegram、TMDB）
+PROXY_SESSION = get_proxied_session()
+
+# 更新 http_session 以使用代理配置（用于 TMDB API 等外网请求）
+_proxy_config = get_proxy_config()
+if _proxy_config:
+    http_session.proxies.update(_proxy_config)
+    print(f"[CONFIG] 代理已配置: {list(_proxy_config.values())[0][:30]}...")
+else:
+    print("[CONFIG] 未配置代理，直连外网")
+
+# ==================== 数据库配置键常量 ====================
+# 这些常量在 SystemConfig 类定义前使用，需要单独定义
+CONFIG_KEY_ADMIN = 'admin'
+CONFIG_KEY_EMBY = 'emby'
+CONFIG_KEY_TELEGRAM = 'telegram'
+CONFIG_KEY_TMDB = 'tmdb'
+CONFIG_KEY_MOVIEPILOT = 'moviepilot'
+CONFIG_KEY_QBITTORRENT = 'qbittorrent'
+CONFIG_KEY_SEARCH = 'search'
+CONFIG_KEY_REQUEST_LIMIT = 'request_limit'
+CONFIG_KEY_CATEGORY = 'category'
+CONFIG_KEY_EPAY = 'epay'
+CONFIG_KEY_SITE = 'site'
+CONFIG_KEY_PLANS = 'plans'
+CONFIG_KEY_PROXY = 'proxy'
+CONFIG_KEY_CHECKIN = 'checkin'
+CONFIG_KEY_SUBSCRIPTION_EXPIRE = 'subscription_expire'
+
+# 易支付配置（支持环境变量或配置文件）
+EPAY_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'epay_config.json')
+
+# 套餐配置文件
+PLANS_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'plans_config.json')
+
+# 前端配置文件
+SITE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'site_config.json')
+
+# 默认前端配置
+DEFAULT_SITE_CONFIG = {
+    'site_name': 'Emby',
+    'site_subtitle': '管理系统',
+    'site_title': 'Emby管理系统',
+    'site_logo': '',
+    'shop_url': '',
+    'panel_url': '',
+    'telegram_group': '',
+    'telegram_bot_username': '',
+    'support_email': 'support@example.com',
+    'footer_text': '',
+    'welcome_message': '欢迎使用 Emby 管理系统！',
+    'docs_intro': '以下是快速入门指南：',
+    'custom_css': '',
+    'custom_js': '',
+    'custom_links': [
+        {'name': '帮助文档', 'url': '#', 'icon': '📖', 'enabled': True},
+        {'name': 'Telegram群组', 'url': '', 'icon': '💬', 'enabled': True},
+        {'name': '官方网站', 'url': '', 'icon': '🌐', 'enabled': False}
+    ],
+    'register_mode': 'open',  # 注册模式: open(开放注册), invite(仅邀请注册), closed(关闭注册)
+    'use_image_proxy': True  # 是否使用图片代理（大陆用户建议开启，海外用户可关闭以加速）
+}
+
+# 默认套餐配置
+DEFAULT_PLANS = [
+    {
+        'id': 'basic_1m',
+        'type': 'basic',
+        'name': '入门版',
+        'icon': '🌱',
+        'description': '适合轻度观影用户，满足基本观影需求',
+        'duration': 1,
+        'price': 15,
+        'price_1m': 15,
+        'original_price': None,
+        'features': ['1080P 画质', '1 个设备', '每日 1 次求片', '标准支持'],
+        'popular': False
+    },
+    {
+        'id': 'standard_1m',
+        'type': 'standard',
+        'name': '标准版',
+        'icon': '⭐',
+        'description': '适合日常观影用户，享受更多资源',
+        'duration': 1,
+        'price': 25,
+        'price_1m': 25,
+        'original_price': None,
+        'features': ['4K 画质', '2 个设备', '每日 3 次求片', '优先支持'],
+        'popular': True
+    },
+    {
+        'id': 'standard_3m',
+        'type': 'standard',
+        'name': '标准版',
+        'icon': '⭐',
+        'description': '适合日常观影用户，享受更多资源',
+        'duration': 3,
+        'price': 68,
+        'price_3m': 68,
+        'original_price': 75,
+        'features': ['4K 画质', '2 个设备', '每日 3 次求片', '优先支持'],
+        'popular': False
+    },
+    {
+        'id': 'premium_1m',
+        'type': 'premium',
+        'name': '高级版',
+        'icon': '💎',
+        'description': '适合影视爱好者，优先获取热门资源',
+        'duration': 1,
+        'price': 45,
+        'price_1m': 45,
+        'original_price': None,
+        'features': ['4K 画质', '4 个设备', '每日 5 次求片', '专属支持', 'VIP 标识'],
+        'popular': False
+    },
+    {
+        'id': 'premium_12m',
+        'type': 'premium',
+        'name': '高级版',
+        'icon': '💎',
+        'description': '适合影视爱好者，优先获取热门资源',
+        'duration': 12,
+        'price': 480,
+        'price_12m': 480,
+        'original_price': 540,
+        'features': ['4K 画质', '4 个设备', '每日 5 次求片', '专属支持', 'VIP 标识'],
+        'popular': False
+    },
+    {
+        'id': 'ultimate_1m',
+        'type': 'ultimate',
+        'name': '尊享版',
+        'icon': '👑',
+        'description': '极致体验，尊享全部特权服务',
+        'duration': 1,
+        'price': 88,
+        'price_1m': 88,
+        'original_price': None,
+        'features': ['8K 画质', '无限设备', '无限求片', '24/7 专属支持', 'VIP+ 标识', '独家内容'],
+        'popular': False
+    }
+]
+
+def load_plans_config():
+    """加载套餐配置 - 优先从数据库读取"""
+    try:
+        if has_app_context():
+            db_plans = get_db_config(CONFIG_KEY_PLANS)
+            if db_plans and isinstance(db_plans, list):
+                return db_plans
+    except Exception as e:
+        print(f"[WARNING] 从数据库加载套餐配置失败: {e}")
+    
+    # 回退到文件
+    if os.path.exists(PLANS_CONFIG_FILE):
+        try:
+            with open(PLANS_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                plans = json.load(f)
+                if plans and isinstance(plans, list):
+                    return plans
+        except Exception as e:
+            print(f"[WARNING] 读取套餐配置文件失败: {e}")
+    return DEFAULT_PLANS
+
+
+def save_plans_config(plans):
+    """保存套餐配置 - 同时保存到数据库和文件"""
+    success = True
+    
+    # 保存到数据库
+    try:
+        if has_app_context():
+            set_db_config(CONFIG_KEY_PLANS, plans, '套餐配置')
+    except Exception as e:
+        print(f"[WARNING] 保存套餐到数据库失败: {e}")
+        success = False
+    
+    # 同时保存到文件
+    try:
+        os.makedirs(os.path.dirname(PLANS_CONFIG_FILE), exist_ok=True)
+        with open(PLANS_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(plans, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[WARNING] 保存套餐配置文件失败: {e}")
+    
+    return success
+
+
+def load_site_config():
+    """加载前端配置 - 优先从数据库读取"""
+    config = DEFAULT_SITE_CONFIG.copy()
+    
+    try:
+        if has_app_context():
+            db_config = get_db_config(CONFIG_KEY_SITE)
+            if db_config:
+                for key in db_config:
+                    if key in config:
+                        config[key] = db_config[key]
+                return config
+    except Exception as e:
+        print(f"[WARNING] 从数据库加载前端配置失败: {e}")
+    
+    # 回退到文件
+    if os.path.exists(SITE_CONFIG_FILE):
+        try:
+            with open(SITE_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                file_config = json.load(f)
+                for key in file_config:
+                    if key in config:
+                        config[key] = file_config[key]
+        except Exception as e:
+            print(f"[WARNING] 读取前端配置文件失败: {e}")
+    return config
+
+
+def save_site_config(config):
+    """保存前端配置 - 同时保存到数据库和文件"""
+    success = True
+    
+    # 保存到数据库
+    try:
+        if has_app_context():
+            set_db_config(CONFIG_KEY_SITE, config, '前端站点配置')
+    except Exception as e:
+        print(f"[WARNING] 保存前端配置到数据库失败: {e}")
+        success = False
+    
+    # 同时保存到文件
+    try:
+        os.makedirs(os.path.dirname(SITE_CONFIG_FILE), exist_ok=True)
+        with open(SITE_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[WARNING] 保存前端配置文件失败: {e}")
+    
+    return success
+
+
+def get_site_config():
+    """获取当前前端配置"""
+    return load_site_config()
+
+
+def load_epay_config():
+    """加载易支付配置 - 优先从数据库读取"""
+    config = {
+        'epay_url': os.getenv('EPAY_URL', ''),
+        'epay_pid': os.getenv('EPAY_PID', ''),
+        'epay_key': os.getenv('EPAY_KEY', ''),
+        'epay_notify_url': os.getenv('EPAY_NOTIFY_URL', ''),
+        'epay_return_url': os.getenv('EPAY_RETURN_URL', '')
+    }
+    
+    # 尝试从数据库读取
+    try:
+        if has_app_context():
+            db_config = get_db_config(CONFIG_KEY_EPAY)
+            if db_config:
+                for key in config:
+                    if db_config.get(key):
+                        config[key] = db_config[key]
+                return config
+    except Exception as e:
+        print(f"[WARNING] 从数据库加载易支付配置失败: {e}")
+    
+    # 回退到文件
+    if os.path.exists(EPAY_CONFIG_FILE):
+        try:
+            with open(EPAY_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                file_config = json.load(f)
+                # 只覆盖非空值
+                for key in config:
+                    if file_config.get(key):
+                        config[key] = file_config[key]
+        except Exception as e:
+            print(f"[WARNING] 读取易支付配置文件失败: {e}")
+    return config
+
+
+def save_epay_config(config):
+    """保存易支付配置 - 同时保存到数据库和文件"""
+    success = True
+    
+    # 保存到数据库
+    try:
+        if has_app_context():
+            set_db_config(CONFIG_KEY_EPAY, config, '易支付配置')
+    except Exception as e:
+        print(f"[WARNING] 保存易支付配置到数据库失败: {e}")
+        success = False
+    
+    # 同时保存到文件
+    try:
+        os.makedirs(os.path.dirname(EPAY_CONFIG_FILE), exist_ok=True)
+        with open(EPAY_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[WARNING] 保存易支付配置文件失败: {e}")
+    
+    return success
+
+
+def get_epay_config():
+    """获取当前易支付配置"""
+    return load_epay_config()
+
+# 初始化加载配置
+_epay_config = load_epay_config()
+EPAY_URL = _epay_config['epay_url'].rstrip('/') if _epay_config['epay_url'] else ''
+EPAY_PID = _epay_config['epay_pid']
+EPAY_KEY = _epay_config['epay_key']
+EPAY_NOTIFY_URL = _epay_config['epay_notify_url']
+EPAY_RETURN_URL = _epay_config['epay_return_url']
+
+# ==================== MoviePilot & qBittorrent 配置文件 ====================
+DOWNLOAD_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'download_config.json')
+
+# 默认下载配置
+DEFAULT_DOWNLOAD_CONFIG = {
+    'moviepilot': {
+        'url': '',
+        'username': '',
+        'password': '',
+        'token': '',
+        'enabled': False
+    },
+    'qbittorrent': {
+        'url': '',
+        'username': '',
+        'password': '',
+        'category': 'emby-request',
+        'save_path': '',
+        'enabled': False
+    }
+}
+
+
+def load_download_config():
+    """加载下载工具配置 - 优先从数据库读取"""
+    config = {
+        'moviepilot': DEFAULT_DOWNLOAD_CONFIG['moviepilot'].copy(),
+        'qbittorrent': DEFAULT_DOWNLOAD_CONFIG['qbittorrent'].copy()
+    }
+    
+    # 首先从环境变量读取（作为默认值）
+    config['moviepilot']['url'] = os.getenv('MOVIEPILOT_URL', '')
+    config['moviepilot']['username'] = os.getenv('MOVIEPILOT_USERNAME', '')
+    config['moviepilot']['password'] = os.getenv('MOVIEPILOT_PASSWORD', '')
+    config['moviepilot']['token'] = os.getenv('MOVIEPILOT_TOKEN', '')
+    
+    config['qbittorrent']['url'] = os.getenv('QBITTORRENT_BASE_URL', '')
+    config['qbittorrent']['username'] = os.getenv('QBITTORRENT_USERNAME', '')
+    config['qbittorrent']['password'] = os.getenv('QBITTORRENT_PASSWORD', '')
+    config['qbittorrent']['category'] = os.getenv('QBITTORRENT_CATEGORY', 'emby-request')
+    config['qbittorrent']['save_path'] = os.getenv('QBITTORRENT_SAVE_PATH', '')
+    
+    # 尝试从数据库读取
+    db_loaded = False
+    try:
+        if has_app_context():
+            db_mp = get_db_config(CONFIG_KEY_MOVIEPILOT)
+            if db_mp:
+                for key in config['moviepilot']:
+                    if key in db_mp and db_mp[key] != '':
+                        config['moviepilot'][key] = db_mp[key]
+                db_loaded = True
+            
+            db_qb = get_db_config(CONFIG_KEY_QBITTORRENT)
+            if db_qb:
+                for key in config['qbittorrent']:
+                    if key in db_qb and db_qb[key] != '':
+                        config['qbittorrent'][key] = db_qb[key]
+                db_loaded = True
+    except Exception as e:
+        print(f"[WARNING] 从数据库加载下载配置失败: {e}")
+    
+    # 如果数据库没有，回退到配置文件
+    if not db_loaded and os.path.exists(DOWNLOAD_CONFIG_FILE):
+        try:
+            with open(DOWNLOAD_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                file_config = json.load(f)
+                if 'moviepilot' in file_config:
+                    for key in config['moviepilot']:
+                        if key in file_config['moviepilot'] and file_config['moviepilot'][key] != '':
+                            config['moviepilot'][key] = file_config['moviepilot'][key]
+                if 'qbittorrent' in file_config:
+                    for key in config['qbittorrent']:
+                        if key in file_config['qbittorrent'] and file_config['qbittorrent'][key] != '':
+                            config['qbittorrent'][key] = file_config['qbittorrent'][key]
+        except Exception as e:
+            print(f"[WARNING] 读取下载配置文件失败: {e}")
+    
+    # 判断是否已配置（启用状态）
+    config['moviepilot']['enabled'] = bool(config['moviepilot']['url'] and (
+        (config['moviepilot']['username'] and config['moviepilot']['password']) or config['moviepilot']['token']
+    ))
+    config['qbittorrent']['enabled'] = bool(
+        config['qbittorrent']['url'] and config['qbittorrent']['username'] and config['qbittorrent']['password']
+    )
+    
+    return config
+
+
+def save_download_config(config):
+    """保存下载工具配置 - 同时保存到数据库和文件"""
+    success = True
+    
+    # 保存到数据库
+    try:
+        if has_app_context():
+            if 'moviepilot' in config:
+                set_db_config(CONFIG_KEY_MOVIEPILOT, config['moviepilot'], 'MoviePilot 配置')
+            if 'qbittorrent' in config:
+                set_db_config(CONFIG_KEY_QBITTORRENT, config['qbittorrent'], 'qBittorrent 配置')
+    except Exception as e:
+        print(f"[WARNING] 保存下载配置到数据库失败: {e}")
+        success = False
+    
+    # 同时保存到文件
+    try:
+        os.makedirs(os.path.dirname(DOWNLOAD_CONFIG_FILE), exist_ok=True)
+        with open(DOWNLOAD_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[WARNING] 保存下载配置文件失败: {e}")
+    
+    return success
+
+
+def get_download_config():
+    """获取当前下载配置"""
+    return load_download_config()
+
+
+def update_global_download_config():
+    """更新全局变量为配置文件中的值，并重新初始化 PT 客户端"""
+    global MOVIEPILOT_URL, MOVIEPILOT_USERNAME, MOVIEPILOT_PASSWORD, MOVIEPILOT_TOKEN
+    global QBITTORRENT_BASE_URL, QBITTORRENT_USERNAME, QBITTORRENT_PASSWORD, QBITTORRENT_CATEGORY, QBITTORRENT_SAVE_PATH
+    global qbit_client
+    
+    config = load_download_config()
+    
+    MOVIEPILOT_URL = config['moviepilot']['url'].rstrip('/') if config['moviepilot']['url'] else ''
+    MOVIEPILOT_USERNAME = config['moviepilot']['username']
+    MOVIEPILOT_PASSWORD = config['moviepilot']['password']
+    MOVIEPILOT_TOKEN = config['moviepilot']['token']
+    
+    QBITTORRENT_BASE_URL = config['qbittorrent']['url'].rstrip('/') if config['qbittorrent']['url'] else ''
+    QBITTORRENT_USERNAME = config['qbittorrent']['username']
+    QBITTORRENT_PASSWORD = config['qbittorrent']['password']
+    QBITTORRENT_CATEGORY = config['qbittorrent']['category'] or 'emby-request'
+    QBITTORRENT_SAVE_PATH = config['qbittorrent']['save_path']
+    
+    # 重新初始化 PT Manager 的客户端
+    try:
+        # 清空现有客户端
+        pt_manager.clients.clear()
+        
+        # 如果 MoviePilot 已配置，重新注册
+        if MOVIEPILOT_URL and (MOVIEPILOT_TOKEN or (MOVIEPILOT_USERNAME and MOVIEPILOT_PASSWORD)):
+            moviepilot_client = MoviePilotClient(
+                base_url=MOVIEPILOT_URL,
+                username=MOVIEPILOT_USERNAME,
+                password=MOVIEPILOT_PASSWORD,
+                token=MOVIEPILOT_TOKEN,
+                priority=20
+            )
+            pt_manager.register(moviepilot_client)
+            print(f"[CONFIG] MoviePilot 客户端已重新初始化: {MOVIEPILOT_URL}")
+        
+        # 重新初始化 qBittorrent 客户端
+        qbit_client = QbitClient(QBITTORRENT_BASE_URL, QBITTORRENT_USERNAME, QBITTORRENT_PASSWORD)
+    except NameError:
+        # 首次调用时 pt_manager 还未创建，忽略
+        pass
+    
+    print(f"[CONFIG] 下载配置已更新: MP={MOVIEPILOT_URL}, QB={QBITTORRENT_BASE_URL}")
+
+# 初始化加载下载配置
+update_global_download_config()
+
+
+# ==================== 系统配置文件（Emby、Telegram、管理员等）====================
+SYSTEM_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'system_config.json')
+
+# 默认二级分类策略配置（参考MoviePilot）
+DEFAULT_CATEGORY_CONFIG = {
+    'movie': {
+        # 电影分类规则，按顺序匹配
+        '动画电影': {
+            'genre_ids': [16]  # 16是动画
+        },
+        '华语电影': {
+            'original_language': ['zh', 'cn', 'bo', 'za']
+        },
+        '外语电影': {}  # 默认分类，无条件
+    },
+    'tv': {
+        # 电视剧分类规则，按顺序匹配
+        '国漫': {
+            'genre_ids': [16],
+            'origin_country': ['CN', 'TW', 'HK']
+        },
+        '日番': {
+            'genre_ids': [16],
+            'origin_country': ['JP']
+        },
+        '纪录片': {
+            'genre_ids': [99]
+        },
+        '儿童': {
+            'genre_ids': [10762]
+        },
+        '综艺': {
+            'genre_ids': [10764, 10767]
+        },
+        '国产剧': {
+            'origin_country': ['CN', 'TW', 'HK']
+        },
+        '欧美剧': {
+            'origin_country': ['US', 'FR', 'GB', 'DE', 'ES', 'IT', 'NL', 'PT', 'RU', 'UK', 'CA', 'AU', 'NZ']
+        },
+        '日韩剧': {
+            'origin_country': ['JP', 'KP', 'KR', 'TH', 'IN', 'SG', 'VN', 'PH', 'MY']
+        },
+        '海外剧': {}  # 默认分类，无条件
+    }
+}
+
+# 默认系统配置
+DEFAULT_SYSTEM_CONFIG = {
+    'admin': {
+        'username': '',        # 管理员用户名
+        'password': '',        # 管理员密码（哈希存储）
+        'secret_path': '',     # 后台入口路径
+        'initialized': False   # 是否已完成首次配置
+    },
+    'emby': {
+        'url': '',
+        'api_key': '',
+        'webhook_secret': ''
+    },
+    'subscription_expire': {
+        'auto_disable': True,           # 过期后自动禁用 Emby 账号
+        'delete_days': 0,               # 过期后多少天删除 Emby 账号（0表示不删除）
+        'delete_web_account': False     # 删除 Emby 账号时是否同时删除网站账号
+    },
+    'telegram': {
+        'bot_token': '',
+        'chat_id': '',
+        'group_id': '',
+        'bot_admins': '',  # BOT管理员 Telegram ID，多个用逗号分隔
+        'gift_days': 30,   # /kk 命令赠送天数
+        'bot_photo': '',   # Bot 欢迎图片 URL（留空使用默认图片）
+        'configured_url': '',  # 用户配置的 Webhook 服务器地址
+        'templates': {
+            'request': '',   # 求片通知模板（空则使用默认）
+            'completion': '' # 入库通知模板（空则使用默认）
+        },
+        'request_notification': {
+            'enabled': True,  # 是否启用求片通知
+            'send_to': 'group',  # 推送目标: group(群组) 或 personal(个人)
+            'mention_admin': True,  # 是否@管理员
+            'show_overview': True,  # 是否显示简介
+            'show_poster': True,  # 是否显示海报
+            'custom_message': ''  # 自定义通知文案（支持变量替换）
+        }
+    },
+    'search': {
+        'strategy': 'all',  # all 或 first
+        'poll_interval': 10
+    },
+    'tmdb': {
+        'api_key': ''
+    },
+    'request_limit': {
+        'max_daily': 3,  # 每日最大求片次数
+        'level_a': 3,    # A级(白名单)
+        'level_b': 1,    # B级(注册用户)
+        'level_c': 0,    # C级(已禁用)
+        'level_d': 0     # D级(无账号)
+    },
+    'category': DEFAULT_CATEGORY_CONFIG  # 二级分类策略
+}
+
+
+def generate_random_string(length=12):
+    """生成随机字符串"""
+    import string
+    import secrets
+    chars = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(chars) for _ in range(length))
+
+
+def hash_admin_password(password):
+    """哈希管理员密码"""
+    import hashlib
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+# 默认管理员配置（固定值）
+DEFAULT_ADMIN_USERNAME = 'admin'
+DEFAULT_ADMIN_PASSWORD = 'admin123'
+DEFAULT_ADMIN_PATH = 'embypanel'
+
+
+def init_admin_config():
+    """初始化管理员配置（首次启动时）"""
+    config = load_system_config()
+    
+    # 如果已经有用户名配置，直接返回
+    if config.get('admin', {}).get('username'):
+        return config
+    
+    # 使用固定的默认管理员配置
+    config['admin'] = {
+        'username': DEFAULT_ADMIN_USERNAME,
+        'password': hash_admin_password(DEFAULT_ADMIN_PASSWORD),
+        'secret_path': DEFAULT_ADMIN_PATH,
+        'initialized': False  # 标记未完成首次配置，登录后强制修改
+    }
+    
+    save_system_config(config)
+    
+    # 打印默认配置信息（仅首次启动）
+    print("=" * 60)
+    print("  ⚠️  首次启动 - 默认管理员配置")
+    print("=" * 60)
+    print(f"  后台入口: /{DEFAULT_ADMIN_PATH}")
+    print(f"  用户名: {DEFAULT_ADMIN_USERNAME}")
+    print(f"  密码: {DEFAULT_ADMIN_PASSWORD}")
+    print("=" * 60)
+    print("  ⚠️  登录后将强制修改账号密码和入口路径！")
+    print("=" * 60)
+    
+    return config
+
+
+def get_admin_config():
+    """获取管理员配置 - 优先从数据库读取"""
+    try:
+        # 尝试从数据库读取
+        if has_app_context():
+            db_config = get_db_config(CONFIG_KEY_ADMIN)
+            if db_config:
+                return db_config
+    except Exception as e:
+        print(f"[WARNING] 从数据库获取管理员配置失败: {e}")
+    
+    # 回退到文件配置
+    config = load_system_config_from_file()
+    return config.get('admin', {})
+
+
+def load_system_config():
+    """加载系统配置 - 优先从数据库读取，回退到文件"""
+    config = get_default_system_config()
+    
+    # 尝试从数据库读取各配置项
+    try:
+        if has_app_context():
+            # 从数据库读取各配置项
+            db_admin = get_db_config(CONFIG_KEY_ADMIN)
+            if db_admin:
+                config['admin'] = db_admin
+            
+            db_emby = get_db_config(CONFIG_KEY_EMBY)
+            if db_emby:
+                config['emby'].update(db_emby)
+            
+            db_telegram = get_db_config(CONFIG_KEY_TELEGRAM)
+            if db_telegram:
+                if 'templates' not in db_telegram:
+                    db_telegram['templates'] = {'request': '', 'completion': ''}
+                config['telegram'].update(db_telegram)
+            
+            db_search = get_db_config(CONFIG_KEY_SEARCH)
+            if db_search:
+                config['search'].update(db_search)
+            
+            db_tmdb = get_db_config(CONFIG_KEY_TMDB)
+            if db_tmdb:
+                config['tmdb'].update(db_tmdb)
+            
+            db_request_limit = get_db_config(CONFIG_KEY_REQUEST_LIMIT)
+            if db_request_limit:
+                config['request_limit'].update(db_request_limit)
+            
+            db_category = get_db_config(CONFIG_KEY_CATEGORY)
+            if db_category:
+                config['category'] = db_category
+            
+            db_checkin = get_db_config(CONFIG_KEY_CHECKIN)
+            if db_checkin:
+                config['checkin'] = db_checkin
+            
+            db_subscription_expire = get_db_config(CONFIG_KEY_SUBSCRIPTION_EXPIRE)
+            if db_subscription_expire:
+                config['subscription_expire'] = db_subscription_expire
+            
+            # 如果数据库有配置，直接返回
+            if db_admin or db_emby or db_telegram:
+                return config
+    except Exception as e:
+        print(f"[WARNING] 从数据库加载配置失败: {e}")
+    
+    # 回退到文件配置
+    return load_system_config_from_file()
+
+
+def get_default_system_config():
+    """获取默认系统配置"""
+    config = {
+        'admin': DEFAULT_SYSTEM_CONFIG['admin'].copy(),
+        'emby': DEFAULT_SYSTEM_CONFIG['emby'].copy(),
+        'telegram': DEFAULT_SYSTEM_CONFIG['telegram'].copy(),
+        'search': DEFAULT_SYSTEM_CONFIG['search'].copy(),
+        'tmdb': DEFAULT_SYSTEM_CONFIG['tmdb'].copy(),
+        'request_limit': DEFAULT_SYSTEM_CONFIG['request_limit'].copy(),
+        'category': {
+            'movie': DEFAULT_CATEGORY_CONFIG['movie'].copy(),
+            'tv': DEFAULT_CATEGORY_CONFIG['tv'].copy()
+        },
+        'checkin': {
+            'enabled': False,
+            'bot_enabled': False,
+            'coin_name': '积分',
+            'coin_min': 1,
+            'coin_max': 10,
+            'exchange_plans': []
+        },
+        'subscription_expire': {
+            'auto_disable': True,
+            'delete_days': 0,
+            'delete_web_account': False
+        }
+    }
+    config['telegram']['templates'] = DEFAULT_SYSTEM_CONFIG['telegram']['templates'].copy()
+    return config
+
+
+def load_system_config_from_file():
+    """从文件加载系统配置（原始方法，作为回退）"""
+    config = get_default_system_config()
+    
+    # 从环境变量读取（作为默认值）
+    config['emby']['url'] = os.getenv('EMBY_URL', '')
+    config['emby']['api_key'] = os.getenv('EMBY_API_KEY', '')
+    config['emby']['webhook_secret'] = os.getenv('EMBY_WEBHOOK_SECRET', '')
+    
+    config['telegram']['bot_token'] = os.getenv('TELEGRAM_BOT_TOKEN', '')
+    config['telegram']['chat_id'] = os.getenv('TELEGRAM_CHAT_ID', '')
+    config['telegram']['group_id'] = os.getenv('TELEGRAM_GROUP_ID', '')
+    
+    config['search']['strategy'] = os.getenv('PT_SEARCH_STRATEGY', 'all')
+    config['search']['poll_interval'] = int(os.getenv('DOWNLOAD_POLL_INTERVAL', '10'))
+    
+    config['tmdb']['api_key'] = os.getenv('TMDB_API_KEY', '')
+    
+    config['request_limit']['max_daily'] = int(os.getenv('MAX_DAILY_REQUESTS', '3'))
+    
+    # 从配置文件读取（优先级高于环境变量）
+    if os.path.exists(SYSTEM_CONFIG_FILE):
+        try:
+            with open(SYSTEM_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                file_config = json.load(f)
+                for section in config:
+                    if section in file_config:
+                        for key in config[section]:
+                            if key in file_config[section]:
+                                if isinstance(config[section][key], dict) and isinstance(file_config[section][key], dict):
+                                    config[section][key].update(file_config[section][key])
+                                elif file_config[section][key] not in ('', None):
+                                    config[section][key] = file_config[section][key]
+        except Exception as e:
+            print(f"[WARNING] 读取系统配置文件失败: {e}")
+    
+    return config
+
+
+def save_system_config(config):
+    """保存系统配置 - 同时保存到数据库和文件"""
+    db_success = True
+    file_success = True
+    
+    # 保存到数据库
+    try:
+        if has_app_context():
+            if 'admin' in config:
+                if not set_db_config(CONFIG_KEY_ADMIN, config['admin'], '管理员配置'):
+                    print(f"[WARNING] 保存 admin 配置失败")
+            if 'emby' in config:
+                if not set_db_config(CONFIG_KEY_EMBY, config['emby'], 'Emby 服务器配置'):
+                    print(f"[WARNING] 保存 emby 配置失败")
+            if 'telegram' in config:
+                if not set_db_config(CONFIG_KEY_TELEGRAM, config['telegram'], 'Telegram BOT配置'):
+                    print(f"[WARNING] 保存 telegram 配置失败")
+                    db_success = False
+            if 'search' in config:
+                if not set_db_config(CONFIG_KEY_SEARCH, config['search'], '搜索策略配置'):
+                    print(f"[WARNING] 保存 search 配置失败")
+            if 'tmdb' in config:
+                if not set_db_config(CONFIG_KEY_TMDB, config['tmdb'], 'TMDB API 配置'):
+                    print(f"[WARNING] 保存 tmdb 配置失败")
+            if 'request_limit' in config:
+                if not set_db_config(CONFIG_KEY_REQUEST_LIMIT, config['request_limit'], '求片限制配置'):
+                    print(f"[WARNING] 保存 request_limit 配置失败")
+            if 'category' in config:
+                if not set_db_config(CONFIG_KEY_CATEGORY, config['category'], '二级分类策略'):
+                    print(f"[WARNING] 保存 category 配置失败")
+            if 'checkin' in config:
+                if not set_db_config(CONFIG_KEY_CHECKIN, config['checkin'], '签到系统配置'):
+                    print(f"[WARNING] 保存 checkin 配置失败")
+            if 'subscription_expire' in config:
+                if not set_db_config(CONFIG_KEY_SUBSCRIPTION_EXPIRE, config['subscription_expire'], '订阅过期管理配置'):
+                    print(f"[WARNING] 保存 subscription_expire 配置失败")
+            
+            if db_success:
+                print("[CONFIG] 配置已保存到数据库")
+        else:
+            print("[WARNING] 无应用上下文，跳过数据库保存")
+            db_success = False
+    except Exception as e:
+        print(f"[ERROR] 保存配置到数据库失败: {e}")
+        import traceback
+        traceback.print_exc()
+        db_success = False
+    
+    # 同时保存到文件（作为备份）
+    try:
+        os.makedirs(os.path.dirname(SYSTEM_CONFIG_FILE), exist_ok=True)
+        with open(SYSTEM_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        print(f"[CONFIG] 配置已保存到文件: {SYSTEM_CONFIG_FILE}")
+        file_success = True
+    except Exception as e:
+        print(f"[WARNING] 保存配置文件失败: {e}")
+        file_success = False
+    
+    # 只要数据库或文件有一个成功就返回 True
+    return db_success or file_success
+
+def get_system_config():
+    """获取当前系统配置"""
+    return load_system_config()
+
+def update_global_system_config():
+    """更新全局变量为配置文件中的值"""
+    global EMBY_URL, EMBY_API_KEY, EMBY_WEBHOOK_SECRET
+    global TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_GROUP_ID
+    global TELEGRAM_CONFIGURED_URL
+    global PT_SEARCH_STRATEGY, DOWNLOAD_POLL_INTERVAL
+    global TMDB_API_KEY, MAX_DAILY_REQUESTS
+    global emby_client
+    
+    config = load_system_config()
+    
+    EMBY_URL = config['emby']['url'].rstrip('/') if config['emby']['url'] else ''
+    EMBY_API_KEY = config['emby']['api_key']
+    EMBY_WEBHOOK_SECRET = config['emby']['webhook_secret']
+    
+    TELEGRAM_BOT_TOKEN = config['telegram']['bot_token']
+    TELEGRAM_CHAT_ID = config['telegram']['chat_id']
+    TELEGRAM_GROUP_ID = config['telegram']['group_id'] or config['telegram']['chat_id']
+    
+    # 加载 Telegram Webhook 配置
+    if 'configured_url' in config['telegram']:
+        TELEGRAM_CONFIGURED_URL = config['telegram']['configured_url']
+    
+    PT_SEARCH_STRATEGY = config['search']['strategy']
+    DOWNLOAD_POLL_INTERVAL = int(config['search']['poll_interval']) if config['search']['poll_interval'] else 10
+    
+    TMDB_API_KEY = config['tmdb']['api_key']
+    MAX_DAILY_REQUESTS = int(config['request_limit']['max_daily']) if config['request_limit']['max_daily'] else 3
+    
+    # 更新 emby_client（如果已初始化）
+    if 'emby_client' in globals() and emby_client is not None:
+        emby_client.base_url = EMBY_URL
+        emby_client.api_key = EMBY_API_KEY
+        emby_client.session.headers.update({'X-Emby-Token': EMBY_API_KEY})
+    
+    print(f"[CONFIG] 系统配置已更新: EMBY={EMBY_URL}, TG={bool(TELEGRAM_BOT_TOKEN)}, TMDB={bool(TMDB_API_KEY)}")
+
+# 初始化加载系统配置
+update_global_system_config()
+
+
+# ==================== MoviePilot 客户端 ====================
+class MoviePilotClient:
+    """MoviePilot API 客户端 - 通过 MoviePilot 搜索和下载种子"""
+    
+    def __init__(self, base_url: str, username: str = '', password: str = '', token: str = '', priority: int = 10):
+        self.name = 'MoviePilot'
+        self.priority = priority
+        self.base_url = base_url.rstrip('/')
+        self.username = username
+        self.password = password
+        self.access_token = token
+        self.token_expires = 0
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Emby-Request-System/1.0',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        })
+        if PROXY_URL:
+            self.session.proxies = http_session.proxies
+    
+    def is_enabled(self) -> bool:
+        return bool(self.base_url and (self.access_token or (self.username and self.password)))
+    
+    def _format_size(self, size_bytes: int) -> str:
+        """格式化文件大小"""
+        if not size_bytes:
+            return '未知'
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size_bytes < 1024:
+                return f"{size_bytes:.2f} {unit}"
+            size_bytes /= 1024
+        return f"{size_bytes:.2f} PB"
+    
+    def _add_source_to_results(self, results: list) -> list:
+        """确保每个结果都有 source 字段"""
+        for item in results:
+            if 'source' not in item or not item['source']:
+                item['source'] = self.name
+        return results
+    
+    def _login(self) -> bool:
+        """登录 MoviePilot 获取 access token"""
+        if not self.username or not self.password:
+            return False
+        
+        try:
+            url = f"{self.base_url}/api/v1/login/access-token"
+            # 登录接口需要表单格式，不能用 JSON
+            data = {
+                'username': self.username,
+                'password': self.password,
+            }
+            headers = {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            }
+            response = self.session.post(url, data=data, headers=headers, timeout=10)
+            if response.status_code == 200:
+                result = response.json()
+                self.access_token = result.get('access_token', '')
+                if self.access_token:
+                    # Token 有效期约30分钟，提前5分钟刷新
+                    self.token_expires = time.time() + 25 * 60
+                    app.logger.info(f"[{self.name}] 登录成功，获取到 access token")
+                    return True
+            app.logger.error(f"[{self.name}] 登录失败: {response.status_code}")
+            return False
+        except Exception as e:
+            app.logger.error(f"[{self.name}] 登录异常: {e}")
+            return False
+    
+    def _ensure_token(self) -> bool:
+        """确保有有效的 access token"""
+        # 如果已有 token 且未过期，直接使用
+        if self.access_token and (self.token_expires == 0 or time.time() < self.token_expires):
+            return True
+        # 尝试登录获取新 token
+        return self._login()
+    
+    def search(self, keyword: str, media_type: str = 'movie') -> list:
+        if not keyword or not self.is_enabled():
+            return []
+        
+        # 确保有有效的 token
+        if not self._ensure_token():
+            app.logger.error(f"[{self.name}] 无法获取有效的 access token")
+            return []
+        
+        results = []
+        app.logger.info(f"[{self.name}] 搜索: keyword={keyword}, media_type={media_type}")
+        
+        try:
+            # MoviePilot 搜索 API
+            url = f"{self.base_url}/api/v1/search/title"
+            params = {
+                'keyword': keyword,
+                'page': 0,
+            }
+            headers = {
+                'Authorization': f'Bearer {self.access_token}',
+            }
+            
+            response = self.session.get(url, params=params, headers=headers, timeout=60)
+            app.logger.info(f"[{self.name}] 响应状态: {response.status_code}")
+            
+            if response.status_code == 401 or response.status_code == 403:
+                # Token 可能过期，尝试重新登录
+                app.logger.warning(f"[{self.name}] Token 可能过期，尝试重新登录")
+                self.access_token = ''
+                if self._login():
+                    headers['Authorization'] = f'Bearer {self.access_token}'
+                    response = self.session.get(url, params=params, headers=headers, timeout=60)
+                    app.logger.info(f"[{self.name}] 重试响应状态: {response.status_code}")
+                else:
+                    app.logger.error(f"[{self.name}] 重新登录失败")
+                    return []
+            
+            response.raise_for_status()
+            
+            # 解析 JSON 响应
+            try:
+                data = response.json()
+            except ValueError as json_error:
+                app.logger.error(f"[{self.name}] JSON 解析失败: {json_error}, 响应内容: {response.text[:200]}")
+                return []
+            
+            # MoviePilot 返回格式: {"success": true, "data": [...]}
+            if isinstance(data, dict):
+                if not data.get('success', True):
+                    error_msg = data.get('message', '未知错误')
+                    app.logger.warning(f"[{self.name}] 搜索失败: {error_msg}")
+                    return []
+                torrents = data.get('data', [])
+            else:
+                torrents = data
+            
+            app.logger.info(f"[{self.name}] API返回: {len(torrents) if torrents else 0} 条种子")
+            
+            if not torrents:
+                return []
+            
+            for item in torrents:
+                # MoviePilot 返回的数据结构: {"torrent_info": {...}, "meta_info": {...}}
+                torrent_info = item.get('torrent_info', {}) if isinstance(item, dict) else {}
+                meta_info = item.get('meta_info', {}) if isinstance(item, dict) else {}
+                
+                # 如果没有嵌套结构，直接使用 item
+                if not torrent_info and isinstance(item, dict):
+                    torrent_info = item
+                
+                # 获取种子信息
+                torrent_id = torrent_info.get('id') or torrent_info.get('torrent_id') or ''
+                title = torrent_info.get('title') or meta_info.get('title') or torrent_info.get('name') or ''
+                description = torrent_info.get('description') or ''
+                size = torrent_info.get('size', 0)
+                seeders = torrent_info.get('seeders') or torrent_info.get('seeder', 0)
+                leechers = torrent_info.get('peers') or torrent_info.get('leechers') or 0
+                site_name = torrent_info.get('site_name') or torrent_info.get('site') or 'MoviePilot'
+                download_url = torrent_info.get('enclosure') or torrent_info.get('download_url') or ''
+                page_url = torrent_info.get('page_url') or ''
+                
+                # 促销状态
+                promotion = ''
+                upload_ratio = torrent_info.get('uploadvolumefactor', 1)
+                download_ratio = torrent_info.get('downloadvolumefactor', 1)
+                if download_ratio == 0:
+                    promotion = 'free'
+                elif download_ratio == 0.5:
+                    promotion = 'half'
+                if upload_ratio == 2:
+                    promotion = 'double' if not promotion else promotion
+                
+                # 组合标题和描述
+                display_title = title
+                if description and description != title:
+                    display_title = f"{title} | {description}"
+                
+                results.append({
+                    'id': str(torrent_id) if torrent_id else page_url,
+                    'title': display_title,
+                    'download_url': download_url,
+                    'page_url': page_url,
+                    'size': size,
+                    'size_text': self._format_size(size) if size else '未知',
+                    'seeders': seeders,
+                    'leechers': leechers,
+                    'promotion': promotion,
+                    'category': torrent_info.get('category', ''),
+                    'created_at': torrent_info.get('pubdate', ''),
+                    'source': site_name,
+                })
+            
+            app.logger.info(f"[{self.name}] 搜索结果: {len(results)} 条")
+            
+        except requests.exceptions.Timeout:
+            app.logger.error(f"[{self.name}] 请求超时")
+        except requests.exceptions.RequestException as e:
+            app.logger.error(f"[{self.name}] 请求失败: {e}")
+        except Exception as e:
+            app.logger.error(f"[{self.name}] 搜索异常: {e}")
+        
+        return self._add_source_to_results(results)
+    
+    def build_download_url(self, torrent_id: Optional[Union[str, int]]) -> Optional[str]:
+        # MoviePilot 返回的 download_url 已经是完整链接
+        return None
+    
+    def download_torrent(self, download_url: str, title: str = '', description: str = '') -> Optional[dict]:
+        """通过 MoviePilot 下载种子到配置的下载器
+        
+        Args:
+            download_url: 种子下载链接（enclosure），可能是 base64 编码的 JSON
+            title: 种子标题，用于 MoviePilot 识别媒体信息
+            description: 种子副标题/描述
+        """
+        if not download_url or not self.is_enabled():
+            return None
+        
+        # 确保有有效的 token
+        if not self._ensure_token():
+            app.logger.error(f"[{self.name}] 下载失败: 无法获取有效的 access token")
+            return None
+        
+        try:
+            import base64
+            headers = {
+                'Authorization': f'Bearer {self.access_token}',
+                'Content-Type': 'application/json',
+            }
+            
+            clean_url = download_url.strip()
+            app.logger.debug(f"[{self.name}] 原始下载链接: {clean_url[:100]}...")
+            
+            url = f"{self.base_url}/api/v1/download/add"
+            
+            # MoviePilot 的 /api/v1/download/add 需要 TorrentInfo 对象
+            # TorrentInfo 包含: title, description, enclosure 等字段
+            # enclosure 就是种子下载链接（可以是 base64 编码的 JSON 请求信息）
+            torrent_info = {
+                'title': title or '未知标题',
+                'description': description or '',
+                'enclosure': clean_url,  # 保持原始格式，MoviePilot 会自行解析
+            }
+            
+            payload = {'torrent_in': torrent_info}
+            app.logger.info(f"[{self.name}] 调用下载 API: {url}")
+            app.logger.info(f"[{self.name}] torrent_in: title={title[:50] if title else '未知'}..., enclosure={clean_url[:50]}...")
+            
+            response = self.session.post(url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                # 检查 API 返回的 success 字段
+                if result.get('success') == True:
+                    app.logger.info(f"[{self.name}] 下载成功: {result}")
+                    return {'success': True, 'data': result}
+                else:
+                    error_msg = result.get('message', '未知错误')
+                    app.logger.error(f"[{self.name}] API 返回失败: {error_msg}, 完整响应: {result}")
+                    return {'success': False, 'error': error_msg, 'data': result}
+            else:
+                app.logger.error(f"[{self.name}] 下载失败: {response.status_code} - {response.text}")
+                return None
+        except Exception as e:
+            app.logger.error(f"[{self.name}] 下载异常: {e}", exc_info=True)
+            return None
+
+
+# ==================== PT 站管理器 ====================
+class PTManager:
+    """PT 站点统一管理器（目前仅使用 MoviePilot）"""
+    
+    def __init__(self):
+        self.clients: list[MoviePilotClient] = []
+    
+    def register(self, client: MoviePilotClient):
+        """注册一个 PT 站客户端"""
+        if client.is_enabled():
+            self.clients.append(client)
+            app.logger.info(f"PT站点已注册: {client.name} (优先级: {client.priority})")
+    
+    def is_enabled(self) -> bool:
+        """是否有任何 PT 站可用"""
+        return any(c.is_enabled() for c in self.clients)
+    
+    def get_enabled_clients(self) -> list[MoviePilotClient]:
+        """获取所有已启用的客户端"""
+        return [c for c in self.clients if c.is_enabled()]
+    
+    def search(self, keyword: str, media_type: str = 'movie') -> list:
+        """
+        搜索种子资源
+        :param keyword: 搜索关键词
+        :param media_type: 'movie' 或 'tv'
+        :return: 搜索结果列表
+        """
+        if not self.clients:
+            app.logger.warning("没有可用的 PT 站点")
+            return []
+        
+        # 目前只有一个客户端，直接使用
+        client = self.clients[0]
+        try:
+            results = client.search(keyword, media_type)
+            app.logger.info(f"[{client.name}] 返回 {len(results) if results else 0} 条结果")
+            return results or []
+        except Exception as exc:
+            app.logger.error(f"[{client.name}] 搜索异常: {exc}")
+            return []
+    
+    def get_client(self, source: str = None) -> Optional[MoviePilotClient]:
+        """获取客户端（目前仅有一个）"""
+        if self.clients:
+            return self.clients[0]
+        return None
+
+
+class QbitClient:
+    """qBittorrent Web API 客户端"""
+    
+    # 可重试的异常类型
+    RETRYABLE_EXCEPTIONS = (
+        requests.exceptions.ConnectionError,
+        requests.exceptions.Timeout,
+        requests.exceptions.ChunkedEncodingError,
+    )
+
+    def __init__(self, base_url: str, username: str, password: str):
+        self.base_url = base_url
+        self.username = username
+        self.password = password
+        self.session = requests.Session()
+        self.authenticated = False
+        self.last_login_at = 0
+        self.login_lock = Lock()
+        self.max_retries = 3  # 最大重试次数
+        self.retry_delay = 1  # 重试间隔（秒）
+        if PROXY_URL:
+            self.session.proxies = http_session.proxies
+
+    def _with_retry(self, func, *args, **kwargs):
+        """带重试的请求执行器"""
+        last_error = None
+        for attempt in range(self.max_retries):
+            try:
+                return func(*args, **kwargs)
+            except self.RETRYABLE_EXCEPTIONS as e:
+                last_error = e
+                if attempt < self.max_retries - 1:
+                    # 连接断开时，重置认证状态，强制重新登录
+                    self.authenticated = False
+                    wait_time = self.retry_delay * (attempt + 1)  # 递增等待时间
+                    app.logger.warning(f'[qBittorrent] 连接错误 ({attempt + 1}/{self.max_retries}): {e}, {wait_time}秒后重试')
+                    time.sleep(wait_time)
+                    # 重新登录
+                    try:
+                        self.ensure_login()
+                    except Exception as login_error:
+                        app.logger.warning(f'[qBittorrent] 重新登录失败: {login_error}')
+        # 所有重试都失败
+        raise last_error
+
+    def is_enabled(self) -> bool:
+        return bool(self.base_url and self.username and self.password)
+
+    def ensure_login(self):
+        if not self.is_enabled():
+            raise RuntimeError('qBittorrent 未配置')
+        if self.authenticated and (time.time() - self.last_login_at) < 900:
+            return
+        with self.login_lock:
+            if self.authenticated and (time.time() - self.last_login_at) < 900:
+                return
+            self._login()
+
+    def _login(self):
+        url = f"{self.base_url}/api/v2/auth/login"
+        response = self.session.post(url, data={'username': self.username, 'password': self.password}, timeout=10)
+        response.raise_for_status()
+        if response.text.strip() != 'Ok.':
+            raise RuntimeError('qBittorrent 登录失败')
+        self.authenticated = True
+        self.last_login_at = time.time()
+
+    def add_torrent(self, download_url: str, *, save_path: Optional[str] = None, category: Optional[str] = None,
+                    tags: Optional[list[str]] = None) -> dict:
+        def _do_add():
+            self.ensure_login()
+            url = f"{self.base_url}/api/v2/torrents/add"
+            data = {'urls': download_url}
+            if category:
+                data['category'] = category
+            if tags:
+                data['tags'] = ','.join(tags)
+            if save_path:
+                data['savepath'] = save_path
+            
+            app.logger.info(f'[qBittorrent] 添加种子: category={category}, tags={tags}')
+            app.logger.debug(f'[qBittorrent] 下载链接: {download_url[:100]}...')
+            
+            response = self.session.post(url, data=data, timeout=30)
+            response.raise_for_status()
+            
+            # 检查响应内容，qBittorrent 返回 "Ok." 表示成功，"Fails." 表示失败
+            response_text = response.text.strip()
+            if response_text == 'Fails.':
+                app.logger.error(f'[qBittorrent] 添加种子失败: 响应={response_text}')
+                raise RuntimeError('qBittorrent 拒绝添加种子（可能是链接无效或种子已存在）')
+            
+            app.logger.info(f'[qBittorrent] 添加种子成功: 响应={response_text}')
+            return {'success': True}
+        
+        return self._with_retry(_do_add)
+
+    def get_torrents_info(self, *, hashes: Optional[list[str]] = None, tags: Optional[str] = None) -> list:
+        def _do_get():
+            self.ensure_login()
+            params = {}
+            if hashes:
+                params['hashes'] = '|'.join(hashes)
+            if tags:
+                params['tag'] = tags  # qBittorrent API 使用 'tag' 参数（单数）
+            url = f"{self.base_url}/api/v2/torrents/info"
+            response = self.session.get(url, params=params, timeout=15)
+            response.raise_for_status()
+            return response.json()
+        
+        return self._with_retry(_do_get)
+
+    def get_torrent_by_tag(self, tag: str):
+        """获取指定 tag 的种子，返回最新添加的一个"""
+        results = self.get_torrents_info(tags=tag)
+        app.logger.debug(f'[qBittorrent] 按 tag={tag} 查询，返回 {len(results) if results else 0} 个种子')
+        if not results:
+            # 尝试获取所有种子来排查问题
+            all_torrents = self.get_torrents_info()
+            if all_torrents:
+                app.logger.debug(f'[qBittorrent] 当前共有 {len(all_torrents)} 个种子')
+                # 检查是否有最近添加的种子
+                recent = [t for t in all_torrents if t.get('tags', '')]
+                if recent:
+                    app.logger.debug(f'[qBittorrent] 有 tag 的种子: {[(t.get("name", "")[:30], t.get("tags", "")) for t in recent[:5]]}')
+            return None
+        # 精确匹配 tag，并按添加时间排序取最新的
+        matching = [t for t in results if tag in (t.get('tags') or '').split(', ')]
+        if not matching:
+            return results[0]  # 回退到第一个
+        # 按 added_on 时间戳降序排序，取最新的
+        matching.sort(key=lambda x: x.get('added_on', 0), reverse=True)
+        return matching[0]
+
+
+class EmbyClient:
+    """Emby 媒体库客户端"""
+
+    def __init__(self, base_url: str, api_key: str):
+        self.base_url = base_url
+        self.api_key = api_key
+        self.session = requests.Session()
+        self.session.headers.update({
+            'X-Emby-Token': api_key,
+            'Accept': 'application/json',
+        })
+        # 媒体库统计缓存（5分钟）
+        self._library_counts_cache = None
+        self._library_counts_cache_time = 0
+        # TMDB ID 查询缓存（10分钟）
+        self._tmdb_cache = {}
+        self._tmdb_cache_ttl = 600  # 10分钟
+
+    def is_enabled(self) -> bool:
+        return bool(self.base_url and self.api_key)
+
+    def search_by_tmdb_id(self, tmdb_id: str, media_type: str = 'movie', timeout: int = 3) -> Optional[dict]:
+        """通过 TMDB ID 查询 Emby 库中是否存在（带缓存，快速超时）"""
+        if not self.is_enabled():
+            return None
+        
+        # 检查缓存
+        cache_key = f"{tmdb_id}_{media_type}"
+        if cache_key in self._tmdb_cache:
+            cached_time, cached_result = self._tmdb_cache[cache_key]
+            if time.time() - cached_time < self._tmdb_cache_ttl:
+                return cached_result
+        
+        try:
+            # Emby 使用 AnyProviderIdEquals 查询
+            url = f"{self.base_url}/Items"
+            params = {
+                'api_key': self.api_key,
+                'AnyProviderIdEquals': f'Tmdb.{tmdb_id}',
+                'Recursive': 'true',
+                'IncludeItemTypes': 'Movie' if media_type == 'movie' else 'Series',
+                'Fields': 'ProviderIds,Path,Overview',
+            }
+            response = self.session.get(url, params=params, timeout=timeout)
+            response.raise_for_status()
+            data = response.json()
+            items = data.get('Items', [])
+            result = items[0] if items else None
+            
+            # 存入缓存
+            self._tmdb_cache[cache_key] = (time.time(), result)
+            
+            return result
+        except requests.exceptions.Timeout:
+            app.logger.warning(f'Emby 查询超时: TMDB {tmdb_id}')
+            return None
+        except Exception as e:
+            app.logger.error(f'Emby 查询失败: {e}')
+            return None
+
+    def search_by_name(self, name: str, year: Optional[str] = None, media_type: str = 'movie') -> Optional[dict]:
+        """通过名称查询 Emby 库中是否存在"""
+        if not self.is_enabled():
+            return None
+        try:
+            url = f"{self.base_url}/Items"
+            params = {
+                'api_key': self.api_key,
+                'SearchTerm': name,
+                'Recursive': 'true',
+                'IncludeItemTypes': 'Movie' if media_type == 'movie' else 'Series',
+                'Fields': 'ProviderIds,Path,Overview,ProductionYear',
+            }
+            if year:
+                params['Years'] = year
+            response = self.session.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            items = data.get('Items', [])
+            # 模糊匹配名称
+            for item in items:
+                item_name = item.get('Name', '').lower()
+                if name.lower() in item_name or item_name in name.lower():
+                    return item
+            return None
+        except Exception as e:
+            app.logger.error(f'Emby 名称查询失败: {e}')
+            return None
+
+    def get_tv_seasons(self, series_id: str) -> list:
+        """获取剧集的季列表"""
+        if not self.is_enabled():
+            return []
+        try:
+            url = f"{self.base_url}/Shows/{series_id}/Seasons"
+            params = {
+                'api_key': self.api_key,
+                'Fields': 'IndexNumber'
+            }
+            response = self.session.get(url, params=params, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            return data.get('Items', [])
+        except Exception as e:
+            app.logger.error(f'获取剧集季列表失败: {e}')
+            return []
+    
+    def get_library_counts(self) -> dict:
+        """获取媒体库的电影和剧集数量（带5分钟缓存）
+        
+        返回:
+            movies: 电影部数
+            series: 剧集部数（几部剧）
+            episodes: 剧集总集数（所有剧的所有集）
+            total: 电影部数 + 剧集总集数
+        """
+        if not self.is_enabled():
+            return {'movies': 0, 'series': 0, 'episodes': 0, 'total': 0}
+        
+        # 检查缓存（5分钟内有效）
+        import time
+        current_time = time.time()
+        if self._library_counts_cache and (current_time - self._library_counts_cache_time) < 300:
+            return self._library_counts_cache
+        
+        try:
+            url = f"{self.base_url}/Items/Counts"
+            params = {'api_key': self.api_key}
+            response = self.session.get(url, params=params, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            
+            movies = data.get('MovieCount', 0)
+            series = data.get('SeriesCount', 0)  # 剧集部数
+            episodes = data.get('EpisodeCount', 0)  # 剧集总集数
+            
+            result = {
+                'movies': movies,
+                'series': series,
+                'episodes': episodes,
+                'total': movies + episodes  # 总计 = 电影部数 + 剧集总集数
+            }
+            
+            # 更新缓存
+            self._library_counts_cache = result
+            self._library_counts_cache_time = current_time
+            
+            return result
+        except Exception as e:
+            app.logger.error(f'获取Emby媒体库数量失败: {e}')
+            # 如果有旧缓存，返回旧缓存
+            if self._library_counts_cache:
+                return self._library_counts_cache
+            return {'movies': 0, 'series': 0, 'episodes': 0, 'total': 0}
+    
+    def check_exists(self, tmdb_id: Optional[str], name: str, year: Optional[str] = None, media_type: str = 'movie') -> dict:
+        """检查媒体是否存在于 Emby 库中"""
+        result = {'exists': False, 'item': None}
+        
+        if not self.is_enabled():
+            return result
+        
+        # 优先通过 TMDB ID 查询
+        if tmdb_id:
+            item = self.search_by_tmdb_id(tmdb_id, media_type)
+            if item:
+                result['exists'] = True
+                result['item'] = item
+                return result
+        
+        # 备选：通过名称查询
+        if name:
+            item = self.search_by_name(name, year, media_type)
+            if item:
+                result['exists'] = True
+                result['item'] = item
+                return result
+        
+        return result
+
+    def get_sessions(self, active_within_seconds: int = 960) -> list:
+        """获取所有活跃的播放会话
+        
+        Args:
+            active_within_seconds: 在多少秒内活跃的会话（默认 960 秒 = 16 分钟）
+            
+        Returns:
+            list: 会话列表，每个会话包含设备信息、正在播放的内容等
+        """
+        if not self.is_enabled():
+            return []
+        
+        try:
+            url = f"{self.base_url}/Sessions"
+            params = {
+                'api_key': self.api_key,
+                'ActiveWithinSeconds': active_within_seconds
+            }
+            response = self.session.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            sessions = response.json()
+            
+            # 格式化会话数据
+            formatted_sessions = []
+            for session in sessions:
+                formatted = {
+                    'id': session.get('Id'),
+                    'user_id': session.get('UserId'),
+                    'user_name': session.get('UserName', '未知用户'),
+                    'device_id': session.get('DeviceId'),
+                    'device_name': session.get('DeviceName', '未知设备'),
+                    'client': session.get('Client', '未知客户端'),
+                    'app_version': session.get('ApplicationVersion', ''),
+                    'last_activity_date': session.get('LastActivityDate'),
+                    'is_playing': False,
+                    'now_playing': None,
+                    'play_state': None,
+                    'remote_end_point': session.get('RemoteEndPoint', ''),
+                }
+                
+                # 检查是否正在播放
+                if session.get('NowPlayingItem'):
+                    formatted['is_playing'] = True
+                    now_playing = session['NowPlayingItem']
+                    formatted['now_playing'] = {
+                        'id': now_playing.get('Id'),
+                        'name': now_playing.get('Name', '未知内容'),
+                        'type': now_playing.get('Type', ''),
+                        'series_name': now_playing.get('SeriesName', ''),
+                        'season_name': now_playing.get('SeasonName', ''),
+                        'season_number': now_playing.get('ParentIndexNumber'),
+                        'episode_number': now_playing.get('IndexNumber'),
+                        'episode_title': now_playing.get('Name', ''),
+                        'run_time_ticks': now_playing.get('RunTimeTicks', 0),
+                        'primary_image_tag': now_playing.get('ImageTags', {}).get('Primary', ''),
+                        'thumb_image_tag': now_playing.get('ImageTags', {}).get('Thumb', ''),
+                    }
+                    
+                    # 如果是剧集，组合显示名称
+                    if now_playing.get('Type') == 'Episode':
+                        series = now_playing.get('SeriesName', '')
+                        season = now_playing.get('ParentIndexNumber', '')
+                        episode = now_playing.get('IndexNumber', '')
+                        ep_name = now_playing.get('Name', '')
+                        formatted['now_playing']['display_name'] = f"{series} S{season:02d}E{episode:02d} - {ep_name}" if series else ep_name
+                    else:
+                        formatted['now_playing']['display_name'] = now_playing.get('Name', '未知内容')
+                
+                # 播放状态
+                if session.get('PlayState'):
+                    play_state = session['PlayState']
+                    formatted['play_state'] = {
+                        'is_paused': play_state.get('IsPaused', False),
+                        'is_muted': play_state.get('IsMuted', False),
+                        'position_ticks': play_state.get('PositionTicks', 0),
+                        'volume_level': play_state.get('VolumeLevel', 100),
+                        'audio_stream_index': play_state.get('AudioStreamIndex'),
+                        'subtitle_stream_index': play_state.get('SubtitleStreamIndex'),
+                        'media_source_id': play_state.get('MediaSourceId'),
+                        'play_method': play_state.get('PlayMethod', ''),
+                    }
+                
+                formatted_sessions.append(formatted)
+            
+            return formatted_sessions
+        except requests.exceptions.Timeout:
+            app.logger.warning('获取 Emby 会话超时')
+            return []
+        except Exception as e:
+            app.logger.error(f'获取 Emby 会话失败: {e}')
+            return []
+
+    def get_user_sessions(self, emby_user_id: str) -> list:
+        """获取指定用户的播放会话
+        
+        Args:
+            emby_user_id: Emby 用户 ID
+            
+        Returns:
+            list: 该用户的会话列表
+        """
+        all_sessions = self.get_sessions()
+        return [s for s in all_sessions if s.get('user_id') == emby_user_id]
+
+    def get_playback_stats(self) -> dict:
+        """获取播放统计信息
+        
+        Returns:
+            dict: 包含在线人数、正在播放人数、设备统计等信息
+        """
+        sessions = self.get_sessions()
+        
+        # 统计
+        total_sessions = len(sessions)
+        playing_sessions = [s for s in sessions if s.get('is_playing')]
+        playing_count = len(playing_sessions)
+        
+        # 按设备类型分组
+        devices = {}
+        for s in sessions:
+            client = s.get('client', '其他')
+            if client not in devices:
+                devices[client] = 0
+            devices[client] += 1
+        
+        # 按用户分组
+        users = {}
+        for s in sessions:
+            user_name = s.get('user_name', '未知')
+            if user_name not in users:
+                users[user_name] = {'sessions': 0, 'playing': 0}
+            users[user_name]['sessions'] += 1
+            if s.get('is_playing'):
+                users[user_name]['playing'] += 1
+        
+        return {
+            'total_sessions': total_sessions,
+            'playing_count': playing_count,
+            'devices': devices,
+            'users': users,
+            'sessions': sessions
+        }
+
+    def get_user_playback_history(self, emby_user_id: str, limit: int = 20) -> list:
+        """获取用户的播放历史
+        
+        Args:
+            emby_user_id: Emby 用户 ID
+            limit: 返回的记录数
+            
+        Returns:
+            list: 播放历史列表
+        """
+        if not self.is_enabled() or not emby_user_id:
+            return []
+        
+        try:
+            # 获取最近播放的项目
+            url = f"{self.base_url}/Users/{emby_user_id}/Items"
+            params = {
+                'api_key': self.api_key,
+                'SortBy': 'DatePlayed',
+                'SortOrder': 'Descending',
+                'Filters': 'IsPlayed',
+                'Recursive': 'true',
+                'Fields': 'DateLastMediaAdded,Path,Overview,UserData,MediaSources',
+                'IncludeItemTypes': 'Movie,Episode',
+                'Limit': limit
+            }
+            response = self.session.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            history = []
+            for item in data.get('Items', []):
+                user_data = item.get('UserData', {})
+                history_item = {
+                    'id': item.get('Id'),
+                    'name': item.get('Name', '未知'),
+                    'type': item.get('Type', ''),
+                    'series_name': item.get('SeriesName', ''),
+                    'season_name': item.get('SeasonName', ''),
+                    'last_played_date': user_data.get('LastPlayedDate'),
+                    'play_count': user_data.get('PlayCount', 0),
+                    'played_percentage': user_data.get('PlayedPercentage', 0),
+                    'is_favorite': user_data.get('IsFavorite', False),
+                    'primary_image_tag': item.get('ImageTags', {}).get('Primary', ''),
+                    'run_time_ticks': item.get('RunTimeTicks', 0),
+                }
+                
+                # 组合显示名称
+                if item.get('Type') == 'Episode':
+                    series = item.get('SeriesName', '')
+                    season = item.get('ParentIndexNumber', '')
+                    episode = item.get('IndexNumber', '')
+                    ep_name = item.get('Name', '')
+                    if series and season and episode:
+                        history_item['display_name'] = f"{series} S{season:02d}E{episode:02d} - {ep_name}"
+                    else:
+                        history_item['display_name'] = ep_name
+                else:
+                    history_item['display_name'] = item.get('Name', '未知')
+                
+                history.append(history_item)
+            
+            return history
+        except requests.exceptions.Timeout:
+            app.logger.warning(f'获取用户 {emby_user_id} 播放历史超时')
+            return []
+        except Exception as e:
+            app.logger.error(f'获取用户 {emby_user_id} 播放历史失败: {e}')
+            return []
+
+    def get_playback_report_history(self, days: int = 30, user_id: str = None, limit: int = 100) -> list:
+        """从 Playback Reporting 插件获取播放历史
+        
+        使用 GetItems API 获取详细的播放历史（包含 IP、播放方式、进度等）
+        优化版：限制天数和请求数量，优先获取最近的记录
+        
+        Args:
+            days: 获取多少天的历史（最多7天以优化性能）
+            user_id: 可选，指定用户ID
+            limit: 最大返回记录数
+            
+        Returns:
+            list: 播放历史记录列表
+        """
+        if not self.is_enabled():
+            return []
+        
+        try:
+            history = []
+            end_date = datetime.now()
+            
+            # 优化：限制最多查询7天以提高性能
+            actual_days = min(days, 7)
+            
+            # 1. 首先获取所有用户列表（如果没有指定用户）
+            user_ids = []
+            if user_id:
+                user_ids = [user_id]
+            else:
+                # 从 user_activity 获取活跃用户
+                try:
+                    ua_url = f"{self.base_url}/user_usage_stats/user_activity"
+                    ua_params = {
+                        'api_key': self.api_key,
+                        'days': actual_days,
+                        'end_date': end_date.strftime('%Y-%m-%d')
+                    }
+                    ua_response = self.session.get(ua_url, params=ua_params, timeout=10)
+                    if ua_response.status_code == 200:
+                        ua_data = ua_response.json()
+                        for user_data in ua_data:
+                            uid = user_data.get('user_id', '')
+                            if uid:
+                                user_ids.append(uid)
+                except Exception as e:
+                    app.logger.debug(f'获取 user_activity 失败: {e}')
+            
+            # 如果没有获取到用户，使用备用方法
+            if not user_ids:
+                app.logger.warning('未获取到活跃用户列表，使用 UserPlaylist 备用方法')
+                return self._get_playback_from_playlist_simple(actual_days, user_id)
+            
+            # 优化：限制用户数量，优先处理
+            max_users = 20  # 最多处理20个用户
+            user_ids = user_ids[:max_users]
+            
+            # 2. 遍历每一天，使用 GetItems API 获取详细数据
+            for day_offset in range(actual_days):
+                # 优化：如果已经获取足够多的记录，提前退出
+                if len(history) >= limit:
+                    break
+                    
+                date = end_date - timedelta(days=day_offset)
+                date_str = date.strftime('%Y-%m-%d')
+                
+                for uid in user_ids:
+                    # 优化：如果已经获取足够多的记录，提前退出
+                    if len(history) >= limit:
+                        break
+                        
+                    try:
+                        # GetItems API: /user_usage_stats/{UserId}/{Date}/GetItems
+                        url = f"{self.base_url}/user_usage_stats/{uid}/{date_str}/GetItems"
+                        params = {'api_key': self.api_key}
+                        
+                        response = self.session.get(url, params=params, timeout=5)
+                        if response.status_code != 200:
+                            continue
+                        
+                        items = response.json()
+                        if not items:
+                            continue
+                        
+                        for item in items:
+                            # GetItems 返回的字段包括:
+                            # Time, Id, Name, Type, Client, Device, Method, 
+                            # Duration, RowId, UserId, RemoteAddress, PlayDuration
+                            
+                            time_str = item.get('Time', '') or ''
+                            started_at = f"{date_str} {time_str}".strip()
+                            
+                            # 计算播放进度百分比
+                            total_duration = int(item.get('Duration', 0) or 0)
+                            play_duration = int(item.get('PlayDuration', 0) or 0)
+                            play_percentage = None
+                            if total_duration > 0 and play_duration > 0:
+                                play_percentage = min(100, round(play_duration / total_duration * 100, 1))
+                            
+                            record = {
+                                'id': str(item.get('RowId', '')),
+                                'user_id': uid,
+                                'user_name': item.get('UserName', '') or '未知',
+                                'item_id': str(item.get('Id', '')),
+                                'item_name': item.get('Name', '') or '未知',
+                                'item_type': item.get('Type', 'Movie'),
+                                'client': item.get('Client', '') or '',
+                                'device_name': item.get('Device', '') or item.get('Client', '') or '',
+                                'play_method': item.get('Method', '') or '',  # DirectPlay, DirectStream, Transcode
+                                'play_duration': play_duration,
+                                'date': started_at,
+                                'started_at': started_at,
+                                'series_name': '',
+                                'season_number': None,
+                                'episode_number': None,
+                                'play_percentage': play_percentage,
+                                'display_name': item.get('Name', '') or '未知',
+                                'remote_address': item.get('RemoteAddress', '') or '',
+                            }
+                            history.append(record)
+                    except Exception as e:
+                        app.logger.debug(f'获取 {uid} 在 {date_str} 的播放记录失败: {e}')
+                        continue
+            
+            # 按日期排序
+            history.sort(key=lambda x: x.get('started_at', ''), reverse=True)
+            
+            # 限制返回数量
+            history = history[:limit]
+            
+            app.logger.info(f'GetItems API 获取到 {len(history)} 条播放历史记录')
+            
+            # 如果 GetItems 没有获取到数据，使用备用方法
+            if not history:
+                app.logger.info('GetItems 无数据，使用 UserPlaylist 备用方法')
+                return self._get_playback_from_playlist_simple(actual_days, user_id)
+            
+            return history
+            
+        except Exception as e:
+            app.logger.error(f'从 Playback Reporting 获取播放历史失败: {e}')
+            import traceback
+            app.logger.error(traceback.format_exc())
+            # 降级到 UserPlaylist
+            return self._get_playback_from_playlist_simple(days, user_id)
+
+    def _get_playback_from_playlist_simple(self, days: int = 30, user_id: str = None) -> list:
+        """从 UserPlaylist API 获取播放历史，从 user_activity 补充设备信息"""
+        try:
+            # 1. 首先从 user_activity 获取用户的设备信息
+            user_device_map = {}  # user_id -> client_name
+            try:
+                ua_url = f"{self.base_url}/user_usage_stats/user_activity"
+                ua_params = {
+                    'api_key': self.api_key,
+                    'days': days,
+                    'end_date': datetime.now().strftime('%Y-%m-%d')
+                }
+                ua_response = self.session.get(ua_url, params=ua_params, timeout=15)
+                if ua_response.status_code == 200:
+                    ua_data = ua_response.json()
+                    for user_data in ua_data:
+                        uid = user_data.get('user_id', '')
+                        if uid:
+                            user_device_map[uid] = user_data.get('client_name', '') or ''
+                    app.logger.info(f'user_activity 获取到 {len(user_device_map)} 个用户的设备信息')
+            except Exception as e:
+                app.logger.debug(f'获取 user_activity 失败: {e}')
+            
+            # 2. 从 UserPlaylist 获取播放历史
+            url = f"{self.base_url}/user_usage_stats/UserPlaylist"
+            params = {
+                'api_key': self.api_key,
+                'days': days,
+                'end_date': datetime.now().strftime('%Y-%m-%d'),
+                'filter': ''
+            }
+            if user_id:
+                params['user_id'] = user_id
+            
+            response = self.session.get(url, params=params, timeout=30)
+            if response.status_code != 200:
+                return []
+            
+            data = response.json()
+            history = []
+            
+            for item in data:
+                date_str = item.get('date', '') or ''
+                time_str = item.get('time', '') or ''
+                started_at = f"{date_str} {time_str}".strip()
+                
+                uid = item.get('user_id', '')
+                
+                # 从 user_activity 获取设备名称
+                device_name = user_device_map.get(uid, '') or ''
+                
+                record = {
+                    'id': '',
+                    'user_id': uid,
+                    'user_name': item.get('user_name', '') or '未知',
+                    'item_id': str(item.get('item_id', '')),
+                    'item_name': item.get('item_name', '') or '未知',
+                    'item_type': item.get('item_type', 'Movie'),
+                    'client': device_name,
+                    'device_name': device_name,  # 使用 user_activity 的 client_name
+                    'play_duration': int(item.get('duration', 0) or 0),
+                    'date': started_at,
+                    'started_at': started_at,
+                    'series_name': '',
+                    'season_number': None,
+                    'episode_number': None,
+                    'play_percentage': None,  # 进度需要单独获取
+                    'display_name': item.get('item_name', '') or '未知',
+                    'remote_address': item.get('remote_address', '') or '',
+                }
+                history.append(record)
+            
+            app.logger.info(f'UserPlaylist 获取到 {len(history)} 条播放历史')
+            return history
+        except Exception as e:
+            app.logger.error(f'UserPlaylist 备用方法失败: {e}')
+            return []
+
+    def _get_playback_from_playlist(self, days: int = 30, user_id: str = None) -> list:
+        """从 UserPlaylist API 获取播放历史（兼容旧调用）"""
+        return self._get_playback_from_playlist_simple(days, user_id)
+
+    def get_playback_report_devices(self) -> list:
+        """从 Playback Reporting 插件获取设备统计
+        
+        使用 user_activity API 获取用户最近使用的设备
+        
+        Returns:
+            list: 设备列表
+        """
+        if not self.is_enabled():
+            return []
+        
+        try:
+            # 1. 首先从 Emby Sessions API 获取当前设备的 IP 和 User-Agent 信息
+            device_ip_map = {}  # device_id -> ip
+            user_device_info_map = {}  # user_id -> {ip, device_name, client, app_version}
+            try:
+                sessions_url = f"{self.base_url}/Sessions"
+                sessions_params = {
+                    'api_key': self.api_key,
+                    'ActiveWithinSeconds': 86400 * 30  # 30天内活跃的会话
+                }
+                sessions_response = self.session.get(sessions_url, params=sessions_params, timeout=15)
+                if sessions_response.status_code == 200:
+                    sessions_data = sessions_response.json()
+                    for session in sessions_data:
+                        device_id = session.get('DeviceId', '')
+                        user_id = session.get('UserId', '')
+                        remote_ip = session.get('RemoteEndPoint', '')
+                        device_name = session.get('DeviceName', '')
+                        client = session.get('Client', '')  # 客户端名称
+                        app_version = session.get('ApplicationVersion', '')  # 版本号
+                        
+                        if device_id and remote_ip:
+                            device_ip_map[device_id] = remote_ip
+                        if user_id:
+                            # 构建完整的客户端信息（类似 User-Agent）
+                            client_info = client
+                            if app_version:
+                                client_info = f"{client} {app_version}"
+                            
+                            user_device_info_map[user_id] = {
+                                'ip': remote_ip,
+                                'device_name': device_name,
+                                'client': client,
+                                'app_version': app_version,
+                                'client_info': client_info,  # 完整客户端信息
+                            }
+                    app.logger.info(f'Sessions API 获取到 {len(device_ip_map)} 个设备IP')
+            except Exception as e:
+                app.logger.debug(f'获取 Sessions 失败: {e}')
+            
+            # 2. 尝试从 Emby Devices API 获取更完整的设备列表和 User-Agent
+            device_user_agent_map = {}  # device_id -> {name, app_name, app_version, last_user_id}
+            try:
+                devices_url = f"{self.base_url}/Devices"
+                devices_params = {'api_key': self.api_key}
+                devices_response = self.session.get(devices_url, params=devices_params, timeout=15)
+                if devices_response.status_code == 200:
+                    devices_data = devices_response.json()
+                    items = devices_data.get('Items', devices_data) if isinstance(devices_data, dict) else devices_data
+                    for dev in items:
+                        dev_id = dev.get('Id', '')
+                        last_user_id = dev.get('LastUserId', '')
+                        
+                        # Devices API 字段
+                        dev_name = dev.get('Name', '')
+                        app_name = dev.get('AppName', '')  # 应用名
+                        app_version = dev.get('AppVersion', '')  # 应用版本
+                        last_ip = dev.get('LastIpAddress', '')
+                        
+                        # 构建 User-Agent 风格的客户端信息
+                        client_info = app_name
+                        if app_version:
+                            client_info = f"{app_name} {app_version}"
+                        
+                        if dev_id:
+                            device_user_agent_map[dev_id] = {
+                                'name': dev_name,
+                                'app_name': app_name,
+                                'app_version': app_version,
+                                'client_info': client_info,
+                                'last_ip': last_ip,
+                            }
+                        
+                        # 补充 IP
+                        if dev_id and dev_id not in device_ip_map and last_ip:
+                            device_ip_map[dev_id] = last_ip
+                        
+                        # 补充用户设备信息
+                        if last_user_id and last_user_id not in user_device_info_map:
+                            user_device_info_map[last_user_id] = {
+                                'ip': last_ip,
+                                'device_name': dev_name,
+                                'client': app_name,
+                                'app_version': app_version,
+                                'client_info': client_info,
+                            }
+                        elif last_user_id and last_user_id in user_device_info_map:
+                            # 更新客户端信息（Devices API 可能更完整）
+                            if not user_device_info_map[last_user_id].get('client_info') and client_info:
+                                user_device_info_map[last_user_id]['client_info'] = client_info
+                            
+            except Exception as e:
+                app.logger.debug(f'获取 Devices 失败: {e}')
+            
+            # 3. 从最近的播放历史获取 IP（使用 GetItems API）
+            history_ip_map = {}  # user_id -> ip
+            try:
+                # 获取今天的播放记录
+                today = datetime.now().strftime('%Y-%m-%d')
+                for uid in list(user_device_info_map.keys())[:20]:  # 限制数量
+                    try:
+                        url = f"{self.base_url}/user_usage_stats/{uid}/{today}/GetItems"
+                        params = {'api_key': self.api_key}
+                        response = self.session.get(url, params=params, timeout=5)
+                        if response.status_code == 200:
+                            items = response.json()
+                            if items:
+                                # 取最新的一条记录
+                                latest = items[0]
+                                ip = latest.get('RemoteAddress', '')
+                                if ip:
+                                    history_ip_map[uid] = ip
+                    except:
+                        continue
+            except Exception as e:
+                app.logger.debug(f'获取历史 IP 失败: {e}')
+            
+            # 4. 使用 user_activity API 获取用户活动统计
+            url = f"{self.base_url}/user_usage_stats/user_activity"
+            params = {
+                'api_key': self.api_key,
+                'days': 30,
+                'end_date': datetime.now().strftime('%Y-%m-%d')
+            }
+            
+            response = self.session.get(url, params=params, timeout=15)
+            if response.status_code != 200:
+                app.logger.warning(f'user_activity API 返回 {response.status_code}')
+                return []
+            
+            user_report = response.json()
+            app.logger.info(f'user_activity 返回 {len(user_report)} 条用户记录')
+            
+            devices = []
+            device_id_counter = 1
+            
+            for user_data in user_report:
+                user_id = user_data.get('user_id', '')
+                user_name = user_data.get('user_name', '') or '未知'
+                client_name = user_data.get('client_name', '') or ''
+                latest_date = user_data.get('latest_date', '')
+                last_seen = user_data.get('last_seen', '')
+                total_count = user_data.get('total_count', 0)
+                total_time = user_data.get('total_time', 0)
+                
+                # 格式化最后活跃时间
+                if isinstance(latest_date, str) and latest_date:
+                    last_active = latest_date
+                else:
+                    last_active = str(latest_date) if latest_date else ''
+                
+                # 获取 IP 地址（优先级：历史记录 > Sessions > 默认）
+                last_ip = '-'
+                if user_id in history_ip_map:
+                    last_ip = history_ip_map[user_id]
+                elif user_id in user_device_info_map:
+                    last_ip = user_device_info_map[user_id].get('ip', '-') or '-'
+                
+                # 获取客户端信息（User-Agent 风格）
+                client_info = client_name
+                app_version = ''
+                if user_id in user_device_info_map:
+                    device_info = user_device_info_map[user_id]
+                    client_base = device_info.get('client', '') or client_name
+                    app_version = device_info.get('app_version', '')
+                    # 只拼接一次版本号，避免重复
+                    if app_version and app_version not in client_base:
+                        client_info = f"{client_base} {app_version}"
+                    else:
+                        client_info = client_base
+                
+                device = {
+                    'id': device_id_counter,
+                    'user_id': user_id,
+                    'user_name': user_name,
+                    'device_name': client_name or '未知设备',
+                    'client': client_info or client_name,  # 使用完整客户端信息（含版本号）
+                    'client_version': app_version,
+                    'play_count': total_count,
+                    'total_duration': total_time,
+                    'last_active': last_active,
+                    'last_ip': last_ip,
+                    'is_blocked': False,
+                }
+                devices.append(device)
+                device_id_counter += 1
+            
+            return devices
+        except Exception as e:
+            app.logger.error(f'从 Playback Reporting 获取设备列表失败: {e}')
+            return []
+
+    def stop_session(self, session_id: str, reason: str = None) -> bool:
+        """停止指定的播放会话
+        
+        Args:
+            session_id: 会话ID
+            reason: 终止原因（可选，会显示给用户）
+            
+        Returns:
+            bool: 是否成功
+        """
+        if not self.is_enabled() or not session_id:
+            return False
+        
+        try:
+            # Emby API: POST /Sessions/{sessionId}/Playing/Stop
+            url = f"{self.base_url}/Sessions/{session_id}/Playing/Stop"
+            params = {'api_key': self.api_key}
+            response = self.session.post(url, params=params, timeout=10)
+            
+            stop_success = response.status_code in [200, 204]
+            
+            if stop_success:
+                app.logger.info(f'已停止播放会话: {session_id}')
+                
+                # 发送消息给客户端（可选）
+                if reason:
+                    try:
+                        msg_url = f"{self.base_url}/Sessions/{session_id}/Message"
+                        msg_data = {
+                            "Text": f"🚫 {reason}",
+                            "Header": "播放已停止",
+                            "TimeoutMs": 10000
+                        }
+                        self.session.post(msg_url, params=params, json=msg_data, timeout=5)
+                    except:
+                        pass  # 消息发送失败不影响主流程
+                
+                return True
+            else:
+                app.logger.warning(f'停止播放会话失败: {session_id}, status={response.status_code}')
+                return False
+        except Exception as e:
+            app.logger.error(f'停止播放会话异常: {session_id}, error={e}')
+            return False
+
+    def disable_user(self, emby_user_id: str) -> bool:
+        """禁用 Emby 用户账号
+        
+        Args:
+            emby_user_id: Emby 用户ID
+            
+        Returns:
+            bool: 是否成功
+        """
+        if not self.is_enabled() or not emby_user_id:
+            return False
+        
+        try:
+            # 先获取用户信息
+            url = f"{self.base_url}/Users/{emby_user_id}"
+            params = {'api_key': self.api_key}
+            response = self.session.get(url, params=params, timeout=10)
+            
+            if response.status_code != 200:
+                app.logger.warning(f'获取用户信息失败: {emby_user_id}, status={response.status_code}')
+                return False
+            
+            user_info = response.json()
+            
+            # 更新用户策略，设置 IsDisabled = True
+            policy = user_info.get('Policy', {})
+            policy['IsDisabled'] = True
+            
+            # 更新用户策略
+            policy_url = f"{self.base_url}/Users/{emby_user_id}/Policy"
+            response = self.session.post(
+                policy_url, 
+                params=params,
+                json=policy,
+                headers={'Content-Type': 'application/json'},
+                timeout=10
+            )
+            
+            if response.status_code in [200, 204]:
+                app.logger.info(f'已禁用 Emby 用户: {emby_user_id}')
+                return True
+            else:
+                app.logger.warning(f'禁用用户失败: {emby_user_id}, status={response.status_code}')
+                return False
+        except Exception as e:
+            app.logger.error(f'禁用用户异常: {emby_user_id}, error={e}')
+            return False
+
+    def kill_user_sessions(self, emby_user_id: str) -> int:
+        """强制结束用户的所有播放会话
+        
+        Args:
+            emby_user_id: Emby 用户ID
+            
+        Returns:
+            int: 成功停止的会话数
+        """
+        if not self.is_enabled() or not emby_user_id:
+            return 0
+        
+        try:
+            # 获取该用户的所有会话
+            sessions = self.get_user_sessions(emby_user_id)
+            stopped_count = 0
+            
+            for session in sessions:
+                session_id = session.get('id')
+                if session_id and self.stop_session(session_id):
+                    stopped_count += 1
+            
+            return stopped_count
+        except Exception as e:
+            app.logger.error(f'强制结束用户会话失败: {emby_user_id}, error={e}')
+            return 0
+
+    def enable_user(self, emby_user_id: str) -> bool:
+        """启用（恢复）Emby 用户账号
+        
+        Args:
+            emby_user_id: Emby 用户ID
+            
+        Returns:
+            bool: 是否成功
+        """
+        if not self.is_enabled() or not emby_user_id:
+            return False
+        
+        try:
+            # 先获取用户信息
+            url = f"{self.base_url}/Users/{emby_user_id}"
+            params = {'api_key': self.api_key}
+            response = self.session.get(url, params=params, timeout=10)
+            
+            if response.status_code != 200:
+                app.logger.warning(f'获取用户信息失败: {emby_user_id}, status={response.status_code}')
+                return False
+            
+            user_info = response.json()
+            
+            # 更新用户策略，设置 IsDisabled = False
+            policy = user_info.get('Policy', {})
+            policy['IsDisabled'] = False
+            
+            # 更新用户策略
+            policy_url = f"{self.base_url}/Users/{emby_user_id}/Policy"
+            response = self.session.post(
+                policy_url, 
+                params=params,
+                json=policy,
+                headers={'Content-Type': 'application/json'},
+                timeout=10
+            )
+            
+            if response.status_code in [200, 204]:
+                app.logger.info(f'已启用 Emby 用户: {emby_user_id}')
+                return True
+            else:
+                app.logger.warning(f'启用用户失败: {emby_user_id}, status={response.status_code}')
+                return False
+        except Exception as e:
+            app.logger.error(f'启用用户异常: {emby_user_id}, error={e}')
+            return False
+
+    def get_all_users(self) -> list:
+        """获取所有 Emby 用户列表"""
+        if not self.is_enabled():
+            return []
+        
+        try:
+            url = f"{self.base_url}/Users"
+            params = {'api_key': self.api_key}
+            response = self.session.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            app.logger.error(f'获取 Emby 用户列表失败: {e}')
+            return []
+
+    def get_user_by_name(self, username: str) -> Optional[dict]:
+        """通过用户名查找 Emby 用户"""
+        if not self.is_enabled() or not username:
+            return None
+        
+        try:
+            users = self.get_all_users()
+            for user in users:
+                if user.get('Name', '').lower() == username.lower():
+                    return user
+            return None
+        except Exception as e:
+            app.logger.error(f'查找 Emby 用户失败: {e}')
+            return None
+
+    def authenticate_user(self, username: str, password: str) -> dict:
+        """验证 Emby 用户账号密码
+        
+        Args:
+            username: 用户名
+            password: 密码
+            
+        Returns:
+            dict: 包含验证结果的字典
+                - success: bool, 是否验证成功
+                - id: str, 用户ID（成功时）
+                - name: str, 用户名（成功时）
+                - access_token: str, 访问令牌（成功时）
+                - error: str, 错误信息（失败时）
+                - error_type: str, 错误类型（失败时）: 'user_not_found', 'wrong_password', 'server_error'
+        """
+        if not self.is_enabled():
+            return {'success': False, 'error': 'Emby 服务器未配置', 'error_type': 'server_error'}
+        
+        try:
+            # 先检查用户是否存在
+            existing_user = self.get_user_by_name(username)
+            if not existing_user:
+                app.logger.warning(f'Emby 用户不存在: {username}')
+                return {'success': False, 'error': f'Emby 账号 "{username}" 不存在', 'error_type': 'user_not_found'}
+            
+            # Emby 认证 API
+            url = f"{self.base_url}/Users/AuthenticateByName"
+            headers = {
+                'X-Emby-Authorization': f'MediaBrowser Client="Emby Request System", Device="Web", DeviceId="emby-request-system", Version="1.0"',
+                'Content-Type': 'application/json'
+            }
+            data = {
+                'Username': username,
+                'Pw': password
+            }
+            
+            response = requests.post(url, json=data, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                result = response.json()
+                user_info = result.get('User', {})
+                app.logger.info(f'Emby 用户验证成功: {username}')
+                return {
+                    'success': True,
+                    'id': user_info.get('Id'),
+                    'name': user_info.get('Name'),
+                    'access_token': result.get('AccessToken')
+                }
+            elif response.status_code == 401:
+                app.logger.warning(f'Emby 用户密码错误: {username}')
+                return {'success': False, 'error': 'Emby 密码不正确', 'error_type': 'wrong_password'}
+            else:
+                app.logger.warning(f'Emby 用户验证失败: {username}, status={response.status_code}')
+                return {'success': False, 'error': f'Emby 服务器返回错误 ({response.status_code})', 'error_type': 'server_error'}
+        except requests.exceptions.Timeout:
+            app.logger.error(f'Emby 用户验证超时: {username}')
+            return {'success': False, 'error': 'Emby 服务器连接超时', 'error_type': 'server_error'}
+        except Exception as e:
+            app.logger.error(f'Emby 用户验证异常: {e}')
+            return {'success': False, 'error': f'验证异常: {str(e)}', 'error_type': 'server_error'}
+
+    def create_user(self, username: str, password: str) -> Optional[dict]:
+        """创建新的 Emby 用户
+        
+        Args:
+            username: 用户名
+            password: 密码
+            
+        Returns:
+            dict: 创建成功返回用户信息，失败返回 None
+        """
+        if not self.is_enabled():
+            return None
+        
+        try:
+            # 检查用户名是否已存在
+            existing = self.get_user_by_name(username)
+            if existing:
+                app.logger.warning(f'Emby 用户名已存在: {username}')
+                return None
+            
+            # 创建用户
+            url = f"{self.base_url}/Users/New"
+            params = {'api_key': self.api_key}
+            data = {
+                'Name': username
+            }
+            
+            response = self.session.post(url, params=params, json=data, timeout=10)
+            
+            if response.status_code not in [200, 201]:
+                app.logger.error(f'创建 Emby 用户失败: {username}, status={response.status_code}')
+                return None
+            
+            new_user = response.json()
+            user_id = new_user.get('Id')
+            
+            # 设置密码
+            if user_id and password:
+                pwd_url = f"{self.base_url}/Users/{user_id}/Password"
+                pwd_data = {
+                    'CurrentPw': '',
+                    'NewPw': password
+                }
+                pwd_response = self.session.post(pwd_url, params=params, json=pwd_data, timeout=10)
+                
+                if pwd_response.status_code not in [200, 204]:
+                    app.logger.warning(f'设置 Emby 用户密码失败: {username}')
+            
+            # 设置用户策略（权限控制）
+            if user_id:
+                self._set_user_policy(user_id)
+            
+            app.logger.info(f'Emby 用户创建成功: {username} (ID: {user_id})')
+            return {
+                'id': user_id,
+                'name': new_user.get('Name')
+            }
+        except Exception as e:
+            app.logger.error(f'创建 Emby 用户异常: {e}')
+            return None
+
+    def _set_user_policy(self, user_id: str) -> bool:
+        """设置新用户的默认策略（权限）
+        
+        Args:
+            user_id: Emby 用户ID
+            
+        Returns:
+            bool: 是否成功
+        """
+        try:
+            # 先获取用户当前策略
+            url = f"{self.base_url}/Users/{user_id}"
+            params = {'api_key': self.api_key}
+            response = self.session.get(url, params=params, timeout=10)
+            
+            if response.status_code != 200:
+                app.logger.warning(f'获取用户策略失败: {user_id}')
+                return False
+            
+            user_info = response.json()
+            policy = user_info.get('Policy', {})
+            
+            # 设置策略 - 根据截图配置
+            # 开启的选项
+            policy['EnableRemoteAccess'] = True  # 允许远程访问此 Emby Server
+            policy['EnableMediaPlayback'] = True  # 允许媒体播放
+            policy['EnableLiveTvAccess'] = True  # 电视直播
+            policy['EnableLiveTvManagement'] = False  # 电视直播录制管理
+            policy['EnableSharedDeviceControl'] = False  # 允许遥控共享设备
+            policy['EnableRemoteControlOfOtherUsers'] = False  # 允许遥控其他用户
+            policy['EnablePublicSharing'] = True  # 允许社交媒体分享
+            policy['EnableUserPreferenceAccess'] = True  # 允许用户更改其头像和密码
+            
+            # 关闭的选项
+            policy['IsAdministrator'] = False  # 允许此用户管理服务器
+            policy['IsDisabled'] = False  # 禁用此用户
+            policy['EnableAudioPlaybackTranscoding'] = False  # 允许音频转码为兼容格式
+            policy['EnableVideoPlaybackTranscoding'] = False  # 允许视频转码为兼容格式
+            policy['EnablePlaybackRemuxing'] = False  # 允许更改容器格式
+            policy['EnableContentDownloading'] = False  # 允许下载媒体
+            policy['EnableSubtitleDownloading'] = False  # 允许字幕下载
+            policy['EnableSubtitleManagement'] = False  # 允许删除现有字幕文件
+            policy['EnableSyncTranscoding'] = False  # 允许下载需要转码的媒体
+            policy['EnableMediaConversion'] = False  # 允许媒体转换
+            policy['EnableAllDevices'] = True  # 允许所有设备
+            
+            # 隐藏用户选项
+            policy['IsHiddenRemotely'] = True  # 在远程连接的登录界面中隐藏此用户
+            policy['IsHiddenFromUnusedDevices'] = False  # 在从未登录过设备的登录页面中隐藏此用户
+            policy['IsHidden'] = True  # 在本地网络的登录界面中隐藏此用户
+            
+            # 删除媒体权限 - 全部禁止
+            policy['EnableContentDeletion'] = False
+            policy['EnableContentDeletionFromFolders'] = []
+            
+            # 最大同步视频流
+            policy['SyncPlayAccess'] = 'CreateAndJoinGroups'
+            
+            # 更新用户策略
+            policy_url = f"{self.base_url}/Users/{user_id}/Policy"
+            response = self.session.post(
+                policy_url,
+                params=params,
+                json=policy,
+                headers={'Content-Type': 'application/json'},
+                timeout=10
+            )
+            
+            if response.status_code in [200, 204]:
+                app.logger.info(f'已设置 Emby 用户策略: {user_id}')
+                return True
+            else:
+                app.logger.warning(f'设置用户策略失败: {user_id}, status={response.status_code}')
+                return False
+                
+        except Exception as e:
+            app.logger.error(f'设置用户策略异常: {user_id}, error={e}')
+            return False
+
+    def check_username_available(self, username: str) -> bool:
+        """检查用户名是否可用（不存在）"""
+        if not self.is_enabled():
+            return False
+        return self.get_user_by_name(username) is None
+
+    def delete_user(self, emby_user_id: str) -> bool:
+        """删除 Emby 用户账号
+        
+        Args:
+            emby_user_id: Emby 用户ID
+            
+        Returns:
+            bool: 是否成功
+        """
+        if not self.is_enabled() or not emby_user_id:
+            return False
+        
+        try:
+            url = f"{self.base_url}/Users/{emby_user_id}"
+            params = {'api_key': self.api_key}
+            response = self.session.delete(url, params=params, timeout=10)
+            
+            if response.status_code in [200, 204]:
+                app.logger.info(f'已删除 Emby 用户: {emby_user_id}')
+                return True
+            else:
+                app.logger.warning(f'删除用户失败: {emby_user_id}, status={response.status_code}')
+                return False
+        except Exception as e:
+            app.logger.error(f'删除用户异常: {emby_user_id}, error={e}')
+            return False
+
+    def change_user_password(self, user_id: str, current_password: str, new_password: str) -> tuple[bool, str]:
+        """修改 Emby 用户密码
+        
+        Args:
+            user_id: Emby 用户 ID
+            current_password: 当前密码
+            new_password: 新密码
+            
+        Returns:
+            tuple: (成功标志, 消息)
+        """
+        if not self.is_enabled():
+            return False, 'Emby 服务器未配置'
+        
+        try:
+            url = f"{self.base_url}/Users/{user_id}/Password"
+            params = {'api_key': self.api_key}
+            data = {
+                'CurrentPw': current_password,
+                'NewPw': new_password
+            }
+            
+            response = self.session.post(url, params=params, json=data, timeout=10)
+            
+            if response.status_code in [200, 204]:
+                app.logger.info(f'Emby 用户密码修改成功: user_id={user_id}')
+                return True, '密码修改成功'
+            elif response.status_code == 403:
+                return False, '当前密码不正确'
+            else:
+                app.logger.error(f'修改 Emby 密码失败: user_id={user_id}, status={response.status_code}')
+                return False, f'修改失败 (错误码: {response.status_code})'
+                
+        except Exception as e:
+            app.logger.error(f'修改 Emby 密码异常: {e}')
+            return False, '服务器错误，请稍后重试'
+
+
+# ==================== 初始化 PT 客户端 ====================
+# 创建 PT 站管理器
+pt_manager = PTManager()
+
+# 优先注册 MoviePilot（如果配置了）
+if MOVIEPILOT_URL and (MOVIEPILOT_TOKEN or (MOVIEPILOT_USERNAME and MOVIEPILOT_PASSWORD)):
+    moviepilot_client = MoviePilotClient(
+        base_url=MOVIEPILOT_URL,
+        username=MOVIEPILOT_USERNAME,
+        password=MOVIEPILOT_PASSWORD,
+        token=MOVIEPILOT_TOKEN,
+        priority=20
+    )
+    pt_manager.register(moviepilot_client)
+    app.logger.info(f"MoviePilot 已注册: {MOVIEPILOT_URL}")
+
+qbit_client = QbitClient(QBITTORRENT_BASE_URL, QBITTORRENT_USERNAME, QBITTORRENT_PASSWORD)
+emby_client = EmbyClient(EMBY_URL, EMBY_API_KEY)
+
+# 配置日志
+if not os.path.exists('logs'):
+    os.mkdir('logs')
+
+# 配置文件日志处理器
+file_handler = RotatingFileHandler('logs/app.log', maxBytes=10485760, backupCount=10)
+file_handler.setFormatter(logging.Formatter(
+    '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+))
+file_handler.setLevel(logging.INFO)
+app.logger.addHandler(file_handler)
+
+# 配置控制台日志处理器
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter(
+    '%(asctime)s %(levelname)s: %(message)s'
+))
+console_handler.setLevel(logging.INFO)
+app.logger.addHandler(console_handler)
+
+app.logger.setLevel(logging.INFO)
+
+# 启动时记录配置信息
+if not db_password:
+    app.logger.warning('未配置数据库密码，使用SQLite数据库')
+
+app.logger.info('Emby Request System 启动')
+
+
+# 请求日志中间件
+@app.before_request
+def log_request():
+    """记录所有请求"""
+    if request.path.startswith('/static/'):
+        return  # 跳过静态文件请求
+    # 不再记录 IP 地址等敏感信息
+    app.logger.debug(f'{request.method} {request.path}')
+
+
+@app.after_request
+def log_response(response):
+    """记录响应状态和优化响应头"""
+    # 静态文件缓存（1小时）
+    if request.path.startswith('/static/'):
+        response.cache_control.max_age = 3600
+        response.cache_control.public = True
+        return response
+    
+    # API 响应不缓存
+    if request.path.startswith('/api/') or request.is_json or request.method in ['POST', 'PUT', 'DELETE']:
+        response.cache_control.no_cache = True
+        response.cache_control.no_store = True
+        response.cache_control.must_revalidate = True
+    
+    # Gzip 压缩大响应（提升传输速度）
+    if response.content_length and response.content_length > 1000:
+        if 'gzip' in request.headers.get('Accept-Encoding', '').lower():
+            response.direct_passthrough = False
+            if response.data:
+                gzip_buffer = gzip.compress(response.data, compresslevel=5)
+                response.data = gzip_buffer
+                response.headers['Content-Encoding'] = 'gzip'
+                response.headers['Content-Length'] = len(gzip_buffer)
+    
+    # 记录错误响应
+    if response.status_code >= 400:
+        app.logger.warning(f'{request.method} {request.path} - Status: {response.status_code}')
+    
+    return response
+
+
+# 全局错误处理
+@app.errorhandler(404)
+def not_found(error):
+    # 忽略 favicon.ico 的 404 警告
+    if request.path == '/favicon.ico':
+        return '', 204
+    app.logger.warning(f'404 错误: {request.path}')
+    if request.path.startswith('/api/') or request.is_json:
+        return jsonify({'error': '请求的资源不存在'}), 404
+    return jsonify({'error': '页面不存在'}), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    app.logger.error(f'500 错误: {error}', exc_info=True)
+    db.session.rollback()
+    if request.is_json:
+        return jsonify({'error': '服务器内部错误'}), 500
+    return jsonify({'error': '服务器内部错误', 'detail': str(error)}), 500
+
+
+# 数据库模型 - 映射到已存在的emby表
+class User(db.Model):
+    __tablename__ = 'emby'
+    
+    tg = db.Column(db.BigInteger, primary_key=True, autoincrement=False)  # 用户ID（主键，系统生成）
+    telegram_id = db.Column(db.BigInteger, nullable=True, unique=True, index=True)  # Telegram ID（通过 /bind 命令绑定）
+    embyid = db.Column(db.String(255), nullable=True)  # Emby用户ID
+    name = db.Column(db.String(255), nullable=True)  # 用户名
+    pwd = db.Column(db.String(255), nullable=True)  # 密码
+    pwd2 = db.Column(db.String(255), nullable=True)  # 备用密码
+    lv = db.Column(db.String(1), default='d')  # 用户等级: a=白名单, b=普通, c=禁用, d=无账号
+    cr = db.Column(db.DateTime, nullable=True)  # 创建时间
+    ex = db.Column(db.DateTime, nullable=True)  # 过期时间
+    us = db.Column(db.Integer, default=1)  # 使用状态
+    iv = db.Column(db.Integer, default=0)  # 邀请数
+    ch = db.Column(db.DateTime, nullable=True)  # 签到时间
+    coins = db.Column(db.Integer, default=0)  # 签到积分（货币）
+    
+    # 封禁前状态备份（用于解除封禁时恢复）
+    ban_prev_lv = db.Column(db.String(1), nullable=True)  # 封禁前的等级
+    ban_prev_ex = db.Column(db.DateTime, nullable=True)  # 封禁前的到期时间
+    ban_time = db.Column(db.DateTime, nullable=True)  # 封禁时间
+    ban_reason = db.Column(db.String(500), nullable=True)  # 封禁原因
+    
+    # 会话令牌（用于使用户退出登录）
+    session_token = db.Column(db.String(64), nullable=True)  # 登录时生成，重置密码时更新
+    
+    # 关系
+    requests = db.relationship('MovieRequest', backref='user', lazy=True, foreign_keys='MovieRequest.user_tg')
+
+    @property
+    def is_admin(self):
+        """管理员判断：不再使用用户名列表，管理后台使用独立的安全入口登录"""
+        # 此属性保留用于兼容性，但始终返回 False
+        # 管理后台现在使用独立的账号密码认证
+        return False
+    
+    @property
+    def is_active(self):
+        """检查用户是否可用：必须是A或B等级"""
+        # C = 已禁用用户，D = 无账号用户，都不能使用
+        if self.lv not in ['a', 'b']:
+            return False
+        
+        # A级白名单用户：不检查过期时间（只要等级是A就能用）
+        if self.lv == 'a':
+            return True
+        
+        # B级注册用户：只检查是否过期（不检查us字段）
+        if self.ex:
+            return datetime.now() < self.ex
+        return True
+    
+    @property
+    def username(self):
+        """返回用户名"""
+        return self.name
+    
+    def get_daily_limit(self):
+        """根据用户类型返回每日求片限制
+        - 管理员: 无限制（在 can_request 中单独处理）
+        - A级用户 (lv='a'): 从配置读取 (默认3次/天)
+        - B级用户 (有有效订阅): 从配置读取 (默认1次/天)
+        - C级用户 (已禁用): 从配置读取 (默认0次/天)
+        - D级用户 (未订阅): 从配置读取 (默认0次/天)
+        """
+        # 读取配置
+        config = load_system_config()
+        limit_config = config.get('request_limit', {})
+        
+        # C级: 已禁用用户
+        if self.lv == 'c':
+            return limit_config.get('level_c', 0)
+        
+        # A级: 白名单用户
+        if self.lv == 'a':
+            return limit_config.get('level_a', 3)
+        
+        # B级: 有有效订阅的用户
+        if self.ex and self.ex > datetime.now():
+            return limit_config.get('level_b', 1)
+        
+        # D级: 未订阅用户
+        return limit_config.get('level_d', 0)
+
+    def get_today_request_count(self):
+        """获取今日求片次数（包括所有状态）"""
+        # 使用本地时间计算今日范围（数据库存储的是本地时间）
+        now_local = datetime.now()
+        today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
+        
+        return MovieRequest.query.filter(
+            MovieRequest.user_tg == self.tg,
+            MovieRequest.created_at >= today_start,
+            MovieRequest.created_at < today_end
+        ).count()
+
+    def can_request(self):
+        if not self.is_active:
+            return False
+        if self.is_admin:
+            return True
+        return self.get_today_request_count() < self.get_daily_limit()
+
+
+class MovieRequest(db.Model):
+    __tablename__ = 'movie_requests'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_tg = db.Column(db.BigInteger, db.ForeignKey('emby.tg'), nullable=False)  # 关联到emby表的tg字段
+    tmdb_id = db.Column(db.Integer, nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    year = db.Column(db.String(10))
+    poster_path = db.Column(db.String(200))
+    overview = db.Column(db.Text)
+    media_type = db.Column(db.String(20), default='movie')  # movie 或 tv
+    # 剧集选择字段（仅对 tv 类型有效）
+    request_type = db.Column(db.String(20), default='all')  # all=全剧, season=指定季, episode=指定集
+    season_number = db.Column(db.Integer)  # 指定的季数
+    episode_number = db.Column(db.Integer)  # 指定的集数
+    total_seasons = db.Column(db.Integer)  # 总季数（用于显示）
+    status = db.Column(db.String(20), default='pending')  # pending, approved, rejected, completed
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
+    admin_note = db.Column(db.Text)
+    user_note = db.Column(db.Text)  # 用户备注
+    download_task = db.relationship('DownloadTask', back_populates='request', uselist=False)
+    
+    def get_request_scope(self):
+        """获取求片范围的可读描述"""
+        if self.media_type == 'movie':
+            return '电影'
+        if self.request_type == 'all':
+            return f'全剧 ({self.total_seasons}季)' if self.total_seasons else '全剧'
+        elif self.request_type == 'season':
+            return f'第{self.season_number}季'
+        elif self.request_type == 'episode':
+            return f'S{str(self.season_number).zfill(2)}E{str(self.episode_number).zfill(2)}'
+        return ''
+
+
+class DownloadTask(db.Model):
+    __tablename__ = 'download_tasks'
+
+    id = db.Column(db.Integer, primary_key=True)
+    request_id = db.Column(db.Integer, db.ForeignKey('movie_requests.id'), nullable=False, unique=True)
+    torrent_name = db.Column(db.String(255), nullable=False)
+    torrent_hash = db.Column(db.String(64))
+    source = db.Column(db.String(50), default='MoviePilot')
+    download_url = db.Column(db.String(512))
+    qb_tag = db.Column(db.String(128))
+    status = db.Column(db.String(20), default='queued')
+    progress = db.Column(db.Float, default=0.0)
+    download_speed = db.Column(db.Integer, default=0)  # Bytes/s
+    eta = db.Column(db.Integer, default=-1)
+    error_message = db.Column(db.Text)
+    retry_count = db.Column(db.Integer, default=0)  # 重试次数
+    max_retries = db.Column(db.Integer, default=3)  # 最大重试次数
+    last_retry_at = db.Column(db.DateTime)  # 最后重试时间
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
+    finished_at = db.Column(db.DateTime)
+
+    request = db.relationship('MovieRequest', back_populates='download_task')
+
+    def to_dict(self):
+        """转换为字典格式"""
+        return {
+            'id': self.id,
+            'request_id': self.request_id,
+            'torrent_name': self.torrent_name,
+            'torrent_hash': self.torrent_hash,
+            'source': self.source,
+            'status': self.status,
+            'progress': self.progress or 0,
+            'download_speed': self.download_speed or 0,
+            'eta': self.eta if self.eta is not None else -1,
+            'error_message': self.error_message,
+            'retry_count': self.retry_count or 0,
+            'max_retries': self.max_retries or 3,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'finished_at': self.finished_at.isoformat() if self.finished_at else None,
+        }
+
+
+class Subscription(db.Model):
+    """订阅套餐表"""
+    __tablename__ = 'subscriptions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_tg = db.Column(db.BigInteger, db.ForeignKey('emby.tg'), nullable=False)
+    plan_type = db.Column(db.String(50), nullable=False)  # basic, standard, premium, ultimate
+    plan_name = db.Column(db.String(100), nullable=False)
+    duration_months = db.Column(db.Integer, nullable=False)  # 订阅时长（月）
+    price = db.Column(db.Float, nullable=False)  # 价格
+    start_date = db.Column(db.DateTime, nullable=False)
+    end_date = db.Column(db.DateTime, nullable=False)
+    status = db.Column(db.String(20), default='active')  # active, expired, cancelled
+    auto_renew = db.Column(db.Boolean, default=False)  # 自动续费
+    source = db.Column(db.String(20), default='purchase')  # purchase=购买, gift=管理员赠送, manual=手动设置
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
+    
+    def to_dict(self):
+        # 计算剩余天数，使用不带时区的 datetime 进行比较
+        days_remaining = 0
+        if self.end_date:
+            now = datetime.now()
+            # 如果 end_date 有时区信息，移除它
+            end_date = self.end_date.replace(tzinfo=None) if self.end_date.tzinfo else self.end_date
+            days_remaining = (end_date - now).days
+        
+        # 获取用户信息
+        user = User.query.filter_by(tg=self.user_tg).first()
+        user_name = user.name if user else f'用户{self.user_tg}'
+        
+        # 判断来源 - 兼容旧数据
+        price = float(self.price) if self.price else 0
+        source = self.source
+        if not source:
+            # 旧数据没有source字段，根据价格判断
+            source = 'gift' if price == 0 else 'purchase'
+        
+        return {
+            'id': self.id,
+            'user_tg_id': self.user_tg,
+            'user_name': user_name,
+            'plan_type': self.plan_type,
+            'plan_name': self.plan_name,
+            'duration_months': self.duration_months,
+            'price': price,
+            'start_date': self.start_date.isoformat() if self.start_date else None,
+            'end_date': self.end_date.isoformat() if self.end_date else None,
+            'status': self.status,
+            'auto_renew': self.auto_renew,
+            'days_remaining': days_remaining,
+            'source': source
+        }
+
+
+class Order(db.Model):
+    """订单表"""
+    __tablename__ = 'orders'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    order_no = db.Column(db.String(64), unique=True, nullable=False)  # 订单号
+    user_tg = db.Column(db.BigInteger, db.ForeignKey('emby.tg'), nullable=False)
+    plan_type = db.Column(db.String(50), nullable=False)
+    plan_name = db.Column(db.String(100), nullable=False)
+    duration_months = db.Column(db.Integer, nullable=False)
+    original_price = db.Column(db.Float, nullable=False)  # 原价
+    discount = db.Column(db.Float, default=0)  # 折扣金额
+    final_price = db.Column(db.Float, nullable=False)  # 实付金额
+    payment_method = db.Column(db.String(50))  # alipay, wechat, paypal
+    payment_status = db.Column(db.String(20), default='pending')  # pending, paid, failed, refunded
+    payment_time = db.Column(db.DateTime)  # 支付时间
+    trade_no = db.Column(db.String(128))  # 第三方交易号
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'order_no': self.order_no,
+            'plan_type': self.plan_type,
+            'plan_name': self.plan_name,
+            'duration_months': self.duration_months,
+            'original_price': self.original_price,
+            'discount': self.discount,
+            'final_price': self.final_price,
+            'payment_method': self.payment_method,
+            'payment_status': self.payment_status,
+            'payment_time': self.payment_time.isoformat() if self.payment_time else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
+class InviteRecord(db.Model):
+    """邀请记录表"""
+    __tablename__ = 'invite_records'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    inviter_tg = db.Column(db.BigInteger, db.ForeignKey('emby.tg'), nullable=False)  # 邀请人
+    invitee_tg = db.Column(db.BigInteger, db.ForeignKey('emby.tg'), nullable=False)  # 被邀请人
+    invite_code = db.Column(db.String(32), nullable=False)  # 邀请码（移除 unique 约束，同一个邀请码可以被多人使用）
+    reward_type = db.Column(db.String(50))  # days, discount, credits, pending
+    reward_value = db.Column(db.Float)  # 奖励数值
+    reward_claimed = db.Column(db.Boolean, default=False)  # 奖励是否已领取
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    claimed_at = db.Column(db.DateTime)  # 领取时间
+    
+    def to_dict(self):
+        # 安全获取邀请人信息
+        inviter = db.session.get(User, self.inviter_tg) if self.inviter_tg else None
+        inviter_name = inviter.name if inviter else '未知用户'
+        
+        # 安全获取被邀请人信息
+        invitee = db.session.get(User, self.invitee_tg) if self.invitee_tg else None
+        invitee_name = invitee.name if invitee else '未知用户'
+        
+        return {
+            'id': self.id,
+            'inviter_tg': self.inviter_tg,
+            'inviter_name': inviter_name,
+            'invitee_tg': self.invitee_tg,
+            'invitee_name': invitee_name,
+            'invite_code': self.invite_code,
+            'reward_type': self.reward_type,
+            'reward_type_display': {
+                'pending': '待发放',
+                'days': '天数奖励',
+                'discount': '折扣奖励',
+                'credits': '积分奖励'
+            }.get(self.reward_type, self.reward_type),
+            'reward_value': self.reward_value,
+            'reward_claimed': self.reward_claimed,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'claimed_at': self.claimed_at.isoformat() if self.claimed_at else None
+        }
+
+
+class RedeemCode(db.Model):
+    """兑换码表"""
+    __tablename__ = 'redeem_codes'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(32), unique=True, nullable=False)  # 兑换码
+    code_type = db.Column(db.String(20), nullable=False)  # new: 新订阅, renew: 续费
+    plan_type = db.Column(db.String(50), nullable=False)  # basic, standard, premium, ultimate
+    duration_days = db.Column(db.Integer, nullable=False)  # 有效天数
+    is_used = db.Column(db.Boolean, default=False)  # 是否已使用
+    is_active = db.Column(db.Boolean, default=True)  # 是否启用
+    used_by = db.Column(db.BigInteger, db.ForeignKey('emby.tg'))  # 使用者
+    used_at = db.Column(db.DateTime)  # 使用时间
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    expires_at = db.Column(db.DateTime)  # 兑换码过期时间（可选）
+    remark = db.Column(db.String(200))  # 备注
+    
+    def to_dict(self):
+        user_name = None
+        if self.used_by:
+            user = User.query.filter_by(tg=self.used_by).first()
+            user_name = user.name if user else str(self.used_by)
+        
+        # 获取套餐名称
+        plan_name = self.plan_type
+        plans = load_plans_config()
+        for plan in plans:
+            if plan.get('id') == self.plan_type:
+                plan_name = plan.get('name', self.plan_type)
+                break
+        
+        return {
+            'id': self.id,
+            'code': self.code,
+            'code_type': self.code_type,
+            'plan_type': self.plan_type,
+            'plan_name': plan_name,
+            'duration_days': self.duration_days,
+            'is_used': self.is_used,
+            'is_active': self.is_active,
+            'used_by': self.used_by,
+            'used_by_name': user_name,
+            'used_at': self.used_at.isoformat() if self.used_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'expires_at': self.expires_at.isoformat() if self.expires_at else None,
+            'remark': self.remark
+        }
+
+
+class SupportTicket(db.Model):
+    """技术支持工单表"""
+    __tablename__ = 'support_tickets'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    ticket_no = db.Column(db.String(32), unique=True, nullable=False)  # 工单号
+    user_tg = db.Column(db.BigInteger, db.ForeignKey('emby.tg'), nullable=False)
+    category = db.Column(db.String(50), nullable=False)  # account, payment, technical, content, other
+    subject = db.Column(db.String(200), nullable=False)  # 主题
+    description = db.Column(db.Text, nullable=False)  # 详细描述（初始问题）
+    status = db.Column(db.String(20), default='open')  # open=待处理, in_progress=处理中(管理员已回复), closed=已关闭
+    priority = db.Column(db.String(20), default='normal')  # low, normal, high, urgent
+    admin_reply = db.Column(db.Text)  # 管理员最新回复（保留兼容）
+    last_reply_by = db.Column(db.String(20), default='user')  # 最后回复方: user 或 admin
+    last_reply_at = db.Column(db.DateTime)  # 最后回复时间
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
+    resolved_at = db.Column(db.DateTime)  # 关闭时间
+    
+    # 关系
+    messages = db.relationship('TicketMessage', backref='ticket', lazy=True, order_by='TicketMessage.created_at')
+    
+    def to_dict(self, include_messages=False):
+        # 获取用户名
+        user = User.query.filter_by(tg=self.user_tg).first()
+        result = {
+            'id': self.id,
+            'ticket_no': self.ticket_no,
+            'user_tg': self.user_tg,
+            'user_name': user.name if user else str(self.user_tg),
+            'category': self.category,
+            'subject': self.subject,
+            'description': self.description,
+            'status': self.status,
+            'priority': self.priority,
+            'admin_reply': self.admin_reply,
+            'last_reply_by': self.last_reply_by,
+            'last_reply_at': self.last_reply_at.isoformat() if self.last_reply_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
+            'message_count': len(self.messages) if self.messages else 0
+        }
+        if include_messages:
+            result['messages'] = [msg.to_dict() for msg in self.messages]
+        return result
+    
+    def can_retry(self):
+        """检查是否可以重试"""
+        return self.retry_count < self.max_retries and self.status == 'failed'
+
+
+class TicketMessage(db.Model):
+    """工单消息表 - 支持多轮对话"""
+    __tablename__ = 'ticket_messages'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    ticket_id = db.Column(db.Integer, db.ForeignKey('support_tickets.id'), nullable=False)
+    sender_type = db.Column(db.String(20), nullable=False)  # user 或 admin
+    sender_id = db.Column(db.BigInteger)  # 发送者ID（用户tg或管理员标识）
+    sender_name = db.Column(db.String(100))  # 发送者名称
+    content = db.Column(db.Text, nullable=False)  # 消息内容
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'ticket_id': self.ticket_id,
+            'sender_type': self.sender_type,
+            'sender_id': self.sender_id,
+            'sender_name': self.sender_name,
+            'content': self.content,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
+class ServerLine(db.Model):
+    """服务器线路表"""
+    __tablename__ = 'server_lines'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)  # 线路名称，如：主线路、备用线路
+    server_url = db.Column(db.String(255), nullable=False)  # 服务器地址
+    port = db.Column(db.Integer, default=8096)  # 端口
+    is_https = db.Column(db.Boolean, default=False)  # 是否HTTPS
+    description = db.Column(db.String(500))  # 线路描述
+    access_level = db.Column(db.String(20), default='whitelist')  # 访问级别: whitelist(白名单), subscriber(订阅用户), all(所有人-暂不使用)
+    sort_order = db.Column(db.Integer, default=0)  # 排序顺序
+    is_active = db.Column(db.Boolean, default=True)  # 是否启用
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
+    
+    def to_dict(self, include_sensitive=True):
+        """转换为字典
+        Args:
+            include_sensitive: 是否包含敏感信息（完整URL）
+        """
+        base_dict = {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'access_level': self.access_level,
+            'sort_order': self.sort_order,
+            'is_active': self.is_active,
+        }
+        
+        if include_sensitive:
+            protocol = 'https' if self.is_https else 'http'
+            base_dict['server_url'] = self.server_url
+            base_dict['port'] = self.port
+            base_dict['is_https'] = self.is_https
+            base_dict['full_url'] = f"{protocol}://{self.server_url}:{self.port}"
+        
+        return base_dict
+    
+    def get_access_level_name(self):
+        """获取访问级别名称"""
+        names = {
+            'whitelist': '白名单用户',
+            'subscriber': '订阅用户',
+            'all': '所有用户'
+        }
+        return names.get(self.access_level, self.access_level)
+
+
+class UserActivityLog(db.Model):
+    """用户操作日志表 - 记录所有用户操作"""
+    __tablename__ = 'user_activity_logs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_tg = db.Column(db.BigInteger, db.ForeignKey('emby.tg'), nullable=True)  # 用户TG ID，可为空（未登录操作）
+    user_name = db.Column(db.String(100))  # 用户名（冗余存储，方便查询）
+    action_type = db.Column(db.String(50), nullable=False)  # 操作类型
+    action_detail = db.Column(db.Text)  # 操作详情（JSON格式）
+    ip_address = db.Column(db.String(50))  # IP地址
+    user_agent = db.Column(db.String(500))  # 浏览器/客户端信息
+    status = db.Column(db.String(20), default='success')  # 操作状态: success, failed
+    extra_data = db.Column(db.Text)  # 额外数据（JSON格式）
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    
+    # 关联用户
+    user = db.relationship('User', backref=db.backref('activity_logs', lazy='dynamic'))
+    
+    # 操作类型常量
+    ACTION_LOGIN = 'login'  # 登录
+    ACTION_LOGOUT = 'logout'  # 登出
+    ACTION_REGISTER = 'register'  # 注册
+    ACTION_PASSWORD_CHANGE = 'password_change'  # 修改密码
+    ACTION_PASSWORD_RESET = 'password_reset'  # 忘记密码重置
+    ACTION_REQUEST_MOVIE = 'request_movie'  # 求片
+    ACTION_CANCEL_REQUEST = 'cancel_request'  # 取消求片
+    ACTION_REDEEM_CODE = 'redeem_code'  # 兑换码
+    ACTION_CREATE_ORDER = 'create_order'  # 创建订单
+    ACTION_PAYMENT_SUCCESS = 'payment_success'  # 支付成功
+    ACTION_PAYMENT_FAILED = 'payment_failed'  # 支付失败
+    ACTION_SUBMIT_TICKET = 'submit_ticket'  # 提交工单
+    ACTION_REPLY_TICKET = 'reply_ticket'  # 回复工单
+    ACTION_BIND_TELEGRAM = 'bind_telegram'  # 绑定Telegram
+    ACTION_PLAYBACK_START = 'playback_start'  # 开始播放
+    ACTION_DEVICE_BLOCKED = 'device_blocked'  # 设备被封禁
+    ACTION_ACCOUNT_BANNED = 'account_banned'  # 账号被封禁
+    ACTION_ACCOUNT_UNBANNED = 'account_unbanned'  # 账号解封
+    ACTION_LEVEL_CHANGE = 'level_change'  # 等级变更
+    ACTION_SUBSCRIPTION_CHANGE = 'subscription_change'  # 订阅变更
+    ACTION_INVITE_USED = 'invite_used'  # 使用邀请码
+    ACTION_INVITE_CREATED = 'invite_created'  # 创建邀请码
+    ACTION_VIEW_LINES = 'view_lines'  # 查看线路
+    ACTION_EMBY_ACCOUNT_CREATE = 'emby_account_create'  # 创建Emby账号
+    ACTION_EMBY_PASSWORD_RESET = 'emby_password_reset'  # 重置Emby密码
+    ACTION_COIN_CHANGE = 'coin_change'  # 积分变更
+    ACTION_SUBSCRIPTION_GIFT = 'subscription_gift'  # 赠送订阅
+    ACTION_SUBSCRIPTION_REDUCE = 'subscription_reduce'  # 减少订阅
+    
+    def to_dict(self):
+        # 显示时间（数据库存储的是本地时间）
+        created_at_local = None
+        if self.created_at:
+            created_at_local = self.created_at.strftime('%Y-%m-%d %H:%M:%S')
+        
+        return {
+            'id': self.id,
+            'user_tg': self.user_tg,
+            'user_name': self.user_name,
+            'action_type': self.action_type,
+            'action_type_display': self.get_action_display(),
+            'action_detail': self.action_detail,
+            'ip_address': self.ip_address,
+            'user_agent': self.user_agent,
+            'status': self.status,
+            'extra_data': self.extra_data,
+            'created_at': created_at_local
+        }
+    
+    def get_action_display(self):
+        """获取操作类型的中文显示名称"""
+        displays = {
+            'login': '🔐 登录',
+            'logout': '🚪 登出',
+            'register': '📝 注册',
+            'password_change': '🔑 修改密码',
+            'password_reset': '🔓 重置密码',
+            'request_movie': '🎬 提交求片',
+            'cancel_request': '❌ 取消求片',
+            'redeem_code': '🎟️ 兑换码',
+            'create_order': '🛒 创建订单',
+            'payment_success': '💳 支付成功',
+            'payment_failed': '❌ 支付失败',
+            'submit_ticket': '🎫 提交工单',
+            'reply_ticket': '💬 回复工单',
+            'bind_telegram': '🤖 绑定Telegram',
+            'playback_start': '▶️ 开始播放',
+            'device_blocked': '🚫 设备封禁',
+            'account_banned': '⛔ 账号封禁',
+            'account_unbanned': '✅ 账号解封',
+            'level_change': '📊 等级变更',
+            'subscription_change': '💎 订阅变更',
+            'invite_used': '🎁 使用邀请码',
+            'invite_created': '🎁 创建邀请码',
+            'view_lines': '🔗 查看线路',
+            'emby_account_create': '🆕 创建Emby账号',
+            'emby_password_reset': '🔄 重置Emby密码',
+            'coin_change': '💰 积分变更',
+            'subscription_gift': '🎁 赠送订阅',
+            'subscription_reduce': '⏳ 减少订阅',
+        }
+        return displays.get(self.action_type, self.action_type)
+
+
+class DeviceBlacklist(db.Model):
+    """设备黑名单规则表"""
+    __tablename__ = 'device_blacklist'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    rule_name = db.Column(db.String(100), nullable=False)  # 规则名称
+    client_pattern = db.Column(db.String(255))  # 客户端匹配模式（支持通配符）
+    device_name_pattern = db.Column(db.String(255))  # 设备名称匹配模式
+    action = db.Column(db.String(20), default='stop_only')  # 处理方式: stop_only(仅停止播放), stop_and_ban(停止+禁用账号)
+    is_enabled = db.Column(db.Boolean, default=True)  # 是否启用
+    description = db.Column(db.String(500))  # 规则描述
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
+    
+    def matches(self, client, device_name):
+        """检查设备是否匹配此规则"""
+        if not self.is_enabled:
+            return False
+        
+        import re
+        
+        # 检查客户端匹配
+        if self.client_pattern:
+            # 将通配符转换为正则表达式
+            pattern = self.client_pattern.replace('*', '.*').replace('?', '.')
+            if not re.search(pattern, client or '', re.IGNORECASE):
+                return False
+        
+        # 检查设备名称匹配
+        if self.device_name_pattern:
+            pattern = self.device_name_pattern.replace('*', '.*').replace('?', '.')
+            if not re.search(pattern, device_name or '', re.IGNORECASE):
+                return False
+        
+        return True
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'rule_name': self.rule_name,
+            'client_pattern': self.client_pattern,
+            'device_name_pattern': self.device_name_pattern,
+            'action': self.action,
+            'is_enabled': self.is_enabled,
+            'description': self.description,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class UserDevice(db.Model):
+    """用户设备记录表"""
+    __tablename__ = 'user_devices'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_tg = db.Column(db.BigInteger, db.ForeignKey('emby.tg'), nullable=False)
+    device_id = db.Column(db.String(255), nullable=False)  # Emby 设备 ID
+    device_name = db.Column(db.String(255))  # 设备名称
+    client = db.Column(db.String(100))  # 客户端类型 (Emby Web, iOS, Android 等)
+    client_version = db.Column(db.String(50))  # 客户端版本
+    last_ip = db.Column(db.String(50))  # 最后使用的 IP
+    last_active = db.Column(db.DateTime)  # 最后活跃时间
+    is_blocked = db.Column(db.Boolean, default=False)  # 是否被禁用
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
+    
+    # 复合唯一索引：同一用户的同一设备
+    __table_args__ = (
+        db.UniqueConstraint('user_tg', 'device_id', name='uix_user_device'),
+    )
+    
+    def to_dict(self):
+        user = User.query.filter_by(tg=self.user_tg).first()
+        # 确保 last_active 带时区信息（UTC）
+        last_active_str = None
+        if self.last_active:
+            if self.last_active.tzinfo is None:
+                # 如果没有时区信息，假定是 UTC
+                last_active_str = self.last_active.isoformat() + 'Z'
+            else:
+                last_active_str = self.last_active.isoformat()
+        
+        created_at_str = None
+        if self.created_at:
+            if self.created_at.tzinfo is None:
+                created_at_str = self.created_at.isoformat() + 'Z'
+            else:
+                created_at_str = self.created_at.isoformat()
+        
+        return {
+            'id': self.id,
+            'user_tg': self.user_tg,
+            'user_name': user.name if user else str(self.user_tg),
+            'device_id': self.device_id,
+            'device_name': self.device_name,
+            'client': self.client,
+            'client_version': self.client_version,
+            'last_ip': self.last_ip,
+            'last_active': last_active_str,
+            'is_blocked': self.is_blocked,
+            'created_at': created_at_str
+        }
+
+
+class Announcement(db.Model):
+    """系统公告表"""
+    __tablename__ = 'announcements'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)  # 公告标题
+    content = db.Column(db.Text, nullable=False)  # 公告内容
+    type = db.Column(db.String(20), default='info')  # 公告类型: info, warning, success, error
+    is_active = db.Column(db.Boolean, default=True)  # 是否启用
+    is_pinned = db.Column(db.Boolean, default=False)  # 是否置顶
+    start_time = db.Column(db.DateTime)  # 开始显示时间
+    end_time = db.Column(db.DateTime)  # 结束显示时间
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'title': self.title,
+            'content': self.content,
+            'type': self.type,
+            'is_active': self.is_active,
+            'is_pinned': self.is_pinned,
+            'start_time': self.start_time.isoformat() + 'Z' if self.start_time else None,
+            'end_time': self.end_time.isoformat() + 'Z' if self.end_time else None,
+            'created_at': self.created_at.isoformat() + 'Z' if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() + 'Z' if self.updated_at else None
+        }
+    
+    @staticmethod
+    def get_active_announcements():
+        """获取当前有效的公告"""
+        now = datetime.now()
+        query = Announcement.query.filter(Announcement.is_active == True)
+        # 过滤时间范围
+        query = query.filter(
+            db.or_(Announcement.start_time == None, Announcement.start_time <= now)
+        )
+        query = query.filter(
+            db.or_(Announcement.end_time == None, Announcement.end_time >= now)
+        )
+        # 置顶的在前，然后按创建时间倒序
+        return query.order_by(Announcement.is_pinned.desc(), Announcement.created_at.desc()).all()
+
+
+class PlaybackRecord(db.Model):
+    """播放记录表"""
+    __tablename__ = 'playback_records'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_tg = db.Column(db.BigInteger, db.ForeignKey('emby.tg'), nullable=False)
+    device_id = db.Column(db.Integer, db.ForeignKey('user_devices.id'))  # 关联设备
+    emby_item_id = db.Column(db.String(100))  # Emby 媒体 ID
+    item_name = db.Column(db.String(255))  # 媒体名称
+    item_type = db.Column(db.String(50))  # Movie, Episode 等
+    series_name = db.Column(db.String(255))  # 剧集名称（如果是剧集）
+    season_number = db.Column(db.Integer)  # 季数
+    episode_number = db.Column(db.Integer)  # 集数
+    play_duration = db.Column(db.Integer, default=0)  # 播放时长（秒）
+    total_duration = db.Column(db.Integer, default=0)  # 总时长（秒）
+    play_percentage = db.Column(db.Float, default=0)  # 播放进度百分比
+    play_method = db.Column(db.String(50))  # DirectPlay, Transcode
+    started_at = db.Column(db.DateTime, default=lambda: datetime.now())  # 开始播放时间
+    ended_at = db.Column(db.DateTime)  # 结束播放时间
+    client_ip = db.Column(db.String(50))  # 客户端 IP
+    
+    # 关系
+    device = db.relationship('UserDevice', backref='playback_records')
+    
+    def to_dict(self):
+        user = User.query.filter_by(tg=self.user_tg).first()
+        device = db.session.get(UserDevice, self.device_id) if self.device_id else None
+        
+        # 组合显示名称
+        display_name = self.item_name
+        if self.item_type == 'Episode' and self.series_name:
+            if self.season_number and self.episode_number:
+                display_name = f"{self.series_name} S{self.season_number:02d}E{self.episode_number:02d} - {self.item_name}"
+            else:
+                display_name = f"{self.series_name} - {self.item_name}"
+        
+        return {
+            'id': self.id,
+            'user_tg': self.user_tg,
+            'user_name': user.name if user else str(self.user_tg),
+            'device_id': self.device_id,
+            'device_name': device.device_name if device else '未知设备',
+            'client': device.client if device else None,
+            'emby_item_id': self.emby_item_id,
+            'item_name': self.item_name,
+            'display_name': display_name,
+            'item_type': self.item_type,
+            'series_name': self.series_name,
+            'season_number': self.season_number,
+            'episode_number': self.episode_number,
+            'play_duration': self.play_duration,
+            'total_duration': self.total_duration,
+            'play_percentage': self.play_percentage,
+            'play_method': self.play_method,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'ended_at': self.ended_at.isoformat() if self.ended_at else None,
+            'client_ip': self.client_ip
+        }
+
+
+class SystemConfig(db.Model):
+    """系统配置表 - 存储所有后台设置"""
+    __tablename__ = 'system_config'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    config_key = db.Column(db.String(100), unique=True, nullable=False, index=True)  # 配置分类键
+    config_value = db.Column(db.Text, nullable=True)  # JSON 格式存储配置值
+    description = db.Column(db.String(255), nullable=True)  # 配置描述
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(), 
+                          onupdate=lambda: datetime.now())  # 更新时间
+    
+    # 配置键常量
+    KEY_ADMIN = 'admin'              # 管理员配置
+    KEY_EMBY = 'emby'                # Emby 服务器配置
+    KEY_TELEGRAM = 'telegram'        # Telegram BOT配置
+    KEY_TMDB = 'tmdb'                # TMDB API 配置
+    KEY_MOVIEPILOT = 'moviepilot'    # MoviePilot 配置
+    KEY_QBITTORRENT = 'qbittorrent'  # qBittorrent 配置
+    KEY_SEARCH = 'search'            # 搜索策略配置
+    KEY_REQUEST_LIMIT = 'request_limit'  # 求片限制配置
+    KEY_CATEGORY = 'category'        # 二级分类策略
+    KEY_EPAY = 'epay'                # 易支付配置
+    KEY_SITE = 'site'                # 前端站点配置
+    KEY_PLANS = 'plans'              # 套餐配置
+    KEY_PROXY = 'proxy'              # 代理配置
+    KEY_CHECKIN = 'checkin'          # 签到系统配置
+    
+    @staticmethod
+    def get_config(key: str, default=None):
+        """获取指定配置"""
+        try:
+            config = SystemConfig.query.filter_by(config_key=key).first()
+            if config and config.config_value:
+                return json.loads(config.config_value)
+            return default
+        except Exception as e:
+            print(f"[WARNING] 获取配置 {key} 失败: {e}")
+            return default
+    
+    @staticmethod
+    def set_config(key: str, value: dict, description: str = None):
+        """设置指定配置"""
+        try:
+            config = SystemConfig.query.filter_by(config_key=key).first()
+            if config:
+                config.config_value = json.dumps(value, ensure_ascii=False)
+                if description:
+                    config.description = description
+            else:
+                config = SystemConfig(
+                    config_key=key,
+                    config_value=json.dumps(value, ensure_ascii=False),
+                    description=description
+                )
+                db.session.add(config)
+            db.session.commit()
+            return True
+        except Exception as e:
+            print(f"[ERROR] 保存配置 {key} 失败: {e}")
+            db.session.rollback()
+            return False
+    
+    @staticmethod
+    def get_all_configs():
+        """获取所有配置"""
+        try:
+            configs = SystemConfig.query.all()
+            result = {}
+            for config in configs:
+                if config.config_value:
+                    try:
+                        result[config.config_key] = json.loads(config.config_value)
+                    except:
+                        result[config.config_key] = config.config_value
+            return result
+        except Exception as e:
+            print(f"[WARNING] 获取所有配置失败: {e}")
+            return {}
+    
+    @staticmethod
+    def delete_config(key: str):
+        """删除指定配置"""
+        try:
+            config = SystemConfig.query.filter_by(config_key=key).first()
+            if config:
+                db.session.delete(config)
+                db.session.commit()
+            return True
+        except Exception as e:
+            print(f"[ERROR] 删除配置 {key} 失败: {e}")
+            db.session.rollback()
+            return False
+
+
+class CheckInRecord(db.Model):
+    """签到记录表"""
+    __tablename__ = 'checkin_records'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_tg = db.Column(db.BigInteger, db.ForeignKey('emby.tg'), nullable=False, index=True)
+    checkin_date = db.Column(db.Date, nullable=False, index=True)  # 签到日期（只存日期，不含时间）
+    coins_earned = db.Column(db.Integer, nullable=False)  # 本次签到获得的积分
+    continuous_days = db.Column(db.Integer, default=1)  # 连续签到天数
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    
+    # 关系
+    user = db.relationship('User', backref='checkin_records', foreign_keys=[user_tg])
+    
+    __table_args__ = (
+        db.UniqueConstraint('user_tg', 'checkin_date', name='uq_user_checkin_date'),
+    )
+
+
+class CoinTransaction(db.Model):
+    """积分交易记录表"""
+    __tablename__ = 'coin_transactions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_tg = db.Column(db.BigInteger, db.ForeignKey('emby.tg'), nullable=False, index=True)
+    amount = db.Column(db.Integer, nullable=False)  # 积分变动数量（正数为增加，负数为减少）
+    balance_after = db.Column(db.Integer, nullable=False)  # 交易后余额
+    trans_type = db.Column(db.String(50), nullable=False)  # 交易类型: checkin, exchange, admin_grant, admin_deduct
+    description = db.Column(db.String(255), nullable=True)  # 交易描述
+    related_id = db.Column(db.Integer, nullable=True)  # 关联ID（如兑换记录ID）
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(), index=True)
+    
+    # 关系
+    user = db.relationship('User', backref='coin_transactions', foreign_keys=[user_tg])
+
+
+class ExchangeRecord(db.Model):
+    """套餐兑换记录表"""
+    __tablename__ = 'exchange_records'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_tg = db.Column(db.BigInteger, db.ForeignKey('emby.tg'), nullable=False, index=True)
+    plan_id = db.Column(db.String(50), nullable=False)  # 套餐ID
+    plan_name = db.Column(db.String(100), nullable=False)  # 套餐名称
+    coins_cost = db.Column(db.Integer, nullable=False)  # 花费的积分
+    duration_days = db.Column(db.Integer, nullable=False)  # 兑换的天数
+    status = db.Column(db.String(20), default='completed')  # 兑换状态: completed, failed
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(), index=True)
+    
+    # 关系
+    user = db.relationship('User', backref='exchange_records', foreign_keys=[user_tg])
+
+
+class TaskMonitor:
+
+    """单个下载任务的独立监控线程"""
+    
+    def __init__(self, app_instance: Flask, task_id: int, interval: int = 5):
+        self.app = app_instance
+        self.task_id = task_id
+        self.interval = max(interval, 3)
+        self.thread: Optional[Thread] = None
+        self.stop_event = Event()
+    
+    def start(self):
+        if self.thread and self.thread.is_alive():
+            return
+        self.thread = Thread(
+            target=self._run, 
+            name=f'TaskMonitor-{self.task_id}', 
+            daemon=True
+        )
+        self.thread.start()
+        app.logger.info(f'任务 {self.task_id} 监控线程已启动')
+    
+    def stop(self):
+        self.stop_event.set()
+    
+    def _run(self):
+        with self.app.app_context():
+            retry_count = 0
+            max_retries = 60  # 最多重试60次（5分钟）获取hash
+            
+            while not self.stop_event.is_set():
+                try:
+                    task = db.session.get(DownloadTask, self.task_id)
+                    if not task:
+                        app.logger.warning(f'任务 {self.task_id} 不存在，停止监控')
+                        break
+                    
+                    # 任务已完成或失败，停止监控
+                    if task.status in {'completed', 'failed', 'cancelled'}:
+                        app.logger.info(f'任务 {self.task_id} 状态为 {task.status}，停止监控')
+                        break
+                    
+                    # 如果没有 hash，尝试通过 tag 获取
+                    if not task.torrent_hash and task.qb_tag:
+                        retry_count += 1
+                        if retry_count > max_retries:
+                            app.logger.error(f'任务 {self.task_id} 无法获取 torrent hash，停止监控')
+                            task.status = 'failed'
+                            task.error_message = '无法从 qBittorrent 获取种子信息'
+                            db.session.commit()
+                            break
+                        
+                        try:
+                            info = qbit_client.get_torrent_by_tag(task.qb_tag)
+                            if info:
+                                task.torrent_hash = info.get('hash')
+                                self._update_task_with_info(task, info)
+                                db.session.commit()
+                                app.logger.info(f'任务 {self.task_id} 获取到 hash: {task.torrent_hash[:16]}...')
+                        except Exception as exc:
+                            app.logger.warning(f'任务 {self.task_id} 获取 hash 失败 ({retry_count}/{max_retries}): {exc}')
+                    
+                    # 有 hash，获取实时进度
+                    elif task.torrent_hash:
+                        try:
+                            infos = qbit_client.get_torrents_info(hashes=[task.torrent_hash])
+                            if infos:
+                                self._update_task_with_info(task, infos[0])
+                                db.session.commit()
+                            else:
+                                # 任务在 qBittorrent 中不存在
+                                app.logger.warning(f'任务 {self.task_id} 在 qBittorrent 中未找到')
+                                
+                                # 如果进度已经是100%，说明之前下载完成了，保持状态
+                                if task.progress >= 100:
+                                    app.logger.info(f'任务 {self.task_id} 已下载完成，qB任务已删除，保持 completed 状态')
+                                    task.status = 'completed'
+                                    task.finished_at = task.finished_at or datetime.now()
+                                    if task.request:
+                                        task.request.status = 'downloaded'
+                                    db.session.commit()
+                                    break  # 停止监控
+                                else:
+                                    # 未完成就被删除，标记为失败
+                                    app.logger.warning(f'任务 {self.task_id} 未完成但 qB 任务已删除，标记为失败')
+                                    task.status = 'failed'
+                                    task.error_message = 'qBittorrent 中的任务已被删除'
+                                    if task.request:
+                                        task.request.status = 'failed'
+                                    db.session.commit()
+                                    break  # 停止监控
+                                    
+                        except Exception as exc:
+                            app.logger.error(f'任务 {self.task_id} 获取进度失败: {exc}')
+                    
+                except Exception as exc:
+                    app.logger.error(f'任务 {self.task_id} 监控异常: {exc}', exc_info=True)
+                    db.session.rollback()
+                
+                self.stop_event.wait(self.interval)
+        
+        # 清理：从活跃监控列表中移除
+        active_monitors.pop(self.task_id, None)
+        app.logger.info(f'任务 {self.task_id} 监控线程已结束')
+    
+    def _update_task_with_info(self, task: DownloadTask, info: dict):
+        old_progress = task.progress or 0
+        progress = round((info.get('progress') or 0) * 100, 2)
+        task.progress = progress
+        task.download_speed = info.get('dlspeed', 0)
+        task.eta = info.get('eta', -1)
+        qb_state = info.get('state', '')
+        mapped = self._map_qb_state(qb_state)
+        
+        # 记录显著的进度变化（每变化 5% 以上或状态改变时）
+        if abs(progress - old_progress) >= 5 or (mapped and mapped != task.status):
+            app.logger.debug(f'任务 {self.task_id} 进度更新: {old_progress:.1f}% -> {progress:.1f}%, qB状态: {qb_state}, 映射状态: {mapped}')
+        
+        if mapped:
+            previous_status = task.status
+            task.status = mapped
+            
+            if mapped == 'completed' and previous_status != 'completed':
+                task.finished_at = datetime.now()
+                task.progress = 100.0
+                if task.request:
+                    task.request.status = 'downloaded'
+                app.logger.info(f'任务 {self.task_id} 下载完成！最终进度: 100%')
+                # 发送 Telegram 通知
+                self._send_completion_notification(task)
+                
+            elif mapped == 'failed':
+                task.error_message = qb_state
+                if task.request:
+                    task.request.status = 'failed'
+                app.logger.warning(f'任务 {self.task_id} 下载失败，qB状态: {qb_state}')
+                    
+            elif mapped == 'downloading' and task.request:
+                task.request.status = 'downloading'
+    
+    def _send_completion_notification(self, task: DownloadTask):
+        """下载完成时记录日志（不发送通知，入库后再通知）"""
+        if not task.request:
+            return
+        try:
+            req = task.request
+            user = req.user
+            app.logger.info(
+                f"下载完成: {req.title} ({req.year}) - "
+                f"用户: {user.username if user else '未知'} - "
+                f"种子: {task.torrent_name[:50]}..."
+            )
+        except Exception as exc:
+            app.logger.warning(f'记录下载完成日志失败: {exc}')
+    
+    def _map_qb_state(self, qb_state: str) -> Optional[str]:
+        qb_state = (qb_state or '').lower()
+        # 下载中状态
+        if qb_state in {'downloading', 'stalleddl', 'forceddl', 'metadl', 'checkingdl', 'allocating', 'moving'}:
+            return 'downloading'
+        # 排队状态
+        if qb_state in {'queueddl', 'pauseddl', 'checkingresumedata'}:
+            return 'queued'
+        # 完成状态（已做种或已暂停做种）
+        if qb_state in {'uploading', 'stalledup', 'queuedup', 'checkingup', 'pausedup', 'completed', 'forcedup', 'seeding'}:
+            return 'completed'
+        # 失败状态
+        if qb_state in {'error', 'missingfiles', 'unknown'}:
+            return 'failed'
+        # 未知状态记录日志
+        if qb_state:
+            app.logger.warning(f'未知的 qBittorrent 状态: {qb_state}')
+        return None
+
+
+# 活跃的任务监控器字典 {task_id: TaskMonitor}
+active_monitors: dict[int, TaskMonitor] = {}
+
+
+def start_task_monitor(task_id: int, interval: int = 5):
+    """启动单个任务的监控线程"""
+    if not ENABLE_DOWNLOAD_MONITOR:
+        app.logger.info(f'下载监控已禁用，跳过任务 {task_id}')
+        return
+    if not qbit_client.is_enabled():
+        app.logger.warning(f'未配置 qBittorrent，跳过任务 {task_id}')
+        return
+    
+    # 如果该任务已有监控线程在运行，不重复启动
+    if task_id in active_monitors and active_monitors[task_id].thread and active_monitors[task_id].thread.is_alive():
+        app.logger.info(f'任务 {task_id} 监控已在运行')
+        return
+    
+    monitor = TaskMonitor(app, task_id, interval)
+    active_monitors[task_id] = monitor
+    monitor.start()
+
+
+def stop_task_monitor(task_id: int):
+    """停止单个任务的监控线程"""
+    if task_id in active_monitors:
+        active_monitors[task_id].stop()
+        active_monitors.pop(task_id, None)
+
+
+class DownloadMonitor:
+    """后台全局监控 - 启动时恢复未完成任务的监控"""
+
+    def __init__(self, app_instance: Flask, interval: int = 12):
+        self.app = app_instance
+        self.interval = max(interval, 5)
+        self.thread: Optional[Thread] = None
+        self.stop_event = Event()
+
+    def start(self):
+        if not ENABLE_DOWNLOAD_MONITOR:
+            app.logger.info('下载监控已禁用，跳过启动')
+            return
+        if not qbit_client.is_enabled():
+            app.logger.warning('未配置 qBittorrent，下载监控不启动')
+            return
+        if self.thread and self.thread.is_alive():
+            return
+        self.thread = Thread(target=self._run, name='DownloadMonitor', daemon=True)
+        self.thread.start()
+        app.logger.info('下载监控线程已启动')
+
+    def _run(self):
+        with self.app.app_context():
+            # 启动时恢复所有未完成任务的监控
+            self._recover_pending_tasks()
+            
+            # 之后定期检查是否有遗漏的任务
+            while not self.stop_event.is_set():
+                try:
+                    self._check_orphan_tasks()
+                except Exception as exc:
+                    app.logger.error(f'检查遗漏任务失败: {exc}', exc_info=True)
+                self.stop_event.wait(self.interval * 3)  # 每隔 interval*3 秒检查一次
+    
+    def _recover_pending_tasks(self):
+        """恢复所有未完成任务的监控，先同步 qBittorrent 中的真实状态"""
+        tasks = DownloadTask.query.filter(
+            DownloadTask.status.in_(['queued', 'downloading'])
+        ).all()
+        
+        if not tasks:
+            app.logger.info('没有需要恢复的下载任务')
+            return
+        
+        app.logger.info(f'发现 {len(tasks)} 个未完成任务，检查 qBittorrent 状态...')
+        
+        for task in tasks:
+            try:
+                # 如果有 torrent_hash，检查 qBittorrent 中的真实状态
+                if task.torrent_hash:
+                    infos = qbit_client.get_torrents_info(hashes=[task.torrent_hash])
+                    if infos:
+                        info = infos[0]
+                        qb_state = info.get('state', '').lower()
+                        progress = round((info.get('progress') or 0) * 100, 2)
+                        
+                        # 检查是否已完成（做种状态）
+                        if qb_state in {'uploading', 'stalledup', 'queuedup', 'checkingup', 'pausedup', 'completed', 'forcedup'}:
+                            app.logger.info(f'任务 {task.id} ({task.torrent_name[:30]}...) 在 qBittorrent 中已完成，更新状态')
+                            task.status = 'completed'
+                            task.progress = 100.0
+                            task.finished_at = task.finished_at or datetime.now()
+                            if task.request:
+                                task.request.status = 'downloaded'
+                            db.session.commit()
+                            continue  # 不启动监控
+                        
+                        # 更新进度信息
+                        task.progress = progress
+                        task.download_speed = info.get('dlspeed', 0)
+                        task.eta = info.get('eta', -1)
+                        db.session.commit()
+                    else:
+                        # qBittorrent 中任务不存在
+                        app.logger.warning(f'任务 {task.id} 在 qBittorrent 中未找到')
+                        
+                        # 如果进度已经是100%，说明之前下载完成了
+                        if task.progress >= 100:
+                            app.logger.info(f'任务 {task.id} 已下载完成，qB任务已删除，标记为 completed')
+                            task.status = 'completed'
+                            task.finished_at = task.finished_at or datetime.now()
+                            if task.request:
+                                task.request.status = 'downloaded'
+                            db.session.commit()
+                            continue  # 不启动监控
+                        else:
+                            # 未完成就被删除
+                            app.logger.warning(f'任务 {task.id} 未完成但 qB 任务已删除，标记为失败')
+                            task.status = 'failed'
+                            task.error_message = 'qBittorrent 中的任务已被删除'
+                            if task.request:
+                                task.request.status = 'failed'
+                            db.session.commit()
+                            continue  # 不启动监控
+                
+                # 启动监控
+                start_task_monitor(task.id, self.interval)
+                
+            except Exception as exc:
+                app.logger.error(f'恢复任务 {task.id} 状态失败: {exc}')
+                db.session.rollback()  # 确保回滚以防止事务问题
+    
+    def _check_orphan_tasks(self):
+        """检查是否有任务没有被监控，同时检查 qBittorrent 真实状态"""
+        tasks = DownloadTask.query.filter(
+            DownloadTask.status.in_(['queued', 'downloading'])
+        ).all()
+        
+        for task in tasks:
+            try:
+                # 先检查 qBittorrent 中的状态
+                if task.torrent_hash:
+                    infos = qbit_client.get_torrents_info(hashes=[task.torrent_hash])
+                    if infos:
+                        qb_state = infos[0].get('state', '').lower()
+                        if qb_state in {'uploading', 'stalledup', 'queuedup', 'checkingup', 'pausedup', 'completed', 'forcedup'}:
+                            app.logger.info(f'任务 {task.id} 在 qBittorrent 中已完成，更新状态')
+                            task.status = 'completed'
+                            task.progress = 100.0
+                            task.finished_at = task.finished_at or datetime.now()
+                            if task.request:
+                                task.request.status = 'downloaded'
+                            db.session.commit()
+                            continue  # 不启动监控
+                    else:
+                        # qBittorrent 中任务不存在
+                        if task.progress >= 100:
+                            app.logger.info(f'任务 {task.id} 已下载完成，qB任务已删除，标记为 completed')
+                            task.status = 'completed'
+                            task.finished_at = task.finished_at or datetime.now()
+                            if task.request:
+                                task.request.status = 'downloaded'
+                            db.session.commit()
+                            continue
+                        else:
+                            app.logger.warning(f'任务 {task.id} 未完成但 qB 任务已删除，标记为失败')
+                            task.status = 'failed'
+                            task.error_message = 'qBittorrent 中的任务已被删除'
+                            if task.request:
+                                task.request.status = 'failed'
+                            db.session.commit()
+                            continue
+                
+                # 如果任务没有被监控，启动监控
+                if task.id not in active_monitors or not active_monitors[task.id].thread or not active_monitors[task.id].thread.is_alive():
+                    app.logger.info(f'发现遗漏任务 {task.id}，启动监控')
+                    start_task_monitor(task.id, self.interval)
+            except Exception as exc:
+                app.logger.error(f'检查任务 {task.id} 状态失败: {exc}')
+                db.session.rollback()  # 确保回滚以防止事务问题
+
+
+# 登录验证装饰器
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # 判断是否是 API 请求
+        is_api_request = request.path.startswith('/api/') or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        
+        if 'user_id' not in session:
+            if is_api_request:
+                return jsonify({'success': False, 'error': '请先登录', 'need_login': True}), 401
+            return redirect(url_for('login'))
+        
+        # 验证session_token是否有效（防止密码重置后继续访问）
+        user = db.session.get(User, session['user_id'])
+        if not user:
+            # 用户不存在，清除session
+            session.pop('user_id', None)
+            session.pop('username', None)
+            session.pop('session_token', None)
+            if is_api_request:
+                return jsonify({'success': False, 'error': '用户不存在，请重新登录', 'need_login': True}), 401
+            return redirect(url_for('login'))
+        
+        # 检查session_token是否匹配
+        if user.session_token and session.get('session_token') != user.session_token:
+            # token不匹配，说明密码已被重置，强制退出
+            session.pop('user_id', None)
+            session.pop('username', None)
+            session.pop('session_token', None)
+            if is_api_request:
+                return jsonify({'success': False, 'error': '登录已过期，请重新登录', 'need_login': True}), 401
+            return redirect(url_for('login'))
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # 检查管理员权限（两种方式）
+        # 方式1: 通过安全入口登录
+        if session.get('admin_logged_in'):
+            app.logger.info(f'管理员 {session.get("admin_username", "unknown")} 访问管理后台')
+            return f(*args, **kwargs)
+        
+        # 方式2: 用户表中的管理员
+        if 'user_id' in session:
+            user = db.session.get(User, session['user_id'])
+            if user and user.is_admin:
+                app.logger.info(f'管理员用户 {user.name} 访问管理后台')
+                return f(*args, **kwargs)
+        
+        app.logger.warning('访问管理后台失败: 无管理员权限')
+        # 返回 403 而不是重定向，避免暴露安全入口
+        return jsonify({'error': '需要管理员权限', 'redirect': f'/{ADMIN_SECRET_PATH}'}), 403
+    return decorated_function
+
+
+def is_admin_user():
+    """检查当前用户是否有管理员权限（支持两种方式）
+    1. 通过安全入口登录的管理员 (session['admin_logged_in'])
+    2. 用户表中标记为管理员的用户 (user.is_admin)
+    """
+    # 方式1: 通过安全入口登录
+    if session.get('admin_logged_in'):
+        return True
+    
+    # 方式2: 用户表中的管理员
+    if 'user_id' in session:
+        user = db.session.get(User, session['user_id'])
+        if user and user.is_admin:
+            return True
+    
+    return False
+
+
+# TMDB API 辅助函数（带缓存）
+def search_tmdb(query, media_type='movie'):
+    """搜索TMDB电影或剧集（带缓存）"""
+    if not TMDB_API_KEY:
+        return {'results': []}
+    
+    # 检查缓存
+    cache_key = tmdb_cache._make_key('search', query, media_type)
+    cached = tmdb_cache.get(cache_key)
+    if cached:
+        app.logger.debug(f"TMDB搜索缓存命中: {query}")
+        return cached
+    
+    url = f'{TMDB_BASE_URL}/search/{media_type}'
+    params = {
+        'api_key': TMDB_API_KEY,
+        'query': query,
+        'language': 'zh-CN'
+    }
+    
+    try:
+        response = http_session.get(url, params=params, timeout=5)
+        response.raise_for_status()
+        result = response.json()
+        # 缓存结果（搜索结果缓存1天）
+        tmdb_cache.set(cache_key, result, ttl=86400)
+        return result
+    except requests.exceptions.Timeout:
+        app.logger.error(f"TMDB搜索超时: query={query}, URL={url}")
+        return {'results': []}
+    except requests.exceptions.ConnectionError as e:
+        app.logger.error(f"TMDB连接失败: {e}, 请检查网络或配置代理")
+        return {'results': []}
+    except requests.exceptions.HTTPError as e:
+        app.logger.error(f"TMDB HTTP错误: {e.response.status_code}, {e}")
+        return {'results': []}
+    except Exception as e:
+        app.logger.error(f"TMDB搜索错误: {type(e).__name__}: {e}")
+        return {'results': []}
+
+
+def get_media_category(media_type, tmdb_id=None):
+    """
+    根据媒体类型和TMDB ID获取正确的分类名称
+    从系统配置中读取分类规则，支持自定义
+    
+    分类规则支持以下条件：
+    - genre_ids: 内容类型ID列表（如[16]表示动画）
+    - origin_country: 制作国家列表（如['CN', 'TW', 'HK']）
+    - original_language: 语言列表（如['zh', 'cn']）
+    
+    同一分类下的多个条件是"与"的关系
+    """
+    # 获取分类配置
+    config = load_system_config()
+    category_config = config.get('category', DEFAULT_CATEGORY_CONFIG)
+    
+    # 获取对应媒体类型的分类规则
+    rules = category_config.get(media_type, {})
+    
+    if not tmdb_id or not rules:
+        # 没有TMDB ID或没有规则，返回默认分类
+        default_categories = list(rules.keys()) if rules else []
+        if default_categories:
+            # 返回最后一个分类（通常是默认分类）
+            return default_categories[-1]
+        return '电影' if media_type == 'movie' else '剧集'
+    
+    details = get_tmdb_details(tmdb_id, media_type)
+    if not details:
+        default_categories = list(rules.keys()) if rules else []
+        if default_categories:
+            return default_categories[-1]
+        return '电影' if media_type == 'movie' else '剧集'
+    
+    # 获取媒体的属性
+    genre_ids = [g.get('id') for g in details.get('genres', [])]
+    origin_countries = details.get('origin_country', [])
+    original_language = details.get('original_language', '')
+    
+    # 按顺序匹配分类规则
+    for category_name, conditions in rules.items():
+        if not conditions:
+            # 空条件表示默认分类，跳过（最后处理）
+            continue
+        
+        matched = True
+        
+        # 检查 genre_ids 条件
+        if 'genre_ids' in conditions:
+            required_genres = conditions['genre_ids']
+            if not any(g in genre_ids for g in required_genres):
+                matched = False
+        
+        # 检查 origin_country 条件
+        if matched and 'origin_country' in conditions:
+            required_countries = conditions['origin_country']
+            if not any(c in origin_countries for c in required_countries):
+                matched = False
+        
+        # 检查 original_language 条件
+        if matched and 'original_language' in conditions:
+            required_languages = conditions['original_language']
+            if original_language not in required_languages:
+                matched = False
+        
+        if matched:
+            return category_name
+    
+    # 没有匹配到任何规则，返回最后一个分类（默认分类）
+    default_categories = [name for name, cond in rules.items() if not cond]
+    if default_categories:
+        return default_categories[0]
+    
+    # 如果还是没有，返回规则中的最后一个分类
+    all_categories = list(rules.keys())
+    if all_categories:
+        return all_categories[-1]
+    
+    return '电影' if media_type == 'movie' else '剧集'
+
+
+def get_tmdb_details(tmdb_id, media_type='movie'):
+    """获取TMDB详细信息（带缓存）"""
+    if not TMDB_API_KEY:
+        return None
+    
+    # 检查缓存
+    cache_key = tmdb_cache._make_key('details', tmdb_id, media_type)
+    cached = tmdb_cache.get(cache_key)
+    if cached:
+        app.logger.debug(f"TMDB详情缓存命中: {tmdb_id}")
+        return cached
+    
+    url = f'{TMDB_BASE_URL}/{media_type}/{tmdb_id}'
+    params = {
+        'api_key': TMDB_API_KEY,
+        'language': 'zh-CN'
+    }
+    
+    try:
+        response = http_session.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        result = response.json()
+        # 缓存结果（详情缓存1天）
+        tmdb_cache.set(cache_key, result, ttl=86400)
+        return result
+    except requests.exceptions.Timeout:
+        app.logger.error(f"TMDB详情获取超时: tmdb_id={tmdb_id}, type={media_type}, URL={url}")
+        return None
+    except requests.exceptions.ConnectionError as e:
+        app.logger.error(f"TMDB连接失败: {e}, 请检查网络或配置代理")
+        return None
+    except requests.exceptions.HTTPError as e:
+        app.logger.error(f"TMDB HTTP错误: {e.response.status_code}, {e}")
+        return None
+    except Exception as e:
+        app.logger.error(f"TMDB详情错误: {type(e).__name__}: {e}")
+        return None
+
+
+def get_tmdb_tv_seasons(tmdb_id):
+    """获取电视剧的季信息"""
+    details = get_tmdb_details(tmdb_id, 'tv')
+    if not details:
+        return None
+    
+    seasons = details.get('seasons', [])
+    # 包含第0季（特别篇/OVA），按季号排序
+    seasons = [s for s in seasons if s.get('season_number') is not None]
+    seasons.sort(key=lambda s: s.get('season_number', 0))
+    
+    return {
+        'name': details.get('name'),
+        'total_seasons': details.get('number_of_seasons', len(seasons)),
+        'total_episodes': details.get('number_of_episodes', 0),
+        'seasons': [{
+            'season_number': s.get('season_number'),
+            'name': s.get('name'),
+            'episode_count': s.get('episode_count', 0),
+            'air_date': s.get('air_date'),
+            'poster_path': s.get('poster_path'),
+        } for s in seasons]
+    }
+
+
+def get_tmdb_season_episodes(tmdb_id, season_number):
+    """获取指定季的剧集列表"""
+    if not TMDB_API_KEY:
+        return None
+    
+    url = f'{TMDB_BASE_URL}/tv/{tmdb_id}/season/{season_number}'
+    params = {
+        'api_key': TMDB_API_KEY,
+        'language': 'zh-CN'
+    }
+    
+    try:
+        response = http_session.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        result = response.json()
+        
+        episodes = result.get('episodes', [])
+        return {
+            'season_number': season_number,
+            'name': result.get('name'),
+            'episode_count': len(episodes),
+            'episodes': [{
+                'episode_number': e.get('episode_number'),
+                'name': e.get('name'),
+                'air_date': e.get('air_date'),
+                'overview': e.get('overview', '')[:100],
+            } for e in episodes]
+        }
+    except Exception as e:
+        app.logger.error(f"获取季详情失败: {e}")
+        return None
+
+
+def get_trending(media_type='movie', page=1):
+    """获取热门影片（带缓存，Emby检查可选）"""
+    if not TMDB_API_KEY:
+        app.logger.warning('TMDB_API_KEY 未配置')
+        return {'results': []}
+    
+    # 检查缓存
+    cache_key = tmdb_cache._make_key('trending', media_type, page)
+    cached = tmdb_cache.get(cache_key)
+    if cached:
+        app.logger.debug(f"TMDB热门缓存命中: {media_type}, page={page}")
+        return cached
+    
+    # 使用 discover 接口按热度排序（不限制日期，获取所有时间的热门内容）
+    url = f'{TMDB_BASE_URL}/discover/{media_type}'
+    params = {
+        'api_key': TMDB_API_KEY,
+        'language': 'zh-CN',
+        'page': page,
+        'sort_by': 'popularity.desc',  # 按热度降序排列
+        'vote_count.gte': 50,  # 降低评分数要求，从100改为50
+    }
+    
+    app.logger.info(f'请求TMDB热门: type={media_type}, page={page}, url={url}')
+    
+    try:
+        response = http_session.get(url, params=params, timeout=15)
+        app.logger.info(f'TMDB响应: status={response.status_code}, content_length={len(response.content)}')
+        
+        response.raise_for_status()
+        data = response.json()
+        
+        result_count = len(data.get('results', []))
+        app.logger.info(f'TMDB热门获取成功: type={media_type}, page={page}, 结果数={result_count}')
+        
+        # 默认标记所有为未入库（Emby检查改为前端异步加载）
+        for item in data.get('results', []):
+            item['in_emby'] = False
+        
+        # 缓存结果（热门缓存1天）
+        tmdb_cache.set(cache_key, data, ttl=86400)
+        return data
+    except requests.exceptions.Timeout:
+        app.logger.error(f"TMDB热门获取超时: type={media_type}, page={page}, URL={url}")
+        return {'results': []}
+    except requests.exceptions.ConnectionError as e:
+        app.logger.error(f"TMDB连接失败: {e}, 请检查网络或配置代理")
+        return {'results': []}
+    except requests.exceptions.HTTPError as e:
+        app.logger.error(f"TMDB HTTP错误: status={e.response.status_code}, {e}, response={e.response.text[:200]}")
+        return {'results': []}
+    except Exception as e:
+        app.logger.error(f"TMDB热门获取错误: {type(e).__name__}: {e}", exc_info=True)
+        return {'results': []}
+
+
+def send_user_telegram_notification(user_tg_id, title, status, admin_note=None, media_type='movie', tmdb_id=None, poster_path=None):
+    """发送状态变更通知给用户（带图片和TMDB链接）"""
+    if not user_tg_id or not TELEGRAM_BOT_TOKEN:
+        return False
+    
+    status_emoji = {
+        'approved': '✅',
+        'completed': '🎉',
+        'rejected': '❌'
+    }
+    
+    status_text = {
+        'approved': '已批准',
+        'completed': '已入库',
+        'rejected': '已拒绝'
+    }
+    
+    media_type_cn = '🎬 电影' if media_type == 'movie' else '📺 剧集'
+    
+    message_lines = [
+        f"{status_emoji.get(status, '📢')} <b>求片状态更新</b>",
+        f"━━━━━━━━━━━━━━━━━━",
+        f"🎞 <b>影片：</b><b>{title}</b>",
+        f"📁 <b>类型：</b>{media_type_cn}",
+        f"📊 <b>状态：</b><b>{status_text.get(status, status)}</b>",
+    ]
+    
+    if admin_note:
+        message_lines.append(f"💬 <b>管理员备注：</b>{admin_note}")
+    
+    # 添加TMDB链接
+    if tmdb_id:
+        tmdb_url = f"https://www.themoviedb.org/{media_type}/{tmdb_id}"
+        message_lines.append(f"🔗 <a href='{tmdb_url}'>查看 TMDB 详情</a>")
+    
+    message_lines.extend([
+        f"━━━━━━━━━━━━━━━━━━",
+        f"⏰ <b>更新时间：</b>{datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')}"
+    ])
+    
+    message = '\n'.join(message_lines)
+    
+    try:
+        # 如果有海报，发送带图片的消息
+        if poster_path:
+            poster_url = f"{TMDB_IMAGE_BASE_URL}{poster_path}"
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+            response = http_session.post(url, json={
+                'chat_id': user_tg_id,
+                'photo': poster_url,
+                'caption': message,
+                'parse_mode': 'HTML'
+            }, timeout=5)
+        else:
+            # 没有海报就发送纯文本消息
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            response = http_session.post(url, json={
+                'chat_id': user_tg_id,
+                'text': message,
+                'parse_mode': 'HTML',
+                'disable_web_page_preview': False
+            }, timeout=5)
+        
+        response.raise_for_status()
+        app.logger.info(f'用户通知发送成功: {title} -> {user_tg_id}')
+        return True
+    except Exception as e:
+        app.logger.error(f'用户通知发送失败: {e}')
+        return False
+
+
+def send_group_completion_notification(user_tg_id, username, title, year, media_type, tmdb_id, poster_path, 
+                                        rating=None, quality=None, size=None, file_count=None):
+    """
+    发送入库完成通知到群组，并@用户
+    类似: @用户名 ✅ 您请求的影片已入库完成！
+    """
+    group_id = TELEGRAM_GROUP_ID or TELEGRAM_CHAT_ID
+    if not TELEGRAM_BOT_TOKEN or not group_id:
+        app.logger.warning("Telegram 群组通知未配置，跳过发送")
+        return False
+    
+    # 使用正确的媒体分类
+    media_type_cn = get_media_category(media_type, tmdb_id)
+    
+    # 获取自定义模板
+    config = load_system_config()
+    templates = config.get('telegram', {}).get('templates', {})
+    completion_template = templates.get('completion', '')
+    
+    # 构建@用户的 mention（使用 HTML 格式）
+    # 使用 tg://user?id= 格式可以点击并显示用户名
+    display_name = username or '用户'
+    if user_tg_id:
+        user_mention = f'<a href="tg://user?id={user_tg_id}">{display_name}</a>'
+    else:
+        user_mention = f'<b>{display_name}</b>'
+    
+    # 如果有自定义模板，使用模板
+    if completion_template:
+        message = completion_template
+        # 替换变量
+        message = message.replace('{user}', user_mention)
+        message = message.replace('{title}', f'<b>{title}</b>')
+        message = message.replace('{year}', str(year or '未知'))
+        message = message.replace('{category}', media_type_cn)
+        message = message.replace('{rating}', str(rating) if rating else '暂无')
+        message = message.replace('{quality}', quality if quality else '未知')
+        message = message.replace('{size}', size if size else '未知')
+        message = message.replace('{file_count}', str(file_count) if file_count else '')
+    else:
+        # 使用默认格式
+        message_lines = [
+            f"{user_mention} ✅ <b>您请求的影片已入库完成！</b>",
+            f"",
+            f"<b>{title}</b> ({year or '未知'})",
+        ]
+        
+        # 添加文件数量信息
+        if file_count:
+            message_lines.append(f"已入库{file_count}个文件")
+        
+        message_lines.append("")  # 空行
+        
+        # 添加详细信息
+        if rating:
+            message_lines.append(f"评分：{rating}")
+        message_lines.append(f"类别：{media_type_cn}")
+        if quality:
+            message_lines.append(f"质量：{quality}")
+        if size:
+            message_lines.append(f"大小：{size}")
+        
+        message_lines.extend([
+            "",
+            "现在可以在 Emby 中观看了！"
+        ])
+        
+        message = '\n'.join(message_lines)
+    
+    message = '\n'.join(message_lines)
+    
+    # 发送带图片的消息
+    try:
+        if poster_path:
+            poster_url = f"{TMDB_IMAGE_BASE_URL}{poster_path}"
+            url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto'
+            data = {
+                'chat_id': group_id,
+                'photo': poster_url,
+                'caption': message,
+                'parse_mode': 'HTML'
+            }
+        else:
+            url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage'
+            data = {
+                'chat_id': group_id,
+                'text': message,
+                'parse_mode': 'HTML',
+                'disable_web_page_preview': False
+            }
+        
+        response = http_session.post(url, json=data, timeout=10)
+        response.raise_for_status()
+        app.logger.info(f'群组入库通知发送成功: {title} -> 群组 {group_id}')
+        return True
+    except Exception as e:
+        app.logger.error(f"群组入库通知发送失败: {e}")
+        return False
+
+
+def send_telegram_notification(username, title, year, media_type, tmdb_id, poster_path, overview=None, scope_info=None, user_tg_id=None):
+    """发送 Telegram 通知到管理员群组"""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        app.logger.warning("Telegram 通知未配置，跳过发送")
+        return False
+    
+    # 获取求片通知配置
+    config = load_system_config()
+    notification_config = config.get('telegram', {}).get('request_notification', {})
+    
+    # 判断推送目标
+    send_to = notification_config.get('send_to', 'group')
+    
+    # 确定接收者
+    if send_to == 'personal' and user_tg_id:
+        # 发送给个人
+        target_chat_id = user_tg_id
+        app.logger.info(f"发送求片通知到个人: {user_tg_id}")
+    else:
+        # 发送给群组（默认）
+        target_chat_id = TELEGRAM_CHAT_ID
+        app.logger.info(f"发送求片通知到群组: {TELEGRAM_CHAT_ID}")
+    
+    # 使用正确的媒体分类
+    media_category = get_media_category(media_type, tmdb_id)
+    media_type_cn = f'🎬 {media_category}' if media_type == 'movie' else f'📺 {media_category}'
+    tmdb_url = f"https://www.themoviedb.org/{media_type}/{tmdb_id}"
+    
+    # 获取自定义通知文案
+    custom_message = notification_config.get('custom_message', '')
+    
+    # 构建管理员提醒文本
+    admin_mention = ''
+    if notification_config.get('mention_admin', True) and UPLOAD_ADMINS:
+        # 处理多个管理员（用逗号分隔）
+        admins = [admin.strip() for admin in UPLOAD_ADMINS.split(',') if admin.strip()]
+        if admins:
+            # 确保每个管理员名前面有@符号
+            admin_list = []
+            for admin in admins:
+                if not admin.startswith('@'):
+                    admin = '@' + admin
+                admin_list.append(admin)
+            admin_mention = ' '.join(admin_list)
+    
+    # 构建求片用户 mention（使用 HTML 格式可点击跳转）
+    if user_tg_id:
+        user_mention = f'<a href="tg://user?id={user_tg_id}">{username}</a>'
+    else:
+        user_mention = f'<b>{username}</b>'
+    
+    # 获取当前时间
+    now = datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
+    
+    # 如果有自定义通知文案，使用自定义文案
+    if custom_message:
+        message = custom_message
+        # 替换变量
+        message = message.replace('{user}', user_mention)
+        message = message.replace('{admin}', admin_mention)
+        message = message.replace('{title}', f'<b>{title}</b>')
+        message = message.replace('{year}', str(year or '未知'))
+        message = message.replace('{category}', media_type_cn)
+        message = message.replace('{tmdb_id}', f'<code>{tmdb_id}</code>')
+        message = message.replace('{tmdb_url}', f"<a href='{tmdb_url}'>查看 TMDB 详情</a>")
+        message = message.replace('{time}', now)
+        message = message.replace('{scope}', scope_info if scope_info else '')
+        if notification_config.get('show_overview', True) and overview:
+            overview_text = overview[:150] + '...' if len(overview) > 150 else overview
+            message = message.replace('{overview}', overview_text)
+        else:
+            message = message.replace('{overview}', '')
+    else:
+        # 使用默认格式
+        message_lines = [
+            f"🔔 {user_mention} 发来了新的求片请求{(' ' + admin_mention) if admin_mention else ''}",
+            f"━━━━━━━━━━━━━━━━━━",
+            f"🎞 <b>影片名称：</b><b>{title}</b>",
+            f"📅 <b>上映年份：</b>{year or '未知'}",
+            f"📁 <b>影片类型：</b>{media_type_cn}",
+        ]
+        
+        # 如果是剧集且有求片范围信息
+        if media_type == 'tv' and scope_info:
+            message_lines.append(f"📑 <b>求片范围：</b>{scope_info}")
+        
+        message_lines.append(f"🆔 <b>TMDB ID：</b><code>{tmdb_id}</code>")
+        
+        # 如果启用显示简介且有简介，添加简介（限制长度）
+        if notification_config.get('show_overview', True) and overview:
+            overview_text = overview[:150] + '...' if len(overview) > 150 else overview
+            message_lines.append(f"📝 <b>简介：</b>{overview_text}")
+        
+        message_lines.extend([
+            f"━━━━━━━━━━━━━━━━━━",
+            f"🔗 <a href='{tmdb_url}'>查看 TMDB 详情</a>",
+            f"⏰ <b>求片时间：</b>{now}"
+        ])
+        
+        message = '\n'.join(message_lines)
+    
+    # 如果启用显示海报且有海报，发送带图片的消息
+    if notification_config.get('show_poster', True) and poster_path:
+        poster_url = f"{TMDB_IMAGE_BASE_URL}{poster_path}"
+        url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto'
+        data = {
+            'chat_id': target_chat_id,
+            'photo': poster_url,
+            'caption': message,
+            'parse_mode': 'HTML'
+        }
+    else:
+        # 没有海报或未启用海报就发送纯文本消息
+        url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage'
+        data = {
+            'chat_id': target_chat_id,
+            'text': message,
+            'parse_mode': 'HTML',
+            'disable_web_page_preview': False
+        }
+    
+    try:
+        response = http_session.post(url, json=data, timeout=5)  # 使用持久化 session
+        response.raise_for_status()
+        app.logger.info(f'Telegram 通知发送成功: {title} ({username})')
+        return True
+    except requests.exceptions.Timeout:
+        app.logger.error(f"Telegram 通知发送超时: {title}")
+        return False
+    except Exception as e:
+        app.logger.error(f"Telegram 通知发送失败: {e}")
+        return False
+
+
+def send_admin_notification(message: str):
+    """发送简单文本通知到管理员群组（用于下载完成等系统通知）"""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        app.logger.warning("Telegram 通知未配置，跳过发送")
+        return False
+    
+    url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage'
+    data = {
+        'chat_id': TELEGRAM_CHAT_ID,
+        'text': message,
+        'parse_mode': 'HTML',
+        'disable_web_page_preview': True
+    }
+    
+    try:
+        response = http_session.post(url, json=data, timeout=5)
+        response.raise_for_status()
+        app.logger.info('管理员通知发送成功')
+        return True
+    except requests.exceptions.Timeout:
+        app.logger.error("管理员通知发送超时")
+        return False
+    except Exception as e:
+        app.logger.error(f"管理员通知发送失败: {e}")
+        return False
+
+
+def send_general_library_notification(title, year=None, season_episode=None, vote_average=None, 
+                                       category=None, resource_quality=None, file_count=None, 
+                                       total_size=None, tmdb_id=None, release_group=None, 
+                                       time_usage=None, overview=None, poster_path=None):
+    """
+    发送通用媒体入库通知（不限于求片）
+    
+    参数:
+        title: 标题
+        year: 年份
+        season_episode: 季集信息（如 "第1季第3集"）
+        vote_average: 评分
+        category: 类别（电影/剧集/动漫等）
+        resource_quality: 画质（4K/1080p/720p等）
+        file_count: 文件数量
+        total_size: 总大小
+        tmdb_id: TMDB ID
+        release_group: 制作组
+        time_usage: 入库耗时
+        overview: 简介
+        poster_path: 海报路径
+    """
+    # 检查是否启用通用入库通知
+    config = load_system_config()
+    library_notification = config.get('telegram', {}).get('library_notification', {})
+    
+    if not library_notification.get('enabled', False):
+        app.logger.info('通用入库通知未启用，跳过')
+        return False
+    
+    # 获取机器人配置 (优先使用入库通知专用机器人)
+    bot_token = library_notification.get('bot_token', '').strip() or TELEGRAM_BOT_TOKEN
+    target_chat_id = library_notification.get('chat_id', '').strip() or TELEGRAM_CHAT_ID
+    
+    if not bot_token or not target_chat_id:
+        app.logger.warning("Telegram 通知未配置，跳过发送")
+        return False
+    
+    app.logger.info(f'入库通知配置: bot_token={"专用" if library_notification.get("bot_token") else "默认"}, chat_id={target_chat_id}')
+    
+    # 准备模板变量
+    title_year = f"{title} ({year})" if year else title
+    template_vars = {
+        'title': title,
+        'year': year,
+        'title_year': title_year,
+        'season_episode': season_episode,
+        'vote_average': vote_average,
+        'category': category,
+        'resource_quality': resource_quality,
+        'file_count': file_count,
+        'total_size': total_size,
+        'tmdb_id': tmdb_id,
+        'release_group': release_group,
+        'time_usage': time_usage,
+        'overview': overview,
+    }
+    
+    # 使用内置模板
+    full_message = _build_default_notification_full(template_vars)
+    
+    # 发送通知
+    try:
+        if poster_path and library_notification.get('show_poster', True):
+            # 发送带海报的消息
+            # 判断是完整 URL 还是 TMDB 相对路径
+            if poster_path.startswith('http://') or poster_path.startswith('https://'):
+                # 已经是完整 URL（如 Emby 图片）
+                poster_url = poster_path
+            else:
+                # TMDB 相对路径
+                poster_url = f"{TMDB_IMAGE_BASE_URL}{poster_path}"
+            
+            url = f'https://api.telegram.org/bot{bot_token}/sendPhoto'
+            data = {
+                'chat_id': target_chat_id,
+                'photo': poster_url,
+                'caption': full_message,
+                'parse_mode': 'HTML'
+            }
+        else:
+            # 纯文本消息
+            url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+            data = {
+                'chat_id': target_chat_id,
+                'text': full_message,
+                'parse_mode': 'HTML',
+                'disable_web_page_preview': False
+            }
+        
+        response = http_session.post(url, json=data, timeout=10)
+        response.raise_for_status()
+        app.logger.info(f'通用入库通知发送成功: {title}')
+        return True
+    except Exception as e:
+        app.logger.error(f"通用入库通知发送失败: {e}")
+        return False
+
+
+def _build_default_notification_full(vars):
+    """构建默认格式的完整入库通知消息"""
+    from datetime import datetime
+    
+    # 确定媒体类型emoji和类型名称
+    category = vars.get('category', '未知')
+    if category == '电影':
+        type_emoji = '🎬'
+        type_name = '电影'
+    elif category == '剧集':
+        type_emoji = '📺'
+        type_name = '剧集'
+    elif category == '动漫':
+        type_emoji = '🎌'
+        type_name = '动漫'
+    else:
+        type_emoji = '📀'
+        type_name = category if category and category != '未知类别' else '影视'
+    
+    # 构建标题
+    title_text = vars.get('title', '未知')
+    if vars.get('year'):
+        title_text += f" ({vars['year']})"
+    if vars.get('season_episode'):
+        title_text += f" {vars['season_episode']}"
+    
+    # 构建消息
+    lines = []
+    
+    # 标题行
+    lines.append(f"{type_emoji} <b>新入库 {type_name}</b> {title_text}")
+    lines.append("")
+    
+    # 信息区域
+    info_lines = []
+    info_lines.append(f"📚 <b>类型：</b>{type_name}")
+    
+    if vars.get('vote_average'):
+        try:
+            rating = float(vars['vote_average'])
+            if rating > 0:
+                info_lines.append(f"⭐ <b>评分：</b>{rating}")
+        except:
+            pass
+    
+    if vars.get('tmdb_id'):
+        info_lines.append(f"🎬 <b>TMDB ID：</b>{vars['tmdb_id']}")
+    
+    if vars.get('resource_quality'):
+        info_lines.append(f"📽 <b>画质：</b>{vars['resource_quality']}")
+    
+    if vars.get('total_size'):
+        # total_size 可能是数字（字节）或字符串（如 "2.35GB"）
+        size = vars['total_size']
+        if isinstance(size, str):
+            # 已经是格式化的字符串，直接使用
+            info_lines.append(f"💾 <b>大小：</b>{size}")
+        elif isinstance(size, (int, float)) and size > 0:
+            if size >= 1024 * 1024 * 1024:
+                size_str = f"{size / (1024 * 1024 * 1024):.2f} GB"
+            elif size >= 1024 * 1024:
+                size_str = f"{size / (1024 * 1024):.2f} MB"
+            else:
+                size_str = f"{size / 1024:.2f} KB"
+            info_lines.append(f"💾 <b>大小：</b>{size_str}")
+    
+    # 入库时间
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    info_lines.append(f"🕐 <b>时间：</b>{current_time}")
+    
+    lines.extend(info_lines)
+    
+    # 简介（如果有且不是默认的"暂无简介"）
+    overview = vars.get('overview', '')
+    if overview and overview != '暂无简介' and len(overview) > 10:
+        lines.append("")
+        # 截断过长的简介
+        if len(overview) > 200:
+            overview = overview[:200] + "..."
+        lines.append(f"📝 {overview}")
+    
+    return '\n'.join(lines)
+
+
+def log_user_activity(action_type, user=None, user_tg=None, user_name=None, detail=None, status='success', extra_data=None):
+    """
+    记录用户操作日志
+    
+    参数:
+        action_type: 操作类型（使用 UserActivityLog.ACTION_* 常量）
+        user: User 对象（可选，如果提供会自动获取 tg 和 name）
+        user_tg: 用户 TG ID（如果没有 user 对象时使用）
+        user_name: 用户名（如果没有 user 对象时使用）
+        detail: 操作详情（字符串或字典，字典会转为JSON）
+        status: 操作状态 'success' 或 'failed'
+        extra_data: 额外数据（字典，会转为JSON）
+    
+    用法示例:
+        # 使用 user 对象
+        log_user_activity(UserActivityLog.ACTION_LOGIN, user=current_user, detail='网页登录')
+        
+        # 使用 tg 和 name
+        log_user_activity(UserActivityLog.ACTION_REQUEST_MOVIE, user_tg=123456, user_name='张三', 
+                         detail={'movie': '复仇者联盟', 'tmdb_id': 12345})
+    """
+    import json
+    
+    try:
+        # 获取用户信息
+        tg = None
+        name = None
+        
+        if user:
+            tg = user.tg
+            name = user.name
+        else:
+            tg = user_tg
+            name = user_name
+        
+        # 处理 detail
+        if isinstance(detail, dict):
+            detail_str = json.dumps(detail, ensure_ascii=False)
+        else:
+            detail_str = str(detail) if detail else None
+        
+        # 处理 extra_data
+        if isinstance(extra_data, dict):
+            extra_str = json.dumps(extra_data, ensure_ascii=False)
+        else:
+            extra_str = None
+        
+        # 获取请求信息
+        ip_address = None
+        user_agent = None
+        try:
+            if request:
+                ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+                if ip_address and ',' in ip_address:
+                    ip_address = ip_address.split(',')[0].strip()
+                user_agent = request.headers.get('User-Agent', '')[:500]
+        except RuntimeError:
+            # 不在请求上下文中
+            pass
+        
+        # 创建日志记录
+        log = UserActivityLog(
+            user_tg=tg,
+            user_name=name,
+            action_type=action_type,
+            action_detail=detail_str,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            status=status,
+            extra_data=extra_str
+        )
+        
+        db.session.add(log)
+        db.session.commit()
+        
+        app.logger.debug(f'记录用户操作: {action_type}, user={name}, status={status}')
+        return True
+        
+    except Exception as e:
+        app.logger.error(f'记录用户操作日志失败: {e}')
+        try:
+            db.session.rollback()
+        except:
+            pass
+        return False
+
+
+# 路由
+@app.route('/')
+def index():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    # 验证session_token
+    user = db.session.get(User, session['user_id'])
+    if not user or (user.session_token and session.get('session_token') != user.session_token):
+        session.pop('user_id', None)
+        session.pop('username', None)
+        session.pop('session_token', None)
+        return redirect(url_for('login'))
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/register', methods=['GET'])
+def register_page():
+    """注册页面"""
+    site_config = get_site_config()
+    register_mode = site_config.get('register_mode', 'open')
+    
+    # 如果注册已关闭，跳转到登录页
+    if register_mode == 'closed':
+        return redirect('/login?error=' + quote('注册功能已关闭'))
+    
+    invite_code = request.args.get('invite', '')
+    
+    # 如果是仅邀请注册模式但没有邀请码，跳转到登录页
+    if register_mode == 'invite' and not invite_code:
+        return redirect('/login?error=' + quote('注册需要邀请码'))
+    
+    return render_template('register.html', 
+                         invite_code=invite_code, 
+                         site_config=site_config,
+                         register_mode=register_mode)
+
+
+@app.route('/api/register', methods=['POST'])
+def register():
+    """用户注册 API"""
+    try:
+        # 检查注册模式
+        site_config = get_site_config()
+        register_mode = site_config.get('register_mode', 'open')
+        
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+        invite_code = data.get('invite_code', '').strip()
+        
+        # 如果注册已关闭，直接拒绝
+        if register_mode == 'closed':
+            return jsonify({'success': False, 'error': '注册功能已关闭'}), 403
+        
+        # 如果是仅邀请注册模式，必须提供邀请码
+        if register_mode == 'invite' and not invite_code:
+            return jsonify({'success': False, 'error': '仅邀请注册模式，必须提供邀请码'}), 403
+        
+        # 验证用户名
+        if not username or len(username) < 3 or len(username) > 20:
+            return jsonify({'success': False, 'error': '用户名长度必须在3-20个字符之间'}), 400
+        
+        import re
+        if not re.match(r'^[a-zA-Z0-9_]+$', username):
+            return jsonify({'success': False, 'error': '用户名只能包含字母、数字、下划线'}), 400
+        
+        # 验证密码
+        if not password or len(password) < 6 or len(password) > 32:
+            return jsonify({'success': False, 'error': '密码长度必须在6-32个字符之间'}), 400
+        
+        # 检查用户名是否已存在
+        existing_user = User.query.filter_by(name=username).first()
+        if existing_user:
+            return jsonify({'success': False, 'error': '用户名已被使用'}), 400
+        
+        # 生成唯一的 tg ID（使用时间戳 + 随机数）
+        import random
+        new_tg = int(datetime.now().timestamp() * 1000) + random.randint(1000, 9999)
+        
+        # 确保 tg ID 不重复
+        while db.session.get(User, new_tg):
+            new_tg = int(datetime.now().timestamp() * 1000) + random.randint(1000, 9999)
+        
+        # 处理邀请码
+        inviter = None
+        if invite_code:
+            # 查找邀请人（通过邀请码）
+            # 邀请码是基于用户 tg ID 生成的 MD5 前8位
+            for user in User.query.filter(User.lv.in_(['a', 'b'])).all():
+                expected_code = hashlib.md5(f'{user.tg}_invite'.encode()).hexdigest()[:8].upper()
+                if expected_code == invite_code.upper():
+                    inviter = user
+                    break
+            
+            # 如果填写了邀请码但找不到对应的邀请人，返回错误
+            if not inviter:
+                return jsonify({'success': False, 'error': '邀请码无效，请检查后重试或留空直接注册'}), 400
+        
+        # 创建新用户
+        new_user = User(
+            tg=new_tg,
+            name=username,
+            pwd=password,
+            lv='b',  # 注册用户等级为 B
+            cr=datetime.now(),
+            ex=None,  # 新用户不赠送时间
+            us=1,
+            iv=0,
+            ch=None
+        )
+        
+        db.session.add(new_user)
+        
+        # 先提交用户记录，确保外键约束满足
+        db.session.flush()
+        
+        # 如果有邀请人，只记录邀请关系（奖励在被邀请人购买时发放）
+        if inviter:
+            invite_record = InviteRecord(
+                inviter_tg=inviter.tg,
+                invitee_tg=new_tg,
+                invite_code=invite_code.upper(),
+                reward_type='pending',  # 待发放，等被邀请人购买时再奖励
+                reward_value=0,
+                reward_claimed=False
+            )
+            db.session.add(invite_record)
+            
+            # 增加邀请人的邀请计数
+            inviter.iv = (inviter.iv or 0) + 1
+            
+            app.logger.info(f'用户 {username} 通过邀请码 {invite_code} 注册，邀请人: {inviter.name}')
+        
+        db.session.commit()
+        
+        app.logger.info(f'新用户注册成功: {username} (tg={new_tg})')
+        
+        # 记录注册日志
+        log_user_activity(UserActivityLog.ACTION_REGISTER, user=new_user, 
+                         detail={'invite_code': invite_code, 'inviter': inviter.name if inviter else None})
+        
+        # 如果使用了邀请码，记录邀请码使用日志
+        if inviter:
+            log_user_activity(UserActivityLog.ACTION_INVITE_USED, user=new_user,
+                             detail={'inviter_tg': inviter.tg, 'inviter_name': inviter.name, 'invite_code': invite_code})
+        
+        return jsonify({
+            'success': True,
+            'message': '注册成功！',
+            'user': {
+                'username': username,
+                'level': 'b',
+                'expire_date': new_user.ex.strftime('%Y-%m-%d') if new_user.ex else None
+            }
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'注册失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '注册失败，请稍后重试'}), 500
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        
+        # 通过name字段查找用户
+        user = User.query.filter_by(name=username).first()
+        
+        # 验证密码（只验证网站密码pwd，不验证Emby密码pwd2）
+        if user and user.pwd == password:
+            # 检查用户是否激活且未过期
+            if not user.is_active:
+                app.logger.warning(f'用户 {username} 登录失败: 账户已过期或被禁用')
+                log_user_activity(UserActivityLog.ACTION_LOGIN, user=user, detail='账户已过期或被禁用', status='failed')
+                return jsonify({'success': False, 'error': '账户已过期或被禁用'}), 401
+            
+            # 生成新的session_token
+            import secrets
+            new_token = secrets.token_hex(32)
+            user.session_token = new_token
+            db.session.commit()
+            
+            session['user_id'] = user.tg
+            session['username'] = user.name
+            session['is_admin'] = user.is_admin
+            session['user_level'] = user.lv
+            session['session_token'] = new_token  # 存储token到session
+            app.logger.info(f'用户 {username} 登录成功')
+            log_user_activity(UserActivityLog.ACTION_LOGIN, user=user, detail='网页登录成功')
+            return jsonify({'success': True, 'redirect': url_for('dashboard')}), 200
+        else:
+            app.logger.warning(f'登录失败: 用户名={username}')
+            log_user_activity(UserActivityLog.ACTION_LOGIN, user_name=username, detail='用户名或密码错误', status='failed')
+            return jsonify({'success': False, 'error': '用户名或密码错误'}), 401
+    
+    site_config = get_site_config()
+    register_mode = site_config.get('register_mode', 'open')
+    error_message = request.args.get('error', '')
+    
+    return render_template('login.html', 
+                         site_config=site_config, 
+                         register_mode=register_mode,
+                         error_message=error_message)
+
+
+@app.route('/logout')
+def logout():
+    user_id = session.get('user_id')
+    username = session.get('username')
+    if user_id:
+        log_user_activity(UserActivityLog.ACTION_LOGOUT, user_tg=user_id, user_name=username, detail='网页登出')
+    # 只清除用户相关的session，保留管理员session
+    session.pop('user_id', None)
+    session.pop('username', None)
+    session.pop('user_logged_in', None)
+    session.pop('session_token', None)
+    return redirect(url_for('login'))
+
+
+@app.route('/forgot-password')
+def forgot_password_page():
+    """忘记密码页面"""
+    site_config = get_site_config()
+    return render_template('forgot_password.html', site_config=site_config)
+
+
+# ==================== 修改密码功能 ====================
+
+@app.route('/api/account/change-password', methods=['POST'])
+@login_required
+def change_password():
+    """修改用户密码"""
+    try:
+        data = request.get_json()
+        current_password = data.get('current_password', '').strip()
+        new_password = data.get('new_password', '').strip()
+        
+        if not current_password or not new_password:
+            return jsonify({'success': False, 'error': '请填写完整的密码信息'}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({'success': False, 'error': '新密码至少需要6个字符'}), 400
+        
+        user = db.session.get(User, session['user_id'])
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        # 验证当前密码
+        if user.pwd != current_password and user.pwd2 != current_password:
+            return jsonify({'success': False, 'error': '当前密码不正确'}), 400
+        
+        # 更新密码和session_token
+        user.pwd = new_password
+        import secrets
+        user.session_token = secrets.token_hex(32)  # 更新token使其他会话失效
+        db.session.commit()
+        
+        app.logger.info(f'用户密码已修改: {user.name} (tg={user.tg})')
+        log_user_activity(UserActivityLog.ACTION_PASSWORD_CHANGE, user=user, detail='修改登录密码')
+        
+        # 密码修改成功后，清除当前用户session，强制重新登录
+        session.pop('user_id', None)
+        session.pop('username', None)
+        session.pop('user_logged_in', None)
+        session.pop('session_token', None)
+        
+        return jsonify({'success': True, 'message': '密码修改成功，请重新登录', 'require_relogin': True}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'修改密码失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '修改密码失败，请稍后重试'}), 500
+
+
+# ==================== 忘记密码功能 ====================
+
+@app.route('/api/account/forgot-password', methods=['POST'])
+def forgot_password():
+    """忘记密码 - 发送验证码到用户绑定的 Telegram"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        
+        if not username:
+            return jsonify({'success': False, 'error': '请输入用户名'}), 400
+        
+        # 查找用户
+        user = User.query.filter_by(name=username).first()
+        if not user:
+            # 为了安全，不透露用户是否存在
+            return jsonify({'success': False, 'error': '用户名不存在或未绑定 Telegram'}), 400
+        
+        # 检查用户是否绑定了 Telegram
+        if not user.telegram_id:
+            return jsonify({'success': False, 'error': '该账号未绑定 Telegram，无法重置密码'}), 400
+        
+        # 检查是否频繁请求（1分钟内只能请求一次）
+        if username in PASSWORD_RESET_CODES:
+            existing = PASSWORD_RESET_CODES[username]
+            if existing.get('created_at') and (datetime.now() - existing['created_at']).total_seconds() < 60:
+                remaining = 60 - int((datetime.now() - existing['created_at']).total_seconds())
+                return jsonify({'success': False, 'error': f'请求过于频繁，请 {remaining} 秒后重试'}), 429
+        
+        # 生成4位数字验证码
+        import random
+        verify_code = str(random.randint(1000, 9999))
+        
+        # 存储验证码（5分钟有效）
+        PASSWORD_RESET_CODES[username] = {
+            'code': verify_code,
+            'telegram_id': user.telegram_id,
+            'user_tg': user.tg,
+            'created_at': datetime.now(),
+            'expires_at': datetime.now() + timedelta(minutes=5)
+        }
+        
+        # 发送验证码到用户的 Telegram
+        message = f"""🔐 <b>密码重置验证码</b>
+
+您正在重置账号 <code>{username}</code> 的密码
+
+验证码：<code>{verify_code}</code>
+
+⏰ 有效期：5分钟
+⚠️ 请勿将验证码告知他人
+
+如非本人操作，请忽略此消息。"""
+        
+        # 发送私聊消息
+        send_result = send_telegram_private_message(user.telegram_id, message)
+        
+        if send_result:
+            # 隐藏部分 Telegram ID 显示
+            tg_id_str = str(user.telegram_id)
+            masked_tg = tg_id_str[:3] + '****' + tg_id_str[-2:] if len(tg_id_str) > 5 else '****'
+            
+            app.logger.info(f'忘记密码验证码已发送: 用户={username}')
+            return jsonify({
+                'success': True, 
+                'message': f'验证码已发送到您的 Telegram（{masked_tg}）',
+                'expires_in': 300  # 5分钟
+            }), 200
+        else:
+            # 发送失败
+            del PASSWORD_RESET_CODES[username]
+            return jsonify({'success': False, 'error': '验证码发送失败，请确保您已与机器人私聊过'}), 500
+        
+    except Exception as e:
+        app.logger.error(f'忘记密码请求失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '请求失败，请稍后重试'}), 500
+
+
+@app.route('/api/account/reset-password', methods=['POST'])
+def reset_password():
+    """重置密码 - 验证验证码并设置新密码"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        code = data.get('code', '').strip()
+        new_password = data.get('new_password', '').strip()
+        
+        if not username or not code or not new_password:
+            return jsonify({'success': False, 'error': '请填写完整信息'}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({'success': False, 'error': '新密码至少需要6个字符'}), 400
+        
+        # 检查验证码
+        if username not in PASSWORD_RESET_CODES:
+            return jsonify({'success': False, 'error': '验证码无效或已过期，请重新获取'}), 400
+        
+        reset_data = PASSWORD_RESET_CODES[username]
+        
+        # 检查是否过期
+        if datetime.now() > reset_data['expires_at']:
+            del PASSWORD_RESET_CODES[username]
+            return jsonify({'success': False, 'error': '验证码已过期，请重新获取'}), 400
+        
+        # 验证码匹配
+        if reset_data['code'] != code:
+            return jsonify({'success': False, 'error': '验证码错误'}), 400
+        
+        # 查找用户并更新密码
+        user = User.query.filter_by(name=username).first()
+        if not user:
+            del PASSWORD_RESET_CODES[username]
+            return jsonify({'success': False, 'error': '用户不存在'}), 400
+        
+        # 更新密码和session_token
+        import secrets
+        user.pwd = new_password
+        user.session_token = secrets.token_hex(32)  # 使其他会话失效
+        db.session.commit()
+        
+        # 删除验证码
+        del PASSWORD_RESET_CODES[username]
+        
+        app.logger.info(f'密码重置成功: 用户={username}')
+        log_user_activity(UserActivityLog.ACTION_PASSWORD_RESET, user=user, detail='通过 Telegram 验证重置密码')
+        
+        # 发送通知到 Telegram
+        notify_message = f"""✅ <b>密码重置成功</b>
+
+您的账号 <code>{username}</code> 密码已成功重置。
+
+如非本人操作，请立即联系管理员！"""
+        send_telegram_private_message(user.telegram_id, notify_message)
+        
+        return jsonify({'success': True, 'message': '密码重置成功，请使用新密码登录'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'密码重置失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '密码重置失败，请稍后重试'}), 500
+
+
+def send_telegram_private_message(telegram_id, message):
+    """发送 Telegram 私聊消息"""
+    if not TELEGRAM_BOT_TOKEN:
+        return False
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            'chat_id': telegram_id,
+            'text': message,
+            'parse_mode': 'HTML'
+        }
+        response = PROXY_SESSION.post(url, json=payload, timeout=10)
+        data = response.json()
+        if data.get('ok'):
+            return True
+        else:
+            app.logger.warning(f'Telegram 消息发送失败: {data}')
+            return False
+    except Exception as e:
+        app.logger.error(f'发送 Telegram 消息异常: {e}')
+        return False
+
+
+@app.route('/api/account/change-emby-password', methods=['POST'])
+@login_required
+def change_emby_password():
+    """修改 Emby 账号密码（独立于网站登录密码）"""
+    try:
+        data = request.get_json()
+        current_password = data.get('current_password', '').strip()
+        new_password = data.get('new_password', '').strip()
+        
+        if not current_password or not new_password:
+            return jsonify({'success': False, 'error': '请填写完整的密码信息'}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({'success': False, 'error': '新密码至少需要6个字符'}), 400
+        
+        user = db.session.get(User, session['user_id'])
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        # 检查是否已绑定 Emby 账号
+        if not user.embyid:
+            return jsonify({'success': False, 'error': '您还未绑定 Emby 账号'}), 400
+        
+        # 检查 Emby 服务器配置
+        if not emby_client.is_enabled():
+            return jsonify({'success': False, 'error': 'Emby 服务器未配置'}), 500
+        
+        # 调用 Emby API 修改密码
+        success, message = emby_client.change_user_password(user.embyid, current_password, new_password)
+        
+        if success:
+            # 同步更新本地存储的 Emby 密码
+            user.pwd2 = new_password
+            db.session.commit()
+            
+            app.logger.info(f'Emby 密码已修改: {user.name} (embyid={user.embyid})')
+            log_user_activity(UserActivityLog.ACTION_PASSWORD_CHANGE, user=user, detail='修改Emby密码')
+            return jsonify({'success': True, 'message': 'Emby 密码修改成功'}), 200
+        else:
+            return jsonify({'success': False, 'error': message}), 400
+        
+    except Exception as e:
+        app.logger.error(f'修改 Emby 密码失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '修改密码失败，请稍后重试'}), 500
+
+
+# ==================== Emby 账号绑定/创建 API ====================
+@app.route('/api/emby/check-bindable', methods=['GET'])
+@login_required
+def check_emby_bindable():
+    """检查当前用户是否需要绑定/创建 Emby 账号"""
+    try:
+        user = db.session.get(User, session['user_id'])
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        # 检查是否已有 Emby 账号
+        has_emby = bool(user.embyid and user.name)
+        
+        # 检查是否有有效订阅（白名单或订阅未过期）
+        is_whitelist = user.lv == 'a'
+        has_valid_subscription = user.ex and user.ex > datetime.now()
+        
+        # 新建账号需要有效订阅，绑定已有账号不需要
+        can_create = is_whitelist or has_valid_subscription  # 是否可以新建账号
+        can_bind = True  # 任何用户都可以绑定已有账号
+        
+        return jsonify({
+            'success': True,
+            'has_emby_account': has_emby,
+            'emby_username': user.name if has_emby else None,
+            'emby_id': user.embyid if has_emby else None,
+            'user_level': user.lv,
+            'is_active': user.is_active,
+            'can_create': can_create,  # 是否可以新建账号（需要有效订阅）
+            'can_bind': can_bind,  # 是否可以绑定已有账号（任何用户）
+            'can_bindable': can_create,  # 兼容旧字段，用于新建账号
+            'is_whitelist': is_whitelist,
+            'has_valid_subscription': has_valid_subscription
+        }), 200
+    except Exception as e:
+        app.logger.error(f'检查 Emby 绑定状态失败: {e}')
+        return jsonify({'success': False, 'error': '检查失败'}), 500
+
+
+@app.route('/api/emby/check-username', methods=['POST'])
+@login_required
+def check_emby_username():
+    """检查 Emby 用户名是否可用"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        
+        if not username:
+            return jsonify({'success': False, 'error': '请输入用户名'}), 400
+        
+        if len(username) < 3 or len(username) > 20:
+            return jsonify({'success': False, 'error': '用户名长度必须在3-20个字符之间'}), 400
+        
+        current_user_id = session.get('user_id')
+        
+        # 检查本地数据库是否已使用（排除当前用户自己）
+        existing = User.query.filter_by(name=username).first()
+        if existing and existing.tg != current_user_id:
+            return jsonify({
+                'success': True,
+                'available': False,
+                'message': '该用户名已被其他用户使用'
+            }), 200
+        
+        # 检查 Emby 服务器是否已存在
+        if emby_client.is_enabled():
+            emby_user = emby_client.get_user_by_name(username)
+            if emby_user:
+                return jsonify({
+                    'success': True,
+                    'available': False,
+                    'exists_in_emby': True,
+                    'message': 'Emby 中已存在此用户名，您可以选择绑定'
+                }), 200
+        
+        return jsonify({
+            'success': True,
+            'available': True,
+            'message': '用户名可用'
+        }), 200
+    except Exception as e:
+        app.logger.error(f'检查 Emby 用户名失败: {e}')
+        return jsonify({'success': False, 'error': '检查失败'}), 500
+
+
+@app.route('/api/emby/bind', methods=['POST'])
+@login_required
+def bind_emby_account():
+    """绑定现有的 Emby 账号（需要验证密码）- 任何用户都可以绑定"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        
+        if not username or not password:
+            return jsonify({'success': False, 'error': '请输入用户名和密码'}), 400
+        
+        user = db.session.get(User, session['user_id'])
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        # 绑定已有账号不需要检查订阅，任何用户都可以绑定
+        
+        # 检查是否已绑定
+        if user.embyid:
+            return jsonify({'success': False, 'error': '您已绑定 Emby 账号，无法重复绑定'}), 400
+        
+        # 检查 Emby 服务器配置
+        if not emby_client.is_enabled():
+            return jsonify({'success': False, 'error': 'Emby 服务器未配置'}), 500
+        
+        # 验证 Emby 账号密码
+        auth_result = emby_client.authenticate_user(username, password)
+        if not auth_result.get('success'):
+            # 返回详细的错误信息（账号不存在 or 密码错误）
+            error_msg = auth_result.get('error', 'Emby 验证失败')
+            app.logger.warning(f'Emby 绑定失败: {username}, 错误: {error_msg}')
+            return jsonify({'success': False, 'error': error_msg}), 400
+        
+        emby_id = auth_result.get('id')
+        emby_name = auth_result.get('name')
+        
+        # 检查该 Emby 账号是否已被其他用户绑定（其他 tg 账号）
+        existing_bind = User.query.filter_by(embyid=emby_id).first()
+        if existing_bind and existing_bind.tg != user.tg:
+            return jsonify({'success': False, 'error': '该 Emby 账号已被其他用户绑定'}), 400
+        
+        # 查找数据库中是否有该 Emby 用户名的记录（通过 EmbyBoss 创建的老用户）
+        # 这样可以继承原有的等级和订阅信息
+        existing_emby_user = User.query.filter_by(name=username).first()
+        
+        app.logger.info(f'查找用户名 {username} 的记录: {existing_emby_user}')
+        if existing_emby_user:
+            app.logger.info(f'找到记录: tg={existing_emby_user.tg}, lv={existing_emby_user.lv}, ex={existing_emby_user.ex}')
+        
+        inherited_info = None
+        # 如果找到记录，获取等级信息
+        if existing_emby_user and existing_emby_user.lv in ['a', 'b', 'c']:
+            inherited_info = {
+                'lv': existing_emby_user.lv,
+                'ex': existing_emby_user.ex,
+                'cr': existing_emby_user.cr,
+                'iv': existing_emby_user.iv,
+            }
+            app.logger.info(f'将继承用户等级: {username}, lv={existing_emby_user.lv}')
+        
+        # 绑定账号（网站密码和Emby密码独立）
+        user.embyid = emby_id
+        user.name = emby_name
+        user.pwd2 = password  # 保存 Emby 密码到 pwd2 字段
+        
+        # 如果找到了原有记录，继承等级和订阅信息
+        if inherited_info:
+            user.lv = inherited_info['lv']
+            user.ex = inherited_info['ex']
+            user.cr = inherited_info['cr'] or user.cr
+            user.iv = inherited_info['iv'] or 0
+            app.logger.info(f'用户 {user.tg} 继承 Emby 账号 {emby_name} 的等级: lv={user.lv}, ex={user.ex}')
+        else:
+            # 没有找到原有记录，设置为默认 B 级（普通注册用户）
+            if user.lv == 'd':  # 只有当前是"无账号"状态才升级
+                user.lv = 'b'
+                app.logger.info(f'用户 {user.tg} 绑定新账号，设置为 B 级普通用户')
+        
+        db.session.commit()
+        
+        # 更新 session
+        session['username'] = emby_name
+        
+        # 返回等级信息
+        level_names = {'a': '白名单用户', 'b': '普通用户', 'c': '已禁用', 'd': '无账号'}
+        level_name = level_names.get(user.lv, '未知')
+        if user.lv == 'b' and user.ex and user.ex > datetime.now():
+            level_name = '订阅用户'
+        
+        app.logger.info(f'用户 {user.tg} 绑定 Emby 账号成功: {emby_name} (ID: {emby_id}), 等级: {level_name}')
+        
+        return jsonify({
+            'success': True,
+            'message': f'Emby 账号绑定成功，您的等级为：{level_name}',
+            'emby_username': emby_name,
+            'emby_id': emby_id,
+            'level': user.lv,
+            'level_name': level_name,
+            'expire_time': user.ex.strftime('%Y-%m-%d %H:%M') if user.ex else None
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'绑定 Emby 账号失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '绑定失败，请稍后重试'}), 500
+
+
+@app.route('/api/emby/unbind', methods=['POST'])
+@login_required
+def unbind_emby_account():
+    """解绑 Emby 账号（仅解除关联，不删除 Emby 账号）"""
+    try:
+        data = request.get_json()
+        password = data.get('password', '').strip()
+        
+        if not password:
+            return jsonify({'success': False, 'error': '请输入当前密码以确认解绑'}), 400
+        
+        user = db.session.get(User, session['user_id'])
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        # 检查是否已绑定 Emby
+        if not user.embyid:
+            return jsonify({'success': False, 'error': '您尚未绑定 Emby 账号'}), 400
+        
+        # 验证密码
+        if user.pwd != password:
+            return jsonify({'success': False, 'error': '密码错误'}), 401
+        
+        old_emby_name = user.name
+        old_emby_id = user.embyid
+        
+        # 解除绑定（保留 Emby 账号，仅清除本地关联）
+        user.embyid = None
+        user.name = None
+        
+        db.session.commit()
+        
+        # 更新 session
+        session.pop('username', None)
+        
+        app.logger.info(f'用户 {user.tg} 解绑 Emby 账号成功: {old_emby_name} (ID: {old_emby_id})')
+        
+        return jsonify({
+            'success': True,
+            'message': 'Emby 账号解绑成功',
+            'old_emby_username': old_emby_name
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'解绑 Emby 账号失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '解绑失败，请稍后重试'}), 500
+
+
+@app.route('/api/emby/create', methods=['POST'])
+@login_required
+def create_emby_account():
+    """创建新的 Emby 账号"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        
+        if not username or not password:
+            return jsonify({'success': False, 'error': '请输入用户名和密码'}), 400
+        
+        if len(username) < 3 or len(username) > 20:
+            return jsonify({'success': False, 'error': '用户名长度必须在3-20个字符之间'}), 400
+        
+        if len(password) < 6:
+            return jsonify({'success': False, 'error': '密码至少需要6个字符'}), 400
+        
+        import re
+        if not re.match(r'^[a-zA-Z0-9_]+$', username):
+            return jsonify({'success': False, 'error': '用户名只能包含字母、数字、下划线'}), 400
+        
+        user = db.session.get(User, session['user_id'])
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        # 检查用户是否有有效订阅（白名单用户或订阅未过期）
+        is_whitelist = user.lv == 'a'
+        has_valid_subscription = user.ex and user.ex > datetime.now()
+        
+        if not is_whitelist and not has_valid_subscription:
+            return jsonify({'success': False, 'error': '需要有效订阅才能创建Emby账号，请先购买订阅'}), 403
+        
+        # 检查是否已绑定
+        if user.embyid:
+            return jsonify({'success': False, 'error': '您已有 Emby 账号，无法重复创建'}), 400
+        
+        # 检查 Emby 服务器配置
+        if not emby_client.is_enabled():
+            return jsonify({'success': False, 'error': 'Emby 服务器未配置'}), 500
+        
+        # 检查本地数据库用户名
+        existing = User.query.filter(User.name == username, User.tg != user.tg).first()
+        if existing:
+            return jsonify({'success': False, 'error': '该用户名已被使用'}), 400
+        
+        # 检查 Emby 用户名是否存在
+        if not emby_client.check_username_available(username):
+            return jsonify({'success': False, 'error': 'Emby 中已存在此用户名'}), 400
+        
+        # 创建 Emby 账号
+        create_result = emby_client.create_user(username, password)
+        if not create_result:
+            return jsonify({'success': False, 'error': '创建 Emby 账号失败'}), 500
+        
+        emby_id = create_result.get('id')
+        emby_name = create_result.get('name')
+        
+        # 更新本地用户信息
+        user.embyid = emby_id
+        user.name = emby_name
+        user.pwd2 = password  # 保存 Emby 密码到 pwd2 字段（网站密码保持不变）
+        
+        db.session.commit()
+        
+        # 更新 session
+        session['username'] = emby_name
+        
+        app.logger.info(f'用户 {user.tg} 创建 Emby 账号成功: {emby_name} (ID: {emby_id})')
+        
+        return jsonify({
+            'success': True,
+            'message': 'Emby 账号创建成功',
+            'emby_username': emby_name,
+            'emby_id': emby_id
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'创建 Emby 账号失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '创建失败，请稍后重试'}), 500
+
+
+@app.route('/api/account/delete', methods=['DELETE'])
+@login_required
+def delete_account():
+    """删除用户账号"""
+    try:
+        user = db.session.get(User, session['user_id'])
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        # 管理员账号不能删除
+        if user.is_admin:
+            return jsonify({'success': False, 'error': '管理员账号不能删除'}), 403
+        
+        user_name = user.name
+        user_tg = user.tg
+        
+        # 删除用户相关数据（与管理员删除用户保持一致）
+        # 1. 删除播放记录
+        PlaybackRecord.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+        
+        # 2. 删除用户设备
+        UserDevice.query.filter_by(user_tg=user_tg).delete()
+        
+        # 3. 删除订阅记录
+        Subscription.query.filter_by(user_tg=user_tg).delete()
+        
+        # 4. 删除订单记录
+        Order.query.filter_by(user_tg=user_tg).delete()
+        
+        # 5. 删除下载任务（先删除，因为有外键引用 movie_requests）
+        request_ids = [r.id for r in MovieRequest.query.filter_by(user_tg=user_tg).all()]
+        if request_ids:
+            DownloadTask.query.filter(DownloadTask.request_id.in_(request_ids)).delete(synchronize_session=False)
+        
+        # 6. 删除求片记录
+        MovieRequest.query.filter_by(user_tg=user_tg).delete()
+        
+        # 7. 删除用户工单（先删除工单消息）
+        ticket_ids = [t.id for t in SupportTicket.query.filter_by(user_tg=user_tg).all()]
+        if ticket_ids:
+            TicketMessage.query.filter(TicketMessage.ticket_id.in_(ticket_ids)).delete(synchronize_session=False)
+        SupportTicket.query.filter_by(user_tg=user_tg).delete()
+        
+        # 8. 删除邀请记录（作为邀请人或被邀请人）
+        InviteRecord.query.filter(
+            (InviteRecord.inviter_tg == user_tg) | (InviteRecord.invitee_tg == user_tg)
+        ).delete(synchronize_session=False)
+        
+        # 9. 删除用户活动日志
+        UserActivityLog.query.filter_by(user_tg=user_tg).delete()
+        
+        # 10. 删除签到记录
+        CheckInRecord.query.filter_by(user_tg=user_tg).delete()
+        
+        # 11. 删除积分交易记录
+        CoinTransaction.query.filter_by(user_tg=user_tg).delete()
+        
+        # 12. 删除兑换记录
+        ExchangeRecord.query.filter_by(user_tg=user_tg).delete()
+        
+        # 13. 清除兑换码使用者引用（不删除兑换码本身）
+        RedeemCode.query.filter_by(used_by=user_tg).update({'used_by': None}, synchronize_session=False)
+        
+        # 最后删除用户
+        db.session.delete(user)
+        
+        db.session.commit()
+        
+        # 清除会话
+        session.clear()
+        
+        app.logger.info(f'用户账号已删除: {user_name} (tg={user_tg})')
+        
+        return jsonify({'success': True, 'message': '账号已删除'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'删除账号失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '删除失败，请稍后重试'}), 500
+
+
+@app.route('/manifest.json')
+def dynamic_manifest():
+    """动态生成PWA manifest，使用后台配置的Logo"""
+    site_config = get_site_config()
+    site_logo = site_config.get('site_logo') or '/static/logo.png'
+    site_name = site_config.get('site_name') or 'Emby求片系统'
+    site_title = site_config.get('site_title') or site_name
+    
+    manifest = {
+        "name": site_title,
+        "short_name": site_name,
+        "description": f"{site_name} - 搜索、收藏、请求您喜欢的电影和剧集",
+        "start_url": "/dashboard",
+        "display": "standalone",
+        "background_color": "#f0f4f8",
+        "theme_color": "#667eea",
+        "orientation": "portrait-primary",
+        "icons": [
+            {
+                "src": site_logo,
+                "sizes": "192x192",
+                "type": "image/png",
+                "purpose": "any maskable"
+            },
+            {
+                "src": site_logo,
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any maskable"
+            }
+        ],
+        "categories": ["entertainment", "utilities"],
+        "lang": "zh-CN",
+        "dir": "ltr"
+    }
+    
+    response = app.response_class(
+        response=json.dumps(manifest, ensure_ascii=False),
+        status=200,
+        mimetype='application/manifest+json'
+    )
+    return response
+
+
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    user = db.session.get(User, session['user_id'])
+    
+    if not user:
+        session.clear()
+        return redirect(url_for('login'))
+    
+    # 检查用户是否被封禁
+    is_banned = user.lv == 'c'
+    
+    today_count = user.get_today_request_count()
+    
+    # 管理员显示无限制
+    if user.is_admin:
+        daily_limit = '无限制'
+        remaining = '无限制'
+    else:
+        daily_limit = user.get_daily_limit()
+        remaining = daily_limit - today_count
+    
+    # 优化：使用单个查询获取求片记录和总数
+    requests_query = MovieRequest.query.options(joinedload(MovieRequest.download_task)).filter_by(user_tg=user.tg).order_by(MovieRequest.created_at.desc())
+    requests = requests_query.limit(100).all()  # 限制返回数量，提升性能
+    total_requests = requests_query.count()
+    
+    # 用户等级显示名称 - 根据实际订阅状态判断
+    if user.lv == 'c':
+        level_name = '账号已封禁'
+    elif user.lv == 'a':
+        level_name = '白名单用户'
+    elif user.ex and user.ex > datetime.now():
+        level_name = '订阅用户'
+    else:
+        level_name = '未订阅用户'
+    
+    # 检查用户是否已绑定 Telegram Bot
+    user_has_bot = bool(user.tg)
+    bot_username = os.getenv('BOT_USERNAME', 'YourBotUsername')
+    
+    # 获取Emby媒体库数量统计
+    library_counts = emby_client.get_library_counts() if emby_client.is_enabled() else {'movies': 0, 'series': 0, 'episodes': 0, 'total': 0}
+    
+    # 加载前端配置
+    site_config = get_site_config()
+    # 如果配置中设置了 bot_username，优先使用配置的值
+    if site_config.get('telegram_bot_username'):
+        bot_username = site_config['telegram_bot_username']
+    
+    # 根据配置决定是否使用图片代理
+    # 大陆用户建议开启代理，海外用户可关闭以加速
+    if site_config.get('use_image_proxy', True):
+        tmdb_image_base = '/api/tmdb-image/w500'
+    else:
+        tmdb_image_base = 'https://image.tmdb.org/t/p/w500'
+    
+    return render_template('dashboard.html', 
+                         user=user, 
+                         today_count=today_count, 
+                         remaining=remaining,
+                         max_daily=daily_limit,
+                         total_requests=total_requests,
+                         level_name=level_name,
+                         requests=requests,
+                         tmdb_image_base=tmdb_image_base,
+                         announcement_enabled=ANNOUNCEMENT_ENABLED,
+                         announcement_content=ANNOUNCEMENT_CONTENT,
+                         user_has_bot=user_has_bot,
+                         bot_username=bot_username,
+                         library_counts=library_counts,
+                         is_banned=is_banned,
+                         now=datetime.now(),
+                         site_config=site_config)
+
+
+@app.route('/search')
+@login_required
+def search():
+    query = request.args.get('q', '')
+    media_type = request.args.get('type', 'movie')
+    
+    if not query:
+        return jsonify({'results': []}), 200
+    
+    results = search_tmdb(query, media_type)
+    return jsonify(results), 200
+
+
+@app.route('/trending')
+@login_required
+def trending():
+    media_type = request.args.get('type', 'movie')
+    page = request.args.get('page', 1, type=int)
+    results = get_trending(media_type, page)
+    return jsonify(results), 200
+
+
+# TMDB 图片缓存目录
+TMDB_IMAGE_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'tmdb_cache')
+os.makedirs(TMDB_IMAGE_CACHE_DIR, exist_ok=True)
+
+@app.route('/api/tmdb-image/<path:image_path>')
+def proxy_tmdb_image(image_path):
+    """代理 TMDB 图片，带本地文件缓存"""
+    import hashlib
+    from flask import Response, send_file
+    
+    try:
+        # 生成缓存文件名
+        cache_key = hashlib.md5(image_path.encode()).hexdigest()
+        # 获取文件扩展名
+        ext = os.path.splitext(image_path)[1] or '.jpg'
+        cache_file = os.path.join(TMDB_IMAGE_CACHE_DIR, f"{cache_key}{ext}")
+        
+        # 检查缓存是否存在且未过期（7天）
+        if os.path.exists(cache_file):
+            file_age = time.time() - os.path.getmtime(cache_file)
+            if file_age < 7 * 86400:  # 7天内有效
+                # 直接返回缓存文件
+                content_type = 'image/jpeg' if ext in ['.jpg', '.jpeg'] else 'image/png'
+                return send_file(
+                    cache_file,
+                    mimetype=content_type,
+                    max_age=86400  # 浏览器缓存24小时
+                )
+        
+        # 构建 TMDB 图片 URL
+        tmdb_url = f"https://image.tmdb.org/t/p/{image_path}"
+        
+        # 通过代理获取图片（静默，不打日志）
+        response = PROXY_SESSION.get(tmdb_url, timeout=15)
+        
+        if response.status_code == 200:
+            # 保存到缓存
+            try:
+                with open(cache_file, 'wb') as f:
+                    f.write(response.content)
+            except Exception:
+                pass  # 缓存写入失败不影响返回
+            
+            # 获取内容类型
+            content_type = response.headers.get('Content-Type', 'image/jpeg')
+            
+            return Response(
+                response.content,
+                content_type=content_type,
+                headers={
+                    'Cache-Control': 'public, max-age=86400',
+                }
+            )
+        else:
+            return '', response.status_code
+            
+    except Exception as e:
+        # 只在真正出错时打日志，减少日志噪音
+        if 'timeout' not in str(e).lower():
+            app.logger.warning(f'TMDB图片代理失败: {image_path[:50]}... - {type(e).__name__}')
+        return '', 502
+
+
+@app.route('/api/check-emby-batch')
+@login_required
+def check_emby_batch():
+    """批量检查影片是否在Emby库中（带缓存，并发优化）
+    
+    对于剧集，返回格式: {'exists': True, 'is_complete': True/False}
+    对于电影，返回格式: True/False
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    tmdb_ids = request.args.get('ids', '').split(',')
+    media_type = request.args.get('type', 'movie')
+    
+    if not tmdb_ids or not emby_client.is_enabled():
+        return jsonify({'success': True, 'results': {}}), 200
+    
+    # 清理ID列表
+    tmdb_ids = [tid.strip() for tid in tmdb_ids[:20] if tid.strip()]
+    
+    def check_single(tmdb_id):
+        """检查单个影片"""
+        try:
+            emby_item = emby_client.search_by_tmdb_id(tmdb_id, media_type)
+            
+            if media_type == 'tv' and emby_item:
+                # 对于剧集，简化检查，只返回存在即可（详细检查在点击时做）
+                return tmdb_id, {'exists': True, 'is_complete': True}
+            else:
+                return tmdb_id, bool(emby_item)
+        except Exception as e:
+            app.logger.warning(f'Emby检查失败 TMDB:{tmdb_id}, error:{e}')
+            return tmdb_id, False
+    
+    results = {}
+    
+    # 使用线程池并发检查（最多5个并发）
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(check_single, tid): tid for tid in tmdb_ids}
+        for future in as_completed(futures, timeout=8):
+            try:
+                tmdb_id, result = future.result(timeout=3)
+                results[tmdb_id] = result
+            except Exception as e:
+                tmdb_id = futures[future]
+                results[tmdb_id] = False
+    
+    return jsonify({'success': True, 'results': results}), 200
+
+
+# ==================== 电视剧季/集信息接口 ====================
+@app.route('/api/tv/<int:tmdb_id>/seasons')
+@login_required
+def get_tv_seasons(tmdb_id):
+    """获取电视剧的季信息"""
+    result = get_tmdb_tv_seasons(tmdb_id)
+    if not result:
+        return jsonify({'success': False, 'error': '无法获取剧集信息'}), 400
+    return jsonify({'success': True, **result})
+
+
+@app.route('/api/tv/<int:tmdb_id>/season/<int:season_number>')
+@login_required
+def get_season_episodes(tmdb_id, season_number):
+    """获取指定季的剧集列表"""
+    result = get_tmdb_season_episodes(tmdb_id, season_number)
+    if not result:
+        return jsonify({'success': False, 'error': '无法获取剧集信息'}), 400
+    return jsonify({'success': True, **result})
+
+
+# ==================== Emby 库检查接口 ====================
+@app.route('/api/emby/check')
+@login_required
+def check_emby_library():
+    """检查 Emby 媒体库中是否存在指定影片"""
+    if not emby_client.is_enabled():
+        return jsonify({'success': False, 'error': 'Emby 未配置', 'enabled': False}), 400
+    
+    tmdb_id = request.args.get('tmdb_id')
+    name = request.args.get('name', '')
+    year = request.args.get('year')
+    media_type = request.args.get('type', 'movie')
+    
+    if not tmdb_id and not name:
+        return jsonify({'success': False, 'error': '缺少查询参数'}), 400
+    
+    result = emby_client.check_exists(tmdb_id, name, year, media_type)
+    
+    return jsonify({
+        'success': True,
+        'exists': result['exists'],
+        'item': {
+            'name': result['item'].get('Name') if result['item'] else None,
+            'year': result['item'].get('ProductionYear') if result['item'] else None,
+        } if result['item'] else None
+    })
+
+
+@app.route('/api/emby/sessions')
+@login_required
+def get_emby_sessions():
+    """获取当前用户的 Emby 播放会话，同时记录/更新设备信息和播放记录"""
+    if not emby_client.is_enabled():
+        return jsonify({'success': False, 'error': 'Emby 未配置', 'enabled': False}), 400
+    
+    user = db.session.get(User, session['user_id'])
+    if not user or not user.embyid:
+        return jsonify({'success': False, 'error': '用户未绑定 Emby 账号'}), 400
+    
+    # 获取该用户的会话
+    sessions = emby_client.get_user_sessions(user.embyid)
+    
+    # 记录/更新设备信息和播放记录
+    for s in sessions:
+        device_id = s.get('device_id')
+        if device_id:
+            try:
+                # 查找或创建设备记录
+                device = UserDevice.query.filter_by(
+                    user_tg=user.tg,
+                    device_id=device_id
+                ).first()
+                
+                if not device:
+                    device = UserDevice(
+                        user_tg=user.tg,
+                        device_id=device_id,
+                        device_name=s.get('device_name', '未知设备'),
+                        client=s.get('client', '未知'),
+                        client_version=s.get('app_version', ''),
+                        last_ip=s.get('remote_end_point', ''),
+                        last_active=datetime.now()
+                    )
+                    db.session.add(device)
+                    db.session.flush()  # 获取 device.id
+                else:
+                    # 更新设备信息
+                    device.device_name = s.get('device_name', device.device_name)
+                    device.client = s.get('client', device.client)
+                    device.client_version = s.get('app_version', device.client_version)
+                    device.last_ip = s.get('remote_end_point', device.last_ip)
+                    device.last_active = datetime.now()
+                
+                # 将数据库设备ID添加到会话数据中
+                s['db_device_id'] = device.id
+                s['is_blocked'] = device.is_blocked
+                
+                # 如果正在播放，记录播放记录
+                if s.get('is_playing') and s.get('now_playing'):
+                    now_playing = s['now_playing']
+                    emby_item_id = now_playing.get('id')
+                    
+                    if emby_item_id:
+                        # 检查是否已有这个播放记录（同一用户、同一设备、同一媒体，10分钟内）
+                        ten_mins_ago = datetime.now() - timedelta(minutes=10)
+                        existing_record = PlaybackRecord.query.filter(
+                            PlaybackRecord.user_tg == user.tg,
+                            PlaybackRecord.device_id == device.id,
+                            PlaybackRecord.emby_item_id == emby_item_id,
+                            PlaybackRecord.started_at > ten_mins_ago
+                        ).first()
+                        
+                        play_state = s.get('play_state', {})
+                        position_ticks = play_state.get('position_ticks', 0)
+                        total_ticks = now_playing.get('run_time_ticks', 0)
+                        play_percentage = (position_ticks / total_ticks * 100) if total_ticks > 0 else 0
+                        
+                        if existing_record:
+                            # 更新现有记录的进度
+                            existing_record.play_percentage = play_percentage
+                            existing_record.play_duration = int(position_ticks / 10000000) if position_ticks else 0
+                            existing_record.total_duration = int(total_ticks / 10000000) if total_ticks else 0
+                        else:
+                            # 创建新的播放记录
+                            record = PlaybackRecord(
+                                user_tg=user.tg,
+                                device_id=device.id,
+                                emby_item_id=emby_item_id,
+                                item_name=now_playing.get('name', '未知'),
+                                item_type=now_playing.get('type', ''),
+                                series_name=now_playing.get('series_name', ''),
+                                season_number=now_playing.get('season_number'),
+                                episode_number=now_playing.get('episode_number'),
+                                play_duration=int(position_ticks / 10000000) if position_ticks else 0,
+                                total_duration=int(total_ticks / 10000000) if total_ticks else 0,
+                                play_percentage=play_percentage,
+                                play_method=play_state.get('play_method', ''),
+                                client_ip=s.get('remote_end_point', ''),
+                                started_at=datetime.now()
+                            )
+                            db.session.add(record)
+                
+                db.session.commit()
+                
+            except Exception as e:
+                app.logger.error(f'更新设备信息或播放记录失败: {e}')
+                db.session.rollback()
+    
+    # 过滤掉被禁用的设备
+    active_sessions = [s for s in sessions if not s.get('is_blocked', False)]
+    
+    return jsonify({
+        'success': True,
+        'sessions': active_sessions,
+        'count': len(active_sessions),
+        'playing_count': len([s for s in active_sessions if s.get('is_playing')])
+    })
+
+
+@app.route('/api/emby/playback-stats')
+@login_required
+def get_emby_playback_stats():
+    """获取当前用户的播放统计信息"""
+    if not emby_client.is_enabled():
+        return jsonify({'success': False, 'error': 'Emby 未配置', 'enabled': False}), 400
+    
+    user = db.session.get(User, session['user_id'])
+    if not user or not user.embyid:
+        return jsonify({'success': False, 'error': '用户未绑定 Emby 账号'}), 400
+    
+    # 获取该用户的会话
+    sessions = emby_client.get_user_sessions(user.embyid)
+    
+    # 按设备分组
+    devices = {}
+    for s in sessions:
+        client = s.get('client', '其他')
+        if client not in devices:
+            devices[client] = 0
+        devices[client] += 1
+    
+    return jsonify({
+        'success': True,
+        'total_sessions': len(sessions),
+        'playing_count': len([s for s in sessions if s.get('is_playing')]),
+        'devices': devices,
+        'sessions': sessions
+    })
+
+
+@app.route('/api/emby/playback-history')
+@login_required
+def get_emby_playback_history():
+    """获取当前用户的播放历史（从本地数据库）"""
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        return jsonify({'success': False, 'error': '用户不存在'}), 400
+    
+    limit = request.args.get('limit', 20, type=int)
+    limit = min(limit, 100)  # 最多 100 条
+    
+    # 从本地数据库获取播放记录
+    from sqlalchemy import func
+    
+    # 获取每个内容的统计信息：最高进度、最后播放时间、播放次数
+    stats = db.session.query(
+        PlaybackRecord.emby_item_id,
+        func.max(PlaybackRecord.play_percentage).label('max_percentage'),
+        func.max(PlaybackRecord.started_at).label('last_played'),
+        func.count(PlaybackRecord.id).label('play_count'),
+        func.max(PlaybackRecord.play_duration).label('max_duration'),
+        func.max(PlaybackRecord.total_duration).label('total_duration')
+    ).filter(
+        PlaybackRecord.user_tg == user.tg
+    ).group_by(
+        PlaybackRecord.emby_item_id
+    ).order_by(
+        func.max(PlaybackRecord.started_at).desc()
+    ).limit(limit).all()
+    
+    # 获取每个内容的详细信息（取任意一条记录获取名称等信息）
+    item_ids = [s[0] for s in stats]
+    if not item_ids:
+        return jsonify({'success': True, 'history': [], 'count': 0})
+    
+    # 获取每个内容的一条记录用于获取名称等信息
+    records_map = {}
+    for item_id in item_ids:
+        record = PlaybackRecord.query.filter(
+            PlaybackRecord.user_tg == user.tg,
+            PlaybackRecord.emby_item_id == item_id
+        ).first()
+        if record:
+            records_map[item_id] = record
+    
+    history = []
+    for stat in stats:
+        item_id, max_percentage, last_played, play_count, max_duration, total_duration = stat
+        record = records_map.get(item_id)
+        if not record:
+            continue
+            
+        # 组合显示名称
+        display_name = record.item_name
+        if record.item_type == 'Episode' and record.series_name:
+            if record.season_number and record.episode_number:
+                display_name = f"{record.series_name} S{record.season_number:02d}E{record.episode_number:02d} - {record.item_name}"
+            else:
+                display_name = f"{record.series_name} - {record.item_name}"
+        
+        history.append({
+            'id': item_id,
+            'name': record.item_name,
+            'display_name': display_name,
+            'type': record.item_type,
+            'series_name': record.series_name,
+            'season_number': record.season_number,
+            'episode_number': record.episode_number,
+            'last_played_date': last_played.isoformat() if last_played else None,
+            'play_count': play_count or 1,
+            'played_percentage': max_percentage or 0,
+            'play_duration': max_duration or 0,
+            'total_duration': total_duration or 0,
+            'play_method': record.play_method,
+            'device_name': record.device.device_name if record.device else None,
+            'client': record.device.client if record.device else None
+        })
+    
+    return jsonify({
+        'success': True,
+        'history': history,
+        'count': len(history)
+    })
+
+
+@app.route('/api/emby/devices')
+@login_required
+def get_user_devices():
+    """获取当前用户的所有设备"""
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        return jsonify({'success': False, 'error': '用户不存在'}), 400
+    
+    devices = UserDevice.query.filter_by(user_tg=user.tg).order_by(UserDevice.last_active.desc()).all()
+    
+    return jsonify({
+        'success': True,
+        'devices': [d.to_dict() for d in devices],
+        'count': len(devices)
+    })
+
+
+@app.route('/api/emby/devices/<int:device_id>', methods=['DELETE'])
+@login_required
+def delete_user_device(device_id):
+    """删除用户设备"""
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        return jsonify({'success': False, 'error': '用户不存在'}), 400
+    
+    device = UserDevice.query.filter_by(id=device_id, user_tg=user.tg).first()
+    if not device:
+        return jsonify({'success': False, 'error': '设备不存在'}), 404
+    
+    try:
+        # 删除关联的播放记录
+        PlaybackRecord.query.filter_by(device_id=device_id).delete()
+        # 删除设备
+        db.session.delete(device)
+        db.session.commit()
+        return jsonify({'success': True, 'message': '设备已删除'})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'删除设备失败: {e}')
+        return jsonify({'success': False, 'error': '删除失败'}), 500
+
+
+@app.route('/api/emby/devices/<int:device_id>/block', methods=['POST'])
+@login_required
+def block_user_device(device_id):
+    """禁用/启用用户设备"""
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        return jsonify({'success': False, 'error': '用户不存在'}), 400
+    
+    device = UserDevice.query.filter_by(id=device_id, user_tg=user.tg).first()
+    if not device:
+        return jsonify({'success': False, 'error': '设备不存在'}), 404
+    
+    data = request.get_json() or {}
+    block = data.get('block', True)
+    
+    try:
+        device.is_blocked = block
+        db.session.commit()
+        status = '已禁用' if block else '已启用'
+        return jsonify({'success': True, 'message': f'设备{status}', 'is_blocked': device.is_blocked})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'更新设备状态失败: {e}')
+        return jsonify({'success': False, 'error': '操作失败'}), 500
+
+
+@app.route('/api/emby/local-history')
+@login_required
+def get_local_playback_history():
+    """获取本地存储的播放历史记录"""
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        return jsonify({'success': False, 'error': '用户不存在'}), 400
+    
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    per_page = min(per_page, 100)
+    
+    # 查询播放记录
+    query = PlaybackRecord.query.filter_by(user_tg=user.tg).order_by(PlaybackRecord.started_at.desc())
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    
+    return jsonify({
+        'success': True,
+        'records': [r.to_dict() for r in pagination.items],
+        'total': pagination.total,
+        'pages': pagination.pages,
+        'current_page': page
+    })
+
+
+# ==================== 管理员播放监控 API ====================
+
+@app.route('/api/admin/playback/all-sessions')
+@admin_required
+def admin_get_all_sessions():
+    """管理员获取所有用户的实时播放会话，并同步记录到数据库"""
+    if not emby_client.is_enabled():
+        return jsonify({'success': False, 'error': 'Emby 未配置'}), 400
+    
+    # 获取所有会话
+    stats = emby_client.get_playback_stats()
+    sessions = stats.get('sessions', [])
+    
+    # 同步设备和播放记录到数据库
+    for s in sessions:
+        device_id = s.get('device_id')
+        emby_user_id = s.get('user_id')  # Emby 用户 ID
+        
+        # 根据 embyid 查找用户（优先），如果没有则用 user_name
+        emby_user = None
+        if emby_user_id:
+            emby_user = User.query.filter_by(embyid=emby_user_id).first()
+        if not emby_user:
+            user_name = s.get('user_name')
+            if user_name:
+                emby_user = User.query.filter_by(name=user_name).first()
+        
+        if not emby_user or not device_id:
+            continue
+        
+        try:
+            # 查找或创建设备记录
+            device = UserDevice.query.filter_by(
+                user_tg=emby_user.tg,
+                device_id=device_id
+            ).first()
+            
+            if not device:
+                device = UserDevice(
+                    user_tg=emby_user.tg,
+                    device_id=device_id,
+                    device_name=s.get('device_name', '未知设备'),
+                    client=s.get('client', '未知'),
+                    client_version=s.get('app_version', ''),
+                    last_ip=s.get('remote_end_point', ''),
+                    last_active=datetime.now()
+                )
+                db.session.add(device)
+                db.session.flush()
+            else:
+                device.device_name = s.get('device_name', device.device_name)
+                device.client = s.get('client', device.client)
+                device.client_version = s.get('app_version', device.client_version)
+                device.last_ip = s.get('remote_end_point', device.last_ip)
+                device.last_active = datetime.now()
+            
+            # 如果正在播放，记录播放记录
+            if s.get('is_playing') and s.get('now_playing'):
+                now_playing = s['now_playing']
+                emby_item_id = now_playing.get('id')
+                
+                if emby_item_id:
+                    # 检查是否已有这个播放记录（同一用户、同一设备、同一媒体，10分钟内）
+                    ten_mins_ago = datetime.now() - timedelta(minutes=10)
+                    existing_record = PlaybackRecord.query.filter(
+                        PlaybackRecord.user_tg == emby_user.tg,
+                        PlaybackRecord.device_id == device.id,
+                        PlaybackRecord.emby_item_id == emby_item_id,
+                        PlaybackRecord.started_at > ten_mins_ago
+                    ).first()
+                    
+                    play_state = s.get('play_state', {})
+                    position_ticks = play_state.get('position_ticks', 0)
+                    total_ticks = now_playing.get('run_time_ticks', 0)
+                    play_percentage = (position_ticks / total_ticks * 100) if total_ticks > 0 else 0
+                    
+                    if existing_record:
+                        existing_record.play_percentage = play_percentage
+                        existing_record.play_duration = int(position_ticks / 10000000) if position_ticks else 0
+                        existing_record.total_duration = int(total_ticks / 10000000) if total_ticks else 0
+                    else:
+                        record = PlaybackRecord(
+                            user_tg=emby_user.tg,
+                            device_id=device.id,
+                            emby_item_id=emby_item_id,
+                            item_name=now_playing.get('name', '未知'),
+                            item_type=now_playing.get('type', ''),
+                            series_name=now_playing.get('series_name', ''),
+                            season_number=now_playing.get('season_number'),
+                            episode_number=now_playing.get('episode_number'),
+                            play_duration=int(position_ticks / 10000000) if position_ticks else 0,
+                            total_duration=int(total_ticks / 10000000) if total_ticks else 0,
+                            play_percentage=play_percentage,
+                            play_method=play_state.get('play_method', ''),
+                            client_ip=s.get('remote_end_point', ''),
+                            started_at=datetime.now()
+                        )
+                        db.session.add(record)
+            
+            db.session.commit()
+        except Exception as e:
+            app.logger.error(f'同步播放数据失败: {e}')
+            db.session.rollback()
+    
+    return jsonify({
+        'success': True,
+        'total_sessions': stats.get('playing_count', 0),  # 只统计正在播放的
+        'playing_count': stats.get('playing_count', 0),
+        'devices': stats.get('devices', {}),
+        'users': stats.get('users', {}),
+        'sessions': [s for s in sessions if s.get('is_playing')]  # 只返回正在播放的会话
+    })
+
+
+@app.route('/api/admin/playback/devices')
+@admin_required
+def admin_get_all_devices():
+    """管理员获取所有用户的设备（优先从 Playback Reporting 获取）"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    search = request.args.get('search', '')
+    source = request.args.get('source', 'emby')  # emby 或 local
+    
+    if source == 'emby' and emby_client.is_enabled():
+        # 从 Emby Playback Reporting 获取
+        try:
+            devices = emby_client.get_playback_report_devices()
+            
+            # 搜索过滤
+            if search:
+                search_lower = search.lower()
+                devices = [d for d in devices if 
+                    search_lower in d.get('user_name', '').lower() or
+                    search_lower in d.get('device_name', '').lower() or
+                    search_lower in d.get('client', '').lower()
+                ]
+            
+            # 分页
+            total = len(devices)
+            start = (page - 1) * per_page
+            end = start + per_page
+            paged_devices = devices[start:end]
+            
+            return jsonify({
+                'success': True,
+                'devices': paged_devices,
+                'total': total,
+                'pages': (total + per_page - 1) // per_page,
+                'current_page': page,
+                'source': 'emby'
+            })
+        except Exception as e:
+            app.logger.error(f'从 Emby 获取设备失败，回退到本地: {e}')
+    
+    # 回退到本地数据库
+    query = UserDevice.query.order_by(UserDevice.last_active.desc())
+    
+    if search:
+        query = query.join(User, UserDevice.user_tg == User.tg).filter(
+            db.or_(
+                User.name.ilike(f'%{search}%'),
+                UserDevice.device_name.ilike(f'%{search}%'),
+                UserDevice.client.ilike(f'%{search}%')
+            )
+        )
+    
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    
+    return jsonify({
+        'success': True,
+        'devices': [d.to_dict() for d in pagination.items],
+        'total': pagination.total,
+        'pages': pagination.pages,
+        'current_page': page,
+        'source': 'local'
+    })
+
+
+@app.route('/api/admin/playback/history')
+@admin_required
+def admin_get_all_playback_history():
+    """管理员获取所有用户的播放历史（优先从 Playback Reporting 获取）"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    search = request.args.get('search', '')
+    user_id = request.args.get('user_id', '')  # Emby 用户 ID
+    days = request.args.get('days', 7, type=int)  # 默认7天以优化性能
+    source = request.args.get('source', 'emby')  # emby 或 local
+    
+    # 限制天数范围以优化性能
+    days = min(days, 14)
+    
+    if source == 'emby' and emby_client.is_enabled():
+        # 从 Emby Playback Reporting 获取
+        try:
+            # 计算需要获取的记录数量（考虑搜索过滤后可能减少）
+            limit = per_page * 10 if search else per_page * 5
+            history = emby_client.get_playback_report_history(days=days, user_id=user_id if user_id else None, limit=limit)
+            
+            # 搜索过滤
+            if search:
+                search_lower = search.lower()
+                history = [h for h in history if 
+                    search_lower in h.get('item_name', '').lower() or
+                    search_lower in h.get('series_name', '').lower() or
+                    search_lower in h.get('user_name', '').lower()
+                ]
+            
+            # 分页
+            total = len(history)
+            start = (page - 1) * per_page
+            end = start + per_page
+            paged_history = history[start:end]
+            
+            return jsonify({
+                'success': True,
+                'records': paged_history,
+                'total': total,
+                'pages': (total + per_page - 1) // per_page,
+                'current_page': page,
+                'source': 'emby'
+            })
+        except Exception as e:
+            app.logger.error(f'从 Emby 获取播放历史失败，回退到本地: {e}')
+    
+    # 回退到本地数据库
+    user_tg = request.args.get('user_tg', type=int)
+    query = PlaybackRecord.query.order_by(PlaybackRecord.started_at.desc())
+    
+    if user_tg:
+        query = query.filter_by(user_tg=user_tg)
+    
+    if search:
+        query = query.filter(
+            db.or_(
+                PlaybackRecord.item_name.ilike(f'%{search}%'),
+                PlaybackRecord.series_name.ilike(f'%{search}%')
+            )
+        )
+    
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    
+    return jsonify({
+        'success': True,
+        'records': [r.to_dict() for r in pagination.items],
+        'total': pagination.total,
+        'pages': pagination.pages,
+        'current_page': page,
+        'source': 'local'
+    })
+
+
+@app.route('/api/admin/playback/sync-all', methods=['POST'])
+@admin_required
+def admin_sync_all_playback():
+    """管理员同步所有用户的播放历史到数据库（优化版）"""
+    if not emby_client.is_enabled():
+        return jsonify({'success': False, 'error': 'Emby 未配置'}), 400
+    
+    synced_users = 0
+    synced_records = 0
+    
+    # 获取所有有 embyid 的用户
+    users_with_emby = User.query.filter(User.embyid.isnot(None), User.embyid != '').all()
+    
+    # 预先批量获取所有已存在的播放记录（user_tg + emby_item_id 组合）
+    existing_records = set()
+    all_existing = PlaybackRecord.query.with_entities(PlaybackRecord.user_tg, PlaybackRecord.emby_item_id).all()
+    for record in all_existing:
+        existing_records.add((record.user_tg, record.emby_item_id))
+    
+    new_records = []
+    
+    for emby_user in users_with_emby:
+        try:
+            # 获取该用户的播放历史（限制数量以加快速度）
+            history = emby_client.get_user_playback_history(emby_user.embyid, limit=30)
+            
+            for item in history:
+                record_key = (emby_user.tg, item.get('id'))
+                
+                # 使用集合快速判断是否存在
+                if record_key not in existing_records:
+                    # 创建新记录
+                    record = PlaybackRecord(
+                        user_tg=emby_user.tg,
+                        emby_item_id=item.get('id'),
+                        item_name=item.get('name', '未知'),
+                        item_type=item.get('type', ''),
+                        series_name=item.get('series_name', ''),
+                        play_percentage=item.get('played_percentage', 100) if item.get('play_count', 0) > 0 else 0,
+                        started_at=datetime.fromisoformat(item['last_played_date'].replace('Z', '+00:00')).replace(tzinfo=None) if item.get('last_played_date') else datetime.now()
+                    )
+                    new_records.append(record)
+                    existing_records.add(record_key)  # 避免同批次重复
+                    synced_records += 1
+            
+            synced_users += 1
+            
+        except Exception as e:
+            app.logger.error(f'同步用户 {emby_user.name} 播放历史失败: {e}')
+            continue
+    
+    # 批量提交所有新记录
+    if new_records:
+        try:
+            db.session.bulk_save_objects(new_records)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f'批量保存播放记录失败: {e}')
+            return jsonify({'success': False, 'error': '保存失败'}), 500
+    
+    return jsonify({
+        'success': True,
+        'message': f'已同步 {synced_users} 个用户的 {synced_records} 条播放记录'
+    })
+
+
+@app.route('/api/admin/playback/devices/<int:device_id>', methods=['DELETE'])
+@admin_required
+def admin_delete_device(device_id):
+    """管理员删除设备"""
+    device = db.session.get(UserDevice, device_id)
+    if not device:
+        return jsonify({'success': False, 'error': '设备不存在'}), 404
+    
+    try:
+        PlaybackRecord.query.filter_by(device_id=device_id).delete()
+        db.session.delete(device)
+        db.session.commit()
+        return jsonify({'success': True, 'message': '设备已删除'})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'管理员删除设备失败: {e}')
+        return jsonify({'success': False, 'error': '删除失败'}), 500
+
+
+@app.route('/api/admin/playback/devices/<int:device_id>/block', methods=['POST'])
+@admin_required
+def admin_block_device(device_id):
+    """管理员禁用/启用设备"""
+    device = db.session.get(UserDevice, device_id)
+    if not device:
+        return jsonify({'success': False, 'error': '设备不存在'}), 404
+    
+    data = request.get_json() or {}
+    block = data.get('block', True)
+    
+    try:
+        device.is_blocked = block
+        db.session.commit()
+        status = '已禁用' if block else '已启用'
+        return jsonify({'success': True, 'message': f'设备{status}', 'is_blocked': device.is_blocked})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': '操作失败'}), 500
+
+
+@app.route('/api/emby/season-details')
+@login_required
+def get_emby_season_details():
+    """获取剧集的详细季信息（已有vs缺失）"""
+    if not emby_client.is_enabled():
+        return jsonify({
+            'success': False, 
+            'error': 'Emby媒体库未配置，请联系管理员',
+            'user_friendly': True
+        }), 400
+    
+    tmdb_id = request.args.get('tmdb_id')
+    if not tmdb_id:
+        return jsonify({
+            'success': False, 
+            'error': '参数错误，请刷新页面重试',
+            'user_friendly': True
+        }), 400
+    
+    try:
+        # 获取Emby中的剧集
+        emby_item = emby_client.search_by_tmdb_id(tmdb_id, 'tv')
+        if not emby_item:
+            return jsonify({
+                'success': False, 
+                'error': '该剧集尚未入库到Emby',
+                'user_friendly': True
+            }), 404
+        
+        # 获取Emby中的季
+        emby_seasons = emby_client.get_tv_seasons(emby_item.get('Id'))
+        has_seasons = sorted([s.get('IndexNumber') for s in emby_seasons if s.get('IndexNumber') is not None and s.get('IndexNumber') > 0])
+        
+        # 获取TMDB总季数
+        tmdb_seasons = get_tmdb_tv_seasons(int(tmdb_id))
+        total_seasons = tmdb_seasons.get('total_seasons', 0) if tmdb_seasons else 0
+        
+        # 计算缺失的季
+        all_seasons = set(range(1, total_seasons + 1))
+        missing_seasons = sorted(all_seasons - set(has_seasons))
+        
+        return jsonify({
+            'success': True,
+            'hasSeasons': has_seasons,
+            'totalSeasons': total_seasons,
+            'missingSeasons': missing_seasons
+        })
+    except Exception as e:
+        app.logger.error(f'获取Emby季详情失败: {e}')
+        return jsonify({
+            'success': False, 
+            'error': 'Emby服务暂时无法访问，请稍后再试',
+            'user_friendly': True,
+            'technical_error': str(e)
+        }), 500
+
+
+@app.route('/request-movie', methods=['POST'])
+@login_required
+def request_movie():
+    user = db.session.get(User, session['user_id'])
+    
+    if not user:
+        return jsonify({
+            'success': False,
+            'error': '用户信息不存在，请重新登录'
+        }), 401
+    
+    if not user.can_request():
+        daily_limit = user.get_daily_limit()
+        today_count = user.get_today_request_count()
+        
+        # 检查求片上限是否为0（无有效订阅或被禁用）
+        if daily_limit == 0:
+            # 检查是否是被禁用的用户
+            if user.lv == 'c':
+                app.logger.warning(f'用户 {user.name} 求片被限制: 账号已禁用')
+                return jsonify({
+                    'success': False, 
+                    'error': '您的账号已被禁用，无法求片'
+                }), 403
+            
+            # 无有效订阅
+            app.logger.warning(f'用户 {user.name} 求片被限制: 无有效订阅')
+            return jsonify({
+                'success': False, 
+                'error': '您没有有效订阅，无法求片'
+            }), 403
+        
+        # 已达到每日求片上限
+        app.logger.warning(f'用户 {user.name} 求片被限制: {today_count}/{daily_limit}')
+        return jsonify({
+            'success': False, 
+            'error': f'您今天已达到求片上限（{today_count}/{daily_limit}次）'
+        }), 429
+    
+    data = request.get_json()
+    tmdb_id = data.get('tmdb_id')
+    media_type = data.get('media_type', 'movie')
+    
+    # 电视剧季/集选择参数
+    request_type = data.get('request_type', 'all')  # all, season, episode
+    season_number = data.get('season_number')  # 指定的季数
+    episode_number = data.get('episode_number')  # 指定的集数
+    user_note = data.get('user_note', '')  # 用户备注
+    
+    # 验证输入
+    if not tmdb_id:
+        app.logger.warning(f'用户 {user.name} 提交了无效的求片请求: 缺少tmdb_id')
+        return jsonify({
+            'success': False,
+            'error': '无效的请求参数'
+        }), 400
+    
+    if media_type not in ['movie', 'tv']:
+        media_type = 'movie'
+    
+    # 验证电视剧求片类型
+    if media_type == 'tv':
+        if request_type not in ['all', 'season', 'episode']:
+            request_type = 'all'
+        if request_type == 'season' and not season_number:
+            return jsonify({
+                'success': False,
+                'error': '请选择要求片的季数'
+            }), 400
+        if request_type == 'episode' and (not season_number or not episode_number):
+            return jsonify({
+                'success': False,
+                'error': '请选择要求片的季数和集数'
+            }), 400
+    
+    # 从TMDB获取详细信息（先获取，用于后续检查）
+    details = get_tmdb_details(tmdb_id, media_type)
+    
+    if not details:
+        app.logger.error(f'无法获取TMDB详情: tmdb_id={tmdb_id}, type={media_type}')
+        return jsonify({
+            'success': False,
+            'error': '无法获取影片信息'
+        }), 400
+    
+    title = details.get('title') or details.get('name')
+    year = details.get('release_date', '')[:4] if media_type == 'movie' else details.get('first_air_date', '')[:4]
+    
+    # ========== 检查 Emby 库中是否已存在 ==========
+    if emby_client.is_enabled():
+        emby_check = emby_client.check_exists(str(tmdb_id), title, year, media_type)
+        if emby_check['exists']:
+            app.logger.info(f'用户 {user.name} 求片已在 Emby 库中: {title} ({year})')
+            return jsonify({
+                'success': False,
+                'error': f'🎉 好消息！《{title}》已在媒体库中，可以直接观看啦！',
+                'in_library': True
+            }), 400
+    
+    # 检查是否已经求过这个片 (精准检测)
+    query = MovieRequest.query.filter_by(
+        user_tg=user.tg,
+        tmdb_id=tmdb_id,
+        media_type=media_type
+    ).filter(MovieRequest.status != 'rejected')
+    
+    # 电视剧需要精确匹配季/集
+    if media_type == 'tv':
+        if request_type == 'all':
+            # 求全剧: 检查是否已有全剧或任意季的求片
+            existing = query.filter(
+                (MovieRequest.request_type == 'all') |
+                (MovieRequest.request_type == 'season') |
+                (MovieRequest.request_type == 'episode')
+            ).first()
+            if existing:
+                scope = existing.get_request_scope()
+                app.logger.info(f'用户 {user.name} 重复求片: TMDB={tmdb_id} [{scope}] (已存在ID={existing.id})')
+                return jsonify({
+                    'success': False,
+                    'error': f'您已求过该剧的{scope}，无需重复求片'
+                }), 400
+        elif request_type == 'season':
+            # 求指定季: 检查是否已有全剧或该季的求片
+            existing = query.filter(
+                (MovieRequest.request_type == 'all') |
+                ((MovieRequest.request_type == 'season') & (MovieRequest.season_number == int(season_number)))
+            ).first()
+            if existing:
+                scope = existing.get_request_scope()
+                app.logger.info(f'用户 {user.name} 重复求片: TMDB={tmdb_id} 第{season_number}季 (已存在{scope}, ID={existing.id})')
+                return jsonify({
+                    'success': False,
+                    'error': f'您已求过{scope}，包含第{season_number}季'
+                }), 400
+        elif request_type == 'episode':
+            # 求指定集: 检查是否已有全剧、该季或该集的求片
+            existing = query.filter(
+                (MovieRequest.request_type == 'all') |
+                ((MovieRequest.request_type == 'season') & (MovieRequest.season_number == int(season_number))) |
+                ((MovieRequest.request_type == 'episode') & 
+                 (MovieRequest.season_number == int(season_number)) & 
+                 (MovieRequest.episode_number == int(episode_number)))
+            ).first()
+            if existing:
+                scope = existing.get_request_scope()
+                app.logger.info(f'用户 {user.name} 重复求片: TMDB={tmdb_id} S{season_number}E{episode_number} (已存在{scope}, ID={existing.id})')
+                return jsonify({
+                    'success': False,
+                    'error': f'您已求过{scope}，包含该集'
+                }), 400
+    else:
+        # 电影: 简单检测
+        existing = query.first()
+        if existing:
+            app.logger.info(f'用户 {user.name} 重复求片: TMDB={tmdb_id} (已存在ID={existing.id})')
+            return jsonify({
+                'success': False,
+                'error': '您已经求过这部电影了'
+            }), 400
+    
+    poster_path = details.get('poster_path')
+    
+    # 获取电视剧总季数
+    total_seasons = None
+    if media_type == 'tv':
+        total_seasons = details.get('number_of_seasons')
+    
+    # 创建求片记录
+    try:
+        movie_request = MovieRequest(
+            user_tg=user.tg,
+            tmdb_id=tmdb_id,
+            title=title,
+            year=year,
+            poster_path=poster_path,
+            overview=details.get('overview'),
+            media_type=media_type,
+            request_type=request_type if media_type == 'tv' else 'all',
+            season_number=int(season_number) if season_number else None,
+            episode_number=int(episode_number) if episode_number else None,
+            total_seasons=total_seasons,
+            user_note=user_note
+        )
+        
+        db.session.add(movie_request)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'用户 {user.name} 求片保存失败: {title} ({year}) - {type(e).__name__}: {e}')
+        return jsonify({
+            'success': False,
+            'error': f'保存求片记录失败，请稍后重试'
+        }), 500
+    
+    # 构建日志信息
+    scope_info = movie_request.get_request_scope() if media_type == 'tv' else ''
+    log_msg = f'用户 {user.name} 求片成功: {title} ({year}) [TMDB:{tmdb_id}]'
+    if scope_info:
+        log_msg += f' [{scope_info}]'
+    app.logger.info(log_msg)
+    
+    # 记录求片日志
+    log_user_activity(UserActivityLog.ACTION_REQUEST_MOVIE, user=user, 
+                     detail={'title': title, 'year': year, 'tmdb_id': tmdb_id, 'media_type': media_type, 'scope': scope_info})
+    
+    # 先返回成功响应给用户，然后异步发送 Telegram 通知
+    daily_limit = user.get_daily_limit()
+    remaining = daily_limit - user.get_today_request_count() if not user.is_admin else '无限制'
+    
+    # 在后台发送 Telegram 通知（不阻塞响应）
+    try:
+        overview = details.get('overview')
+        # 传递求片范围信息和用户 Telegram ID 到通知
+        send_telegram_notification(user.name, title, year, media_type, tmdb_id, poster_path, overview, scope_info, user.tg)
+    except Exception as e:
+        # 即使 Telegram 发送失败也不影响用户体验
+        app.logger.error(f'Telegram 通知异常: {e}')
+    
+    return jsonify({
+        'success': True,
+        'message': '求片成功！',
+        'remaining': remaining
+    }), 200
+
+
+# ==================== 管理后台安全入口 ====================
+
+@app.route('/<path:secret_path>')
+def admin_dynamic_entry(secret_path):
+    """动态管理后台入口 - 根据配置文件中的路径访问
+    直接访问 /embypanel 即可（默认路径）
+    """
+    admin_config = get_admin_config()
+    config_path = admin_config.get('secret_path', '')
+    
+    if not config_path or secret_path != config_path:
+        # 返回 404，不暴露安全入口
+        abort(404)
+    
+    # 如果已登录，检查是否需要强制修改配置
+    if session.get('admin_logged_in'):
+        if not admin_config.get('initialized', False):
+            return redirect('/admin/setup')
+        return redirect('/admin')
+    
+    # 显示管理员登录页面
+    return render_template('admin_login.html')
+
+
+@app.route('/api/admin-login', methods=['POST'])
+def admin_login_api():
+    """管理员登录API"""
+    data = request.get_json()
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+    
+    if not username or not password:
+        return jsonify({'success': False, 'error': '请输入用户名和密码'}), 400
+    
+    # 从配置文件获取管理员信息
+    admin_config = get_admin_config()
+    stored_username = admin_config.get('username', '')
+    stored_password_hash = admin_config.get('password', '')
+    
+    if not stored_username:
+        return jsonify({'success': False, 'error': '管理员未配置，请联系系统管理员'}), 500
+    
+    # 验证管理员账号密码
+    password_hash = hash_admin_password(password)
+    if username == stored_username and password_hash == stored_password_hash:
+        session['admin_logged_in'] = True
+        session['admin_username'] = username
+        session['admin_login_time'] = datetime.now().isoformat()
+        app.logger.info(f'管理员 {username} 登录成功')
+        
+        # 检查是否需要强制修改配置
+        if not admin_config.get('initialized', False):
+            return jsonify({'success': True, 'redirect': '/admin/setup', 'need_setup': True})
+        
+        return jsonify({'success': True, 'redirect': '/admin'})
+    else:
+        app.logger.warning(f'管理员登录失败: 用户名或密码错误 (尝试用户名: {username}, IP: {request.remote_addr})')
+        return jsonify({'success': False, 'error': '用户名或密码错误'}), 401
+
+
+@app.route('/admin/setup')
+@admin_required
+def admin_setup_page():
+    """首次配置页面 - 强制修改管理员信息"""
+    admin_config = get_admin_config()
+    
+    # 如果已经初始化过，跳转到管理后台
+    if admin_config.get('initialized', False):
+        return redirect('/admin')
+    
+    return render_template('admin_setup.html')
+
+
+@app.route('/api/admin/setup', methods=['POST'])
+@admin_required
+def admin_setup_api():
+    """保存首次配置"""
+    data = request.get_json()
+    
+    new_username = data.get('username', '').strip()
+    new_password = data.get('password', '').strip()
+    confirm_password = data.get('confirm_password', '').strip()
+    new_path = data.get('secret_path', '').strip()
+    
+    # 验证
+    if not new_username or len(new_username) < 2:
+        return jsonify({'success': False, 'error': '用户名至少2个字符'}), 400
+    
+    if not new_password or len(new_password) < 6:
+        return jsonify({'success': False, 'error': '密码至少6个字符'}), 400
+    
+    if new_password != confirm_password:
+        return jsonify({'success': False, 'error': '两次输入的密码不一致'}), 400
+    
+    if not new_path or len(new_path) < 5:
+        return jsonify({'success': False, 'error': '后台路径至少5个字符'}), 400
+    
+    # 路径不能包含特殊字符
+    import re
+    if not re.match(r'^[a-zA-Z0-9_-]+$', new_path):
+        return jsonify({'success': False, 'error': '后台路径只能包含字母、数字、下划线和横线'}), 400
+    
+    # 更新配置
+    config = load_system_config()
+    config['admin'] = {
+        'username': new_username,
+        'password': hash_admin_password(new_password),
+        'secret_path': new_path,
+        'initialized': True
+    }
+    
+    if save_system_config(config):
+        # 清除登录状态，强制重新登录
+        session.clear()
+        app.logger.info(f'管理员配置已更新: username={new_username}, path={new_path}')
+        return jsonify({
+            'success': True, 
+            'message': '配置已保存，请使用新的入口和账号重新登录',
+            'new_path': f'/{new_path}'
+        })
+    else:
+        return jsonify({'success': False, 'error': '保存配置失败'}), 500
+
+
+@app.route('/api/admin/change-credentials', methods=['POST'])
+@admin_required
+def admin_change_credentials():
+    """修改管理员账号密码（已初始化后使用）"""
+    data = request.get_json()
+    
+    current_password = data.get('current_password', '').strip()
+    new_username = data.get('new_username', '').strip()
+    new_password = data.get('new_password', '').strip()
+    new_path = data.get('new_path', '').strip()
+    
+    # 验证当前密码
+    admin_config = get_admin_config()
+    if hash_admin_password(current_password) != admin_config.get('password', ''):
+        return jsonify({'success': False, 'error': '当前密码错误'}), 400
+    
+    # 更新配置
+    config = load_system_config()
+    
+    if new_username and len(new_username) >= 2:
+        config['admin']['username'] = new_username
+    
+    if new_password and len(new_password) >= 6:
+        config['admin']['password'] = hash_admin_password(new_password)
+    
+    if new_path and len(new_path) >= 5:
+        import re
+        if re.match(r'^[a-zA-Z0-9_-]+$', new_path):
+            config['admin']['secret_path'] = new_path
+    
+    if save_system_config(config):
+        # 清除登录状态
+        session.clear()
+        return jsonify({
+            'success': True,
+            'message': '配置已更新，请重新登录',
+            'new_path': f"/{config['admin']['secret_path']}"
+        })
+    else:
+        return jsonify({'success': False, 'error': '保存失败'}), 500
+
+
+@app.route('/api/admin-logout', methods=['POST'])
+def admin_logout_api():
+    """管理员登出API"""
+    username = session.get('admin_username', 'unknown')
+    session.pop('admin_logged_in', None)
+    session.pop('admin_username', None)
+    session.pop('admin_login_time', None)
+    app.logger.info(f'管理员 {username} 已登出')
+    return jsonify({'success': True, 'message': '已退出登录'})
+
+
+@app.route('/admin')
+@admin_required
+def admin_panel():
+    # 优化：使用单个查询获取统计信息
+    from sqlalchemy import func, case
+    from sqlalchemy.orm import load_only
+    
+    stats_query = db.session.query(
+        func.count(MovieRequest.id).label('total'),
+        func.sum(case((MovieRequest.status == 'pending', 1), else_=0)).label('pending'),
+        func.sum(case((MovieRequest.status == 'processing', 1), else_=0)).label('processing'),
+        func.sum(case((MovieRequest.status == 'approved', 1), else_=0)).label('approved'),
+        func.sum(case((MovieRequest.status == 'completed', 1), else_=0)).label('completed'),
+        func.sum(case((MovieRequest.status == 'rejected', 1), else_=0)).label('rejected'),
+        func.sum(case((MovieRequest.status == 'downloading', 1), else_=0)).label('downloading'),
+        func.sum(case((MovieRequest.status == 'downloaded', 1), else_=0)).label('downloaded'),
+        func.sum(case((MovieRequest.status == 'failed', 1), else_=0)).label('failed')
+    ).first()
+    
+    # 计算合并后的"已批准"数量（包含 approved 和 processing）
+    approved_total = (stats_query.approved or 0) + (stats_query.processing or 0)
+    
+    stats = {
+        'total': stats_query.total or 0,
+        'pending': stats_query.pending or 0,
+        'processing': stats_query.processing or 0,
+        'approved': approved_total,  # 合并 approved 和 processing
+        'completed': stats_query.completed or 0,
+        'rejected': stats_query.rejected or 0,
+        'downloading': stats_query.downloading or 0,
+        'downloaded': stats_query.downloaded or 0,
+        'failed': stats_query.failed or 0,
+    }
+    
+    # 分页参数
+    page = request.args.get('page', 1, type=int)
+    per_page = 5  # 每页显示5条
+    status_filter = request.args.get('status', 'all')  # 状态过滤
+    
+    # 构建查询
+    query = MovieRequest.query.options(
+        joinedload(MovieRequest.user),
+        joinedload(MovieRequest.download_task)
+    ).order_by(MovieRequest.created_at.desc())
+    
+    # 按状态过滤
+    if status_filter and status_filter != 'all':
+        # 'approved' 和 'processing' 都属于"已批准"范畴，合并筛选
+        if status_filter == 'approved':
+            query = query.filter(MovieRequest.status.in_(['approved', 'processing']))
+        else:
+            query = query.filter(MovieRequest.status == status_filter)
+    
+    # 获取分页数据
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    
+    # 获取套餐配置用于兑换码管理（使用统一的加载函数，优先从数据库读取）
+    plans_data = load_plans_config()
+    
+    # 检查是否配置了 MoviePilot（用于前端判断是否显示 PT 搜索按钮）
+    mp_enabled = pt_manager.is_enabled()
+    
+    # 根据配置决定是否使用图片代理
+    site_config = get_site_config()
+    if site_config.get('use_image_proxy', True):
+        tmdb_image_base = '/api/tmdb-image/w500'
+    else:
+        tmdb_image_base = 'https://image.tmdb.org/t/p/w500'
+    
+    return render_template('admin.html', 
+                         requests=pagination.items,
+                         pagination=pagination,
+                         stats=stats,
+                         current_status=status_filter,
+                         tmdb_image_base=tmdb_image_base,
+                         plans=plans_data,
+                         mp_enabled=mp_enabled,
+                         site_config=site_config)
+
+
+@app.route('/admin/update-request/<int:request_id>', methods=['POST'])
+@admin_required
+def update_request_status(request_id):
+    movie_request = MovieRequest.query.get_or_404(request_id)
+    data = request.get_json()
+    
+    status = data.get('status')
+    admin_note = data.get('admin_note', '')
+    auto_download = data.get('auto_download', True)  # 批准时是否自动下载，默认开启
+    
+    if status not in ['pending', 'approved', 'processing', 'rejected', 'completed', 'downloading', 'downloaded', 'failed']:
+        return jsonify({'success': False, 'error': '无效的状态'}), 400
+    
+    old_status = movie_request.status
+    movie_request.status = status
+    movie_request.admin_note = admin_note
+    
+    # ========== "processing" 状态：手动处理流程，不自动下载 ==========
+    if status == 'processing':
+        db.session.commit()
+        
+        # 通知用户求片已被批准，正在处理
+        user = movie_request.user
+        if user and user.tg:
+            send_user_telegram_notification(
+                user.tg,
+                movie_request.title,
+                'approved',
+                admin_note or '您的求片已被批准，正在处理中，请耐心等待',
+                movie_request.media_type,
+                movie_request.tmdb_id,
+                movie_request.poster_path
+            )
+        
+        return jsonify({'success': True, 'message': '已批准，状态设为正在处理'}), 200
+    
+    # ========== 批准时自动搜索并下载最大的种子 ==========
+    download_started = False
+    download_error = None
+    
+    if status == 'approved' and auto_download and pt_manager.is_enabled() and qbit_client.is_enabled():
+        # 先检查 Emby 库中是否已存在
+        if emby_client.is_enabled():
+            emby_check = emby_client.check_exists(
+                movie_request.tmdb_id, 
+                movie_request.title, 
+                movie_request.year, 
+                movie_request.media_type
+            )
+            if emby_check['exists']:
+                # 已在库中，直接标记为完成
+                movie_request.status = 'completed'
+                movie_request.admin_note = (admin_note + ' ' if admin_note else '') + '[已在 Emby 库中]'
+                db.session.commit()
+                app.logger.info(f'求片 {movie_request.title} 已在 Emby 库中，直接标记完成')
+                
+                # 通知用户
+                user = movie_request.user
+                if user and user.tg:
+                    send_user_telegram_notification(
+                        user.tg,
+                        movie_request.title,
+                        'completed',
+                        '该影片已在媒体库中，可直接观看！',
+                        movie_request.media_type,
+                        movie_request.tmdb_id,
+                        movie_request.poster_path
+                    )
+                
+                return jsonify({
+                    'success': True, 
+                    'message': '影片已在库中，已自动标记为完成',
+                    'in_library': True
+                }), 200
+        
+        # 使用 PT 管理器搜索所有站点
+        try:
+            keyword = f"{movie_request.title} {movie_request.year or ''}".strip()
+            results = pt_manager.search(keyword, movie_request.media_type)
+            
+            if results:
+                # 按文件大小降序排序，选择最大的种子
+                def parse_size(size_val):
+                    """解析文件大小为字节数"""
+                    if not size_val:
+                        return 0
+                    if isinstance(size_val, (int, float)):
+                        return size_val
+                    size_str = str(size_val).upper().strip()
+                    multipliers = {'B': 1, 'KB': 1024, 'MB': 1024**2, 'GB': 1024**3, 'TB': 1024**4}
+                    for unit, mult in multipliers.items():
+                        if unit in size_str:
+                            try:
+                                num = float(size_str.replace(unit, '').strip())
+                                return num * mult
+                            except ValueError:
+                                return 0
+                    return 0
+                
+                sorted_results = sorted(results, key=lambda x: parse_size(x.get('size', 0)), reverse=True)
+                largest = sorted_results[0]
+                
+                # 获取下载链接（优先使用结果中的 download_url）
+                torrent_id = largest.get('id')
+                source = largest.get('source', 'MoviePilot')
+                download_url = largest.get('download_url')
+                
+                # 如果没有直接的下载链接，通过客户端构建
+                if not download_url:
+                    client = pt_manager.get_client()
+                    if client:
+                        download_url = client.build_download_url(torrent_id)
+                
+                if download_url:
+                    qb_tag = f"request-{movie_request.id}"
+                    qbit_client.add_torrent(
+                        download_url,
+                        category=QBITTORRENT_CATEGORY or None,
+                        save_path=QBITTORRENT_SAVE_PATH or None,
+                        tags=[qb_tag]
+                    )
+                    
+                    # 等待获取种子信息
+                    import time
+                    time.sleep(1)
+                    torrent_info = qbit_client.get_torrent_by_tag(qb_tag)
+                    
+                    # 创建下载任务
+                    task = DownloadTask(
+                        request_id=movie_request.id,
+                        torrent_name=largest.get('name', movie_request.title),
+                        torrent_hash=torrent_info.get('hash') if torrent_info else None,
+                        status='queued',
+                        progress=0,
+                        qb_tag=qb_tag,
+                        download_url=download_url,
+                    )
+                    db.session.add(task)
+                    
+                    movie_request.status = 'downloading'
+                    download_started = True
+                    app.logger.info(f'自动下载: {movie_request.title} -> {largest.get("name")} ({largest.get("size")})')
+            else:
+                download_error = 'PT 搜索无结果'
+                app.logger.warning(f'自动下载失败: {movie_request.title} - 搜索无结果')
+                
+        except Exception as e:
+            download_error = str(e)
+            app.logger.error(f'自动下载异常: {movie_request.title} - {e}')
+    
+    db.session.commit()
+    
+    # 如果开始了下载，启动该任务的独立监控
+    if download_started and movie_request.download_task:
+        start_task_monitor(movie_request.download_task.id, DOWNLOAD_POLL_INTERVAL)
+    
+    app.logger.info(f'管理员 {session.get("username")} 更新求片状态: ID={request_id}, {old_status} -> {movie_request.status}, 影片={movie_request.title}')
+    
+    # 只在拒绝和完成时发送通知给用户
+    if movie_request.status in ['rejected', 'completed'] and old_status != movie_request.status:
+        user = movie_request.user
+        if user and user.tg:
+            # 私聊通知用户
+            send_user_telegram_notification(
+                user.tg,
+                movie_request.title,
+                movie_request.status,
+                admin_note if movie_request.status == 'rejected' else '您的求片已入库，快去观看吧！🎬',
+                movie_request.media_type,
+                movie_request.tmdb_id,
+                movie_request.poster_path
+            )
+            
+            # 如果是手动标记入库，也发送群组通知
+            if movie_request.status == 'completed':
+                send_group_completion_notification(
+                    user_tg_id=user.tg,
+                    username=user.name or user.username,
+                    title=movie_request.title,
+                    year=movie_request.year,
+                    media_type=movie_request.media_type,
+                    tmdb_id=movie_request.tmdb_id,
+                    poster_path=movie_request.poster_path
+                )
+    
+    response_data = {'success': True, 'message': '状态已更新'}
+    if download_started:
+        response_data['auto_download'] = True
+        response_data['message'] = '已批准并自动开始下载'
+    elif download_error:
+        response_data['auto_download_error'] = download_error
+    
+    return jsonify(response_data), 200
+
+
+@app.route('/api/pt/status')
+@admin_required
+def pt_status():
+    """查看已注册的 PT 站点状态（调试用）"""
+    clients = pt_manager.get_enabled_clients()
+    sites_info = []
+    for c in clients:
+        info = {
+            'name': c.name,
+            'type': c.__class__.__name__,
+            'priority': c.priority,
+            'enabled': c.is_enabled()
+        }
+        # 如果是 RSS 客户端，显示 RSS URL 的前50字符
+        if hasattr(c, 'rss_url'):
+            info['rss_url_preview'] = c.rss_url[:80] + '...' if len(c.rss_url) > 80 else c.rss_url
+        sites_info.append(info)
+    
+    return jsonify({
+        'success': True,
+        'total_registered': len(pt_manager.clients),
+        'total_enabled': len(clients),
+        'sites': sites_info
+    })
+
+
+@app.route('/api/pt/search')
+@admin_required
+def pt_search():
+    if not pt_manager.is_enabled():
+        return jsonify({'success': False, 'error': '您未配置 MoviePilot，请在系统设置中配置'}), 400
+
+    request_id = request.args.get('request_id', type=int)
+    keyword = (request.args.get('keyword') or '').strip()
+    media_type = 'movie'
+
+    if request_id:
+        movie_request = MovieRequest.query.get_or_404(request_id)
+        media_type = movie_request.media_type
+        if not keyword:
+            keyword = f"{movie_request.title} {movie_request.year or ''}".strip()
+
+    if not keyword:
+        return jsonify({'success': False, 'error': '缺少搜索关键字'}), 400
+
+    try:
+        # 使用 PT 管理器搜索
+        results = pt_manager.search(keyword, media_type)
+        
+        # 返回可用站点列表（便于前端展示）
+        enabled_sites = [c.name for c in pt_manager.get_enabled_clients()]
+        
+        return jsonify({
+            'success': True, 
+            'results': results, 
+            'keyword': keyword,
+            'sites': enabled_sites,
+            'total_sites': len(enabled_sites)
+        })
+    except Exception as exc:  # noqa: BLE001
+        error_msg = str(exc) if exc else '未知错误'
+        app.logger.error(f'PT搜索失败: {error_msg}', exc_info=True)
+        return jsonify({'success': False, 'error': '搜索失败，请稍后再试'}), 500
+
+
+@app.route('/api/pt/push', methods=['POST'])
+@admin_required
+def pt_push_to_qb():
+    if not pt_manager.is_enabled():
+        return jsonify({'success': False, 'error': 'PT 站未配置'}), 400
+    if not qbit_client.is_enabled():
+        return jsonify({'success': False, 'error': 'qBittorrent 未配置'}), 400
+
+    data = request.get_json() or {}
+    request_id = data.get('request_id')
+    if not request_id:
+        return jsonify({'success': False, 'error': '缺少 request_id'}), 400
+
+    movie_request = MovieRequest.query.get_or_404(request_id)
+
+    if movie_request.download_task and movie_request.download_task.status in {'queued', 'downloading'}:
+        return jsonify({'success': False, 'error': '该请求已存在下载任务'}), 400
+
+    download_url = data.get('download_url')
+    torrent_id = data.get('torrent_id')
+    source = data.get('source', 'MoviePilot')  # 来源站点名称
+    
+    # 通过客户端获取下载链接
+    if not download_url and torrent_id:
+        client = pt_manager.get_client()
+        if client:
+            download_url = client.build_download_url(torrent_id)
+
+    if not download_url:
+        return jsonify({'success': False, 'error': '缺少种子下载链接'}), 400
+
+    torrent_title = data.get('title') or movie_request.title
+    qb_tag = f"request-{movie_request.id}"
+
+    app.logger.info(f'[PT推送] 开始推送: request_id={request_id}, title={torrent_title}, source={source}')
+    app.logger.info(f'[PT推送] 下载链接: {download_url[:100]}...' if len(download_url) > 100 else f'[PT推送] 下载链接: {download_url}')
+
+    # 统一通过 MoviePilot 下载到 qBittorrent
+    moviepilot_client = pt_manager.get_client('MoviePilot')
+    
+    if not moviepilot_client or not moviepilot_client.is_enabled():
+        return jsonify({'success': False, 'error': 'MoviePilot 未配置'}), 400
+    
+    app.logger.info(f'[PT推送] 使用 MoviePilot 下载 API')
+    try:
+        # 传递 title 以便 MoviePilot 识别媒体信息
+        mp_result = moviepilot_client.download_torrent(download_url, title=torrent_title)
+        if not mp_result:
+            return jsonify({'success': False, 'error': 'MoviePilot 下载失败: 无响应'}), 500
+        if mp_result.get('success') != True:
+            error_msg = mp_result.get('error', '未知错误')
+            app.logger.error(f'[PT推送] MoviePilot API 返回失败: {error_msg}')
+            return jsonify({'success': False, 'error': f'MoviePilot 下载失败: {error_msg}'}), 500
+        app.logger.info(f'[PT推送] MoviePilot 下载成功')
+    except Exception as exc:
+        app.logger.error(f'[PT推送] MoviePilot 下载异常: {exc}', exc_info=True)
+        return jsonify({'success': False, 'error': f'MoviePilot 下载失败: {exc}'}), 500
+
+    # 等待一小段时间让 qBittorrent 处理种子
+    import time
+    time.sleep(2)
+    
+    torrent_info = None
+    try:
+        torrent_info = qbit_client.get_torrent_by_tag(qb_tag)
+        if not torrent_info:
+            # 如果按 tag 找不到，尝试获取最近添加的种子
+            app.logger.warning(f'[PT推送] 按 tag 未找到种子，尝试获取最近添加的种子')
+            all_torrents = qbit_client.get_torrents_info()
+            if all_torrents:
+                # 按添加时间排序，取最新的
+                all_torrents.sort(key=lambda x: x.get('added_on', 0), reverse=True)
+                recent = all_torrents[0]
+                # 检查是否是刚添加的（30秒内）
+                if time.time() - recent.get('added_on', 0) < 30:
+                    torrent_info = recent
+                    app.logger.info(f'[PT推送] 找到最近添加的种子: {recent.get("name", "")[:50]}')
+    except Exception as e:
+        app.logger.warning(f'[PT推送] 获取种子信息失败: {e}')
+        torrent_info = None
+
+    # 创建任务时初始进度设为 0，让后台监控来更新真实进度
+    # 避免 qBittorrent 在种子刚添加时返回错误的进度值
+    task = DownloadTask(
+        request_id=movie_request.id,
+        torrent_name=torrent_title,
+        torrent_hash=torrent_info.get('hash') if torrent_info else None,
+        status='queued',
+        progress=0,  # 初始进度为 0
+        qb_tag=qb_tag,
+        download_url=download_url,
+        source=source,  # 记录来源
+    )
+
+    movie_request.status = 'downloading'
+    db.session.add(task)
+    db.session.commit()
+    
+    # 立即启动该任务的独立监控线程
+    start_task_monitor(task.id, DOWNLOAD_POLL_INTERVAL)
+    
+    app.logger.info(f'[PT推送] 任务创建成功: task_id={task.id}, hash={task.torrent_hash or "待获取"}')
+
+    return jsonify({'success': True, 'task': task.to_dict()})
+
+
+# ==================== Emby Webhook 接口 ====================
+@app.route('/api/webhook/emby', methods=['POST'])
+def emby_webhook():
+    """
+    接收 Emby Webhook 通知 - 媒体入库
+    
+    Emby 配置方法：
+    1. 打开 Emby 控制台 → 设置 → 通知
+    2. 添加 Webhook 通知
+    3. URL: http://你的服务器地址:5002/api/webhook/emby
+    4. 事件类型选择: library.new (新媒体入库)
+    5. 可选: 添加 Header "X-Emby-Secret: 你的密钥" 用于验证
+    """
+    # 验证密钥（可选，仅当配置了密钥时才验证）
+    if EMBY_WEBHOOK_SECRET and EMBY_WEBHOOK_SECRET.strip():
+        provided_secret = request.headers.get('X-Emby-Secret', '')
+        # 也检查 Authorization header（某些系统可能用这个）
+        if not provided_secret:
+            provided_secret = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if provided_secret != EMBY_WEBHOOK_SECRET:
+            app.logger.warning(f'Emby Webhook 密钥验证失败 - 收到: "{provided_secret[:10]}..." 期望: "{EMBY_WEBHOOK_SECRET[:10]}..."')
+            return jsonify({'success': False, 'error': '密钥验证失败'}), 401
+    
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        data = {}
+    
+    event_type = data.get('Event', '')
+    app.logger.info(f'收到 Emby 入库 Webhook: {event_type}')
+    
+    # 只处理新媒体入库事件
+    if event_type not in ['library.new', 'item.added']:
+        return jsonify({'success': True, 'message': '非入库事件，已忽略', 'event': event_type})
+    
+    item = data.get('Item', {})
+    item_name = item.get('Name', '')
+    item_type = item.get('Type', '')  # Movie, Series, Episode
+    item_year = item.get('ProductionYear')
+    provider_ids = item.get('ProviderIds', {})
+    tmdb_id = provider_ids.get('Tmdb')
+    imdb_id = provider_ids.get('Imdb')
+    
+    # 对于 Episode 类型，获取父级 Series 信息用于搜索海报
+    series_name = None
+    series_tmdb_id = None
+    if item_type == 'Episode':
+        series_name = item.get('SeriesName', '')
+        # 尝试获取 Series 的 TMDB ID
+        series_provider_ids = item.get('SeriesProviderIds', {}) or item.get('ProviderIds', {})
+        series_tmdb_id = series_provider_ids.get('Tmdb') if series_provider_ids != provider_ids else None
+        # 如果单集有年份信息，优先使用 Series 的年份
+        if not item_year:
+            item_year = item.get('PremiereDate', '')[:4] if item.get('PremiereDate') else None
+        app.logger.info(f'Episode 类型: SeriesName={series_name}, SeriesTmdbId={series_tmdb_id}')
+    
+    # 提取额外信息用于通知
+    item_rating = item.get('CommunityRating')  # 评分
+    media_streams = item.get('MediaStreams', [])
+    # 尝试获取视频质量
+    video_quality = None
+    for stream in media_streams:
+        if stream.get('Type') == 'Video':
+            height = stream.get('Height', 0)
+            if height >= 2160:
+                video_quality = '4K UHD'
+            elif height >= 1080:
+                video_quality = '1080p'
+            elif height >= 720:
+                video_quality = '720p'
+            else:
+                video_quality = f'{height}p'
+            break
+    
+    # 尝试获取文件大小
+    file_size = None
+    if item.get('Size'):
+        size_bytes = item.get('Size', 0)
+        if size_bytes > 1024**3:
+            file_size = f"{size_bytes / (1024**3):.2f}GB"
+        elif size_bytes > 1024**2:
+            file_size = f"{size_bytes / (1024**2):.2f}MB"
+    
+    app.logger.info(f'Emby 新入库: {item_name} ({item_year}) - Type: {item_type}, TMDB: {tmdb_id}')
+    
+    # 尝试匹配已下载的求片请求
+    matched_request = None
+    
+    # 优先通过 TMDB ID 匹配
+    if tmdb_id:
+        matched_request = MovieRequest.query.filter(
+            MovieRequest.tmdb_id == str(tmdb_id),
+            MovieRequest.status.in_(['downloading', 'downloaded'])
+        ).first()
+    
+    # 如果没有匹配到，尝试通过名称+年份匹配
+    if not matched_request and item_name:
+        query = MovieRequest.query.filter(
+            MovieRequest.status.in_(['downloading', 'downloaded'])
+        )
+        if item_year:
+            matched_request = query.filter(
+                MovieRequest.title.ilike(f'%{item_name}%'),
+                MovieRequest.year == str(item_year)
+            ).first()
+        else:
+            matched_request = query.filter(
+                MovieRequest.title.ilike(f'%{item_name}%')
+            ).first()
+    
+    if matched_request:
+        app.logger.info(f'匹配到求片请求: ID={matched_request.id}, 标题={matched_request.title}')
+        
+        # 更新状态为已完成
+        previous_status = matched_request.status
+        matched_request.status = 'completed'
+        matched_request.admin_note = f'已入库 Emby (自动检测)'
+        
+        # 更新下载任务状态
+        if matched_request.download_task:
+            matched_request.download_task.status = 'completed'
+            matched_request.download_task.finished_at = datetime.now()
+        
+        db.session.commit()
+        
+        # 发送群组入库通知（@用户）- 仅当状态改变时发送
+        if previous_status != 'completed':
+            # 获取用户信息（通过关系或直接查询）
+            user = matched_request.user  # 使用 ORM 关系
+            if not user:
+                user = User.query.filter_by(tg=matched_request.user_tg).first()
+            username = user.name if user else '用户'
+            
+            # 发送群组通知（使用从 Emby 获取的信息）
+            send_group_completion_notification(
+                user_tg_id=matched_request.user_tg,
+                username=username,
+                title=matched_request.title,
+                year=matched_request.year,
+                media_type=matched_request.media_type,
+                tmdb_id=matched_request.tmdb_id,
+                poster_path=matched_request.poster_path,
+                rating=item_rating,
+                quality=video_quality,
+                size=file_size,
+                file_count=None  # Emby 单次 webhook 不提供文件数量
+            )
+            
+            # 同时私聊通知用户（可选）
+            if matched_request.user_tg:
+                send_user_telegram_notification(
+                    user_tg_id=matched_request.user_tg,
+                    title=matched_request.title,
+                    status='completed',
+                    admin_note='您的求片已入库 Emby，快去观看吧！🎬',
+                    media_type=matched_request.media_type,
+                    tmdb_id=matched_request.tmdb_id,
+                    poster_path=matched_request.poster_path
+                )
+        
+        return_data = {
+            'success': True,
+            'matched': True,
+            'request_id': matched_request.id,
+            'title': matched_request.title
+        }
+    else:
+        app.logger.info(f'未匹配到求片请求: {item_name}')
+        return_data = {'success': True, 'matched': False}
+    
+    # 发送通用入库通知（所有媒体入库都发送，不限于求片）
+    try:
+        # 获取媒体类别
+        media_category = get_media_category(item_type, tmdb_id) if tmdb_id else '未知类别'
+        
+        # 构建季集信息（如果是剧集）
+        season_episode = None
+        if item_type in ['Episode', 'Series']:
+            season_num = item.get('ParentIndexNumber')  # 季
+            episode_num = item.get('IndexNumber')  # 集
+            if season_num and episode_num:
+                season_episode = f"第{season_num}季第{episode_num}集"
+            elif season_num:
+                season_episode = f"第{season_num}季"
+        
+        # 获取简介
+        overview = item.get('Overview', '')
+        
+        # 获取海报路径
+        poster_path = None
+        if matched_request and matched_request.poster_path:
+            # 如果有匹配的求片，使用求片中存储的海报
+            poster_path = matched_request.poster_path
+            app.logger.info(f'使用求片记录中的海报: {poster_path}')
+        elif item_type == 'Episode' and series_tmdb_id:
+            # Episode 类型：使用 Series 的 TMDB ID 获取剧集海报
+            try:
+                details = get_tmdb_details(series_tmdb_id, 'tv')
+                if details:
+                    poster_path = details.get('poster_path')
+                    if not overview and details.get('overview'):
+                        overview = details.get('overview')
+                    if not item_rating and details.get('vote_average'):
+                        item_rating = details.get('vote_average')
+                    app.logger.info(f'从 TMDB 获取剧集信息 (SeriesTmdbId={series_tmdb_id}): poster={poster_path}')
+                else:
+                    app.logger.warning(f'Series TMDB ID {series_tmdb_id} 获取详情失败')
+            except Exception as e:
+                app.logger.warning(f'从 TMDB 获取 Series 信息失败: {e}')
+        elif tmdb_id:
+            # 如果有 TMDB ID，从 TMDB 获取海报
+            try:
+                media_type = 'movie' if item_type == 'Movie' else 'tv'
+                details = get_tmdb_details(tmdb_id, media_type)
+                if details:
+                    poster_path = details.get('poster_path')
+                    # 如果没有 overview，也从 TMDB 获取
+                    if not overview and details.get('overview'):
+                        overview = details.get('overview')
+                    # 如果没有评分，也从 TMDB 获取
+                    if not item_rating and details.get('vote_average'):
+                        item_rating = details.get('vote_average')
+                    app.logger.info(f'从 TMDB 获取信息: poster={poster_path}, rating={item_rating}')
+                else:
+                    app.logger.warning(f'TMDB ID {tmdb_id} 获取详情失败，返回 None')
+            except Exception as e:
+                app.logger.warning(f'从 TMDB 获取信息失败: {e}')
+        
+        # 如果还是没有海报，尝试通过名称搜索 TMDB（先中文，再英文）
+        # 对于 Episode 类型，优先使用 SeriesName 搜索
+        search_name = series_name if (item_type == 'Episode' and series_name) else item_name
+        search_media_type = 'tv' if item_type in ['Episode', 'Series'] else 'movie'
+        
+        if not poster_path and search_name and TMDB_API_KEY:
+            try:
+                search_url = f'{TMDB_BASE_URL}/search/{search_media_type}'
+                
+                # 先尝试中文搜索
+                params = {
+                    'api_key': TMDB_API_KEY,
+                    'query': search_name,
+                    'language': 'zh-CN'
+                }
+                if item_year:
+                    params['year' if search_media_type == 'movie' else 'first_air_date_year'] = item_year
+                
+                response = http_session.get(search_url, params=params, timeout=10)
+                results = []
+                if response.status_code == 200:
+                    results = response.json().get('results', [])
+                
+                # 如果中文搜索无结果，尝试英文搜索
+                if not results:
+                    app.logger.info(f'中文搜索无结果，尝试英文搜索: {search_name}')
+                    params['language'] = 'en-US'
+                    response = http_session.get(search_url, params=params, timeout=10)
+                    if response.status_code == 200:
+                        results = response.json().get('results', [])
+                
+                # 如果还是无结果，尝试去掉年份搜索
+                if not results and item_year:
+                    app.logger.info(f'带年份搜索无结果，尝试不带年份搜索: {search_name}')
+                    params.pop('year', None)
+                    params.pop('first_air_date_year', None)
+                    params['language'] = 'zh-CN'
+                    response = http_session.get(search_url, params=params, timeout=10)
+                    if response.status_code == 200:
+                        results = response.json().get('results', [])
+                
+                if results:
+                    best_match = results[0]
+                    poster_path = best_match.get('poster_path')
+                    if not overview:
+                        overview = best_match.get('overview', '')
+                    if not item_rating:
+                        item_rating = best_match.get('vote_average')
+                    if not tmdb_id:
+                        tmdb_id = best_match.get('id')
+                    app.logger.info(f'通过搜索获取 TMDB 信息 (搜索词={search_name}): poster={poster_path}, tmdb_id={tmdb_id}')
+                else:
+                    app.logger.warning(f'TMDB 搜索无结果: {search_name} ({item_year})')
+            except Exception as e:
+                app.logger.warning(f'搜索 TMDB 失败: {e}')
+        
+        # 如果还是没有海报，尝试使用 Emby 自己的图片
+        if not poster_path:
+            emby_image_tags = item.get('ImageTags', {})
+            emby_item_id = item.get('Id')
+            # 对于 Episode，也可以尝试获取 Series 的图片
+            series_id = item.get('SeriesId') if item_type == 'Episode' else None
+            
+            # 获取 Emby 配置
+            config = load_system_config()
+            emby_url = config.get('emby', {}).get('url', '').rstrip('/')
+            emby_api_key = config.get('emby', {}).get('api_key', '')
+            
+            if emby_image_tags.get('Primary') and emby_item_id and emby_url and emby_api_key:
+                # 使用项目自己的图片
+                poster_path = f"{emby_url}/Items/{emby_item_id}/Images/Primary?api_key={emby_api_key}"
+                app.logger.info(f'使用 Emby 自带图片: {poster_path[:50]}...')
+            elif series_id and emby_url and emby_api_key:
+                # Episode 没有自己的图片，尝试使用 Series 的图片
+                poster_path = f"{emby_url}/Items/{series_id}/Images/Primary?api_key={emby_api_key}"
+                app.logger.info(f'使用 Emby Series 图片: {poster_path[:50]}...')
+        
+        if not poster_path:
+            app.logger.warning(f'无法获取海报: {item_name} - 无 TMDB ID，搜索失败，Emby 也无图片')
+        
+        # 对于 Episode，通知标题使用 SeriesName + 集信息
+        notification_title = item_name
+        if item_type == 'Episode' and series_name:
+            notification_title = series_name
+        
+        # 发送通用入库通知
+        app.logger.info(f'发送通用入库通知: {notification_title}, poster={poster_path}, rating={item_rating}, quality={video_quality}')
+        send_general_library_notification(
+            title=notification_title,
+            year=item_year,
+            season_episode=season_episode,
+            vote_average=item_rating,
+            category=media_category,
+            resource_quality=video_quality,
+            file_count=1,  # Emby webhook 单次事件通常是一个文件
+            total_size=file_size,
+            tmdb_id=tmdb_id,
+            release_group=None,  # Emby 不提供制作组信息
+            time_usage=None,  # Emby 不提供入库耗时
+            overview=overview,
+            poster_path=poster_path
+        )
+    except Exception as e:
+        app.logger.error(f'发送通用入库通知失败: {e}')
+    
+    return jsonify(return_data)
+
+
+@app.route('/api/webhook/emby/playback', methods=['POST'])
+def emby_playback_webhook():
+    """
+    接收 Emby Webhook 通知 - 播放检测（黑名单）
+    
+    这是独立的播放检测 Webhook，用于黑名单设备检测和封禁
+    
+    Emby 配置方法：
+    1. 打开 Emby 控制台 → 设置 → 通知
+    2. 添加 Webhook 通知
+    3. URL: http://你的服务器地址:5002/api/webhook/emby/playback
+    4. 事件类型选择: playback.start (播放开始)
+    5. 可选: 添加 Header "X-Emby-Secret: 你的密钥" 用于验证
+    """
+    # 验证密钥（可选）
+    if EMBY_WEBHOOK_SECRET and EMBY_WEBHOOK_SECRET.strip():
+        provided_secret = request.headers.get('X-Emby-Secret', '')
+        if not provided_secret:
+            provided_secret = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if provided_secret != EMBY_WEBHOOK_SECRET:
+            app.logger.warning(f'播放 Webhook 密钥验证失败')
+            return jsonify({'success': False, 'error': '密钥验证失败'}), 401
+    
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        data = {}
+    
+    event_type = data.get('Event', '')
+    app.logger.info(f'收到 Emby 播放 Webhook: {event_type}')
+    
+    # 支持多种事件（播放事件 + 认证事件）
+    valid_events = ['playback.start', 'PlaybackStart', 'playback.stop', 'PlaybackStop', 
+                    'playback.progress', 'PlaybackProgress', 'playback.pause', 'playback.unpause',
+                    'session.start', 'SessionStart', 'user.authenticated', 'AuthenticationSuccess']
+    if event_type not in valid_events:
+        return jsonify({'success': True, 'message': '非监听事件，已忽略', 'event': event_type})
+    
+    session_info = data.get('Session', {})
+    user_info = data.get('User', {})
+    item_info = data.get('Item', {})
+    
+    device_id = session_info.get('DeviceId', '')
+    device_name = session_info.get('DeviceName', '')
+    client = session_info.get('Client', '')
+    emby_user_id = user_info.get('Id', '')
+    emby_user_name = user_info.get('Name', '')
+    remote_ip = session_info.get('RemoteEndPoint', '')
+    session_id = session_info.get('Id', '')
+    
+    # 媒体信息
+    emby_item_id = item_info.get('Id', '')
+    item_name = item_info.get('Name', '')
+    item_type = item_info.get('Type', 'Movie')
+    series_name = item_info.get('SeriesName', '')
+    season_number = item_info.get('ParentIndexNumber')
+    episode_number = item_info.get('IndexNumber')
+    total_ticks = item_info.get('RunTimeTicks', 0)
+    
+    # 播放进度信息
+    play_state = session_info.get('PlayState', {}) or data.get('PlayState', {})
+    position_ticks = play_state.get('PositionTicks', 0)
+    play_method = play_state.get('PlayMethod', '') or session_info.get('PlayMethod', '')
+    
+    app.logger.info(f'播放检测: 用户={emby_user_name}, 设备={device_name}, 客户端={client}, 事件={event_type}')
+    
+    # 查找用户
+    emby_user = None
+    if emby_user_id:
+        emby_user = User.query.filter_by(embyid=emby_user_id).first()
+    if not emby_user and emby_user_name:
+        emby_user = User.query.filter_by(name=emby_user_name).first()
+    
+    if not emby_user:
+        app.logger.warning(f'播放检测: 未找到用户 {emby_user_name}')
+        return jsonify({'success': True, 'message': '用户未注册'})
+    
+    if not device_id:
+        app.logger.warning(f'播放检测: 缺少设备ID')
+        return jsonify({'success': True, 'message': '缺少设备信息'})
+    
+    try:
+        # 查找或创建设备记录
+        device = UserDevice.query.filter_by(
+            user_tg=emby_user.tg,
+            device_id=device_id
+        ).first()
+        
+        if not device:
+            device = UserDevice(
+                user_tg=emby_user.tg,
+                device_id=device_id,
+                device_name=device_name or '未知设备',
+                client=client or '未知',
+                last_ip=remote_ip,
+                last_active=datetime.now()
+            )
+            db.session.add(device)
+            db.session.flush()
+        else:
+            device.device_name = device_name or device.device_name
+            device.client = client or device.client
+            device.last_ip = remote_ip or device.last_ip
+            device.last_active = datetime.now()
+        
+        # 记录播放历史（所有播放事件都记录）
+        if emby_item_id:
+            # 计算播放进度（先计算百分比再取整，避免精度丢失）
+            play_duration = int(position_ticks / 10000000) if position_ticks else 0
+            total_duration = int(total_ticks / 10000000) if total_ticks else 0
+            # 使用 ticks 直接计算百分比，避免 int 转换导致的精度丢失
+            play_percentage = (position_ticks / total_ticks * 100) if total_ticks > 0 else 0
+            
+            # 查找最近10分钟内同一媒体的记录（避免重复）
+            ten_mins_ago = datetime.now() - timedelta(minutes=10)
+            existing_record = PlaybackRecord.query.filter(
+                PlaybackRecord.user_tg == emby_user.tg,
+                PlaybackRecord.device_id == device.id,
+                PlaybackRecord.emby_item_id == emby_item_id,
+                PlaybackRecord.started_at > ten_mins_ago
+            ).first()
+            
+            if existing_record:
+                # 更新现有记录
+                existing_record.play_duration = play_duration
+                existing_record.play_percentage = play_percentage
+                existing_record.play_method = play_method or existing_record.play_method
+                if event_type in ['playback.stop', 'PlaybackStop']:
+                    existing_record.ended_at = datetime.now()
+                app.logger.info(f'更新播放记录: {item_name} ({play_percentage:.1f}%)')
+            else:
+                # 创建新记录
+                record = PlaybackRecord(
+                    user_tg=emby_user.tg,
+                    device_id=device.id,
+                    emby_item_id=emby_item_id,
+                    item_name=item_name,
+                    item_type=item_type,
+                    series_name=series_name,
+                    season_number=season_number,
+                    episode_number=episode_number,
+                    play_duration=play_duration,
+                    total_duration=total_duration,
+                    play_percentage=play_percentage,
+                    play_method=play_method,
+                    client_ip=remote_ip,
+                    started_at=datetime.now()
+                )
+                db.session.add(record)
+                app.logger.info(f'新增播放记录: {item_name}')
+        
+        # ========== 黑名单检测逻辑 ==========
+        # 登录/会话事件：检测 stop_and_ban 规则，立即禁用账号
+        # 播放事件：检测所有规则，停止播放
+        
+        is_auth_event = event_type in ['session.start', 'SessionStart', 'user.authenticated', 'AuthenticationSuccess']
+        is_playback_event = event_type in ['playback.start', 'PlaybackStart']
+        
+        if is_auth_event or is_playback_event:
+            blacklist_rules = DeviceBlacklist.query.filter_by(is_enabled=True).all()
+            matched_rule = None
+            
+            for rule in blacklist_rules:
+                if rule.matches(client, device_name):
+                    matched_rule = rule
+                    break
+            
+            # 如果匹配黑名单规则
+            if matched_rule:
+                # 记录是否是首次阻止（用于决定是否发送通知）
+                is_first_block = not device.is_blocked
+                
+                app.logger.warning(f'[Webhook] 检测到黑名单客户端: 用户={emby_user.name}, 设备={device_name}, 客户端={client}, 规则={matched_rule.rule_name}, 事件={event_type}, 首次阻止={is_first_block}')
+                
+                # 标记设备为已阻止
+                if is_first_block:
+                    device.is_blocked = True
+                
+                # ========== stop_and_ban 模式：登录时立即禁用账号 ==========
+                if matched_rule.action == 'stop_and_ban':
+                    # 检查是否已经处理过（通过订阅状态判断）
+                    active_subs = Subscription.query.filter_by(user_tg=emby_user.tg, status='active').all()
+                    has_active_sub = len(active_subs) > 0
+                    
+                    if has_active_sub or is_first_block:
+                        # 保存封禁前的状态（用于恢复）
+                        if is_first_block:
+                            emby_user.ban_prev_lv = emby_user.lv
+                            emby_user.ban_prev_ex = emby_user.ex
+                            emby_user.ban_time = datetime.now()
+                            emby_user.ban_reason = f'黑名单规则触发: {matched_rule.rule_name}'
+                        
+                        # 暂停用户订阅（不禁用网站账号）
+                        for sub in active_subs:
+                            sub.status = 'suspended'
+                        
+                        # 禁用 Emby 账号并踢出所有会话
+                        if emby_user.embyid:
+                            emby_client.disable_user(emby_user.embyid)
+                            emby_client.kill_user_sessions(emby_user.embyid)
+                        
+                        db.session.commit()
+                    else:
+                        # 已处理过，确保 Emby 账号保持禁用
+                        if emby_user.embyid:
+                            emby_client.disable_user(emby_user.embyid)
+                            emby_client.kill_user_sessions(emby_user.embyid)
+                        db.session.commit()
+                    
+                    # 每次检测到都发送通知
+                    trigger_type = "登录" if is_auth_event else "播放"
+                    try:
+                        message = f"""🚨 <b>黑名单客户端警告</b>
+
+👤 <b>用户：</b>{emby_user.name}
+📱 <b>设备：</b>{device_name}
+💻 <b>客户端：</b>{client}
+🌐 <b>IP：</b>{remote_ip}
+🚫 <b>匹配规则：</b>{matched_rule.rule_name}
+🎯 <b>触发事件：</b>{trigger_type}
+⚡ <b>处理方式：</b>禁用Emby账号
+🔢 <b>首次触发：</b>{'是' if is_first_block else '否（重复尝试）'}
+
+✅ 已执行：Emby账号已禁用、所有会话已踢出"""
+                        send_admin_notification(message)
+                    except Exception as e:
+                        app.logger.error(f'发送黑名单通知失败: {e}')
+                    
+                    return jsonify({'success': False, 'blocked': True, 'reason': 'Emby账号已被禁用'}), 403
+                
+                # ========== stop_only 模式：仅在播放时停止播放 ==========
+                elif matched_rule.action == 'stop_only' and is_playback_event:
+                    # 立即停止该会话的播放
+                    if session_id:
+                        stop_result = emby_client.stop_session(session_id, reason=f'检测到可疑客户端: {client}')
+                        app.logger.info(f'停止播放会话: session_id={session_id}, result={stop_result}')
+                    
+                    db.session.commit()
+                    
+                    # 每次检测到都发送通知
+                    try:
+                        message = f"""⚠️ <b>黑名单客户端检测</b>
+
+👤 <b>用户：</b>{emby_user.name}
+📱 <b>设备：</b>{device_name}
+💻 <b>客户端：</b>{client}
+🌐 <b>IP：</b>{remote_ip}
+🚫 <b>匹配规则：</b>{matched_rule.rule_name}
+⚡ <b>处理方式：</b>停止播放
+🔢 <b>首次触发：</b>{'是' if is_first_block else '否（重复尝试）'}
+
+✅ 已执行：播放已停止"""
+                        send_admin_notification(message)
+                    except Exception as e:
+                        app.logger.error(f'发送黑名单通知失败: {e}')
+                    
+                    return jsonify({'success': True, 'blocked': True, 'reason': '播放已停止'})
+                
+                else:
+                    # stop_only 模式但不是播放事件，只记录不处理
+                    db.session.commit()
+        
+        db.session.commit()
+        return jsonify({'success': True, 'message': '事件已处理'})
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'处理播放检测失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/webhook/emby/test', methods=['GET', 'POST'])
+def test_emby_webhook():
+    """测试 Emby Webhook 配置（无需登录）"""
+    return jsonify({
+        'success': True,
+        'message': 'Emby Webhook 接口正常',
+        'secret_configured': bool(EMBY_WEBHOOK_SECRET),
+        'endpoints': {
+            'library': '/api/webhook/emby (入库通知)',
+            'playback': '/api/webhook/emby/playback (播放检测/黑名单)'
+        }
+    })
+
+
+@app.route('/api/admin/debug/playback-reporting', methods=['GET'])
+@admin_required
+def debug_playback_reporting():
+    """调试 Playback Reporting 插件返回的原始数据"""
+    if not emby_client.is_enabled():
+        return jsonify({'success': False, 'error': 'Emby 未配置'})
+    
+    days = request.args.get('days', 7, type=int)
+    results = {}
+    
+    try:
+        # 测试 user_activity API（主要 API，包含设备信息）
+        user_activity_url = f"{emby_client.base_url}/user_usage_stats/user_activity"
+        user_activity_params = {
+            'api_key': emby_client.api_key,
+            'days': days,
+            'end_date': datetime.now().strftime('%Y-%m-%d')
+        }
+        
+        ua_response = emby_client.session.get(user_activity_url, params=user_activity_params, timeout=15)
+        if ua_response.status_code == 200:
+            ua_data = ua_response.json()
+            results['user_activity'] = {
+                'status': 'ok',
+                'total_records': len(ua_data) if isinstance(ua_data, list) else 1,
+                'field_names': list(ua_data[0].keys()) if ua_data and isinstance(ua_data, list) and ua_data[0] else [],
+                'sample_data': ua_data[:3] if isinstance(ua_data, list) else ua_data
+            }
+        else:
+            results['user_activity'] = {'status': 'error', 'code': ua_response.status_code}
+        
+        # 测试 UserPlaylist API
+        playlist_url = f"{emby_client.base_url}/user_usage_stats/UserPlaylist"
+        playlist_params = {
+            'api_key': emby_client.api_key,
+            'days': days,
+            'end_date': datetime.now().strftime('%Y-%m-%d'),
+            'filter': ''
+        }
+        
+        pl_response = emby_client.session.get(playlist_url, params=playlist_params, timeout=15)
+        if pl_response.status_code == 200:
+            pl_data = pl_response.json()
+            results['user_playlist'] = {
+                'status': 'ok',
+                'total_records': len(pl_data) if isinstance(pl_data, list) else 1,
+                'field_names': list(pl_data[0].keys()) if pl_data and isinstance(pl_data, list) and pl_data[0] else [],
+                'sample_data': pl_data[:3] if isinstance(pl_data, list) else pl_data
+            }
+        else:
+            results['user_playlist'] = {'status': 'error', 'code': pl_response.status_code}
+        
+        # 测试 ClientName BreakdownReport API
+        breakdown_url = f"{emby_client.base_url}/user_usage_stats/ClientName/BreakdownReport"
+        breakdown_params = {
+            'api_key': emby_client.api_key,
+            'days': days,
+            'end_date': datetime.now().strftime('%Y-%m-%d')
+        }
+        
+        bd_response = emby_client.session.get(breakdown_url, params=breakdown_params, timeout=15)
+        if bd_response.status_code == 200:
+            bd_data = bd_response.json()
+            results['client_breakdown'] = {
+                'status': 'ok',
+                'total_records': len(bd_data) if isinstance(bd_data, list) else 1,
+                'data': bd_data
+            }
+        else:
+            results['client_breakdown'] = {'status': 'error', 'code': bd_response.status_code}
+        
+        return jsonify({
+            'success': True,
+            'emby_url': emby_client.base_url,
+            'results': results
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+
+# ==================== Telegram Bot Webhook ====================
+@app.route('/api/webhook/telegram', methods=['POST'])
+def telegram_webhook():
+    """
+    接收 Telegram Bot Webhook 消息
+    
+    设置 Webhook 方法:
+    1. 获取你的域名，如: https://your-domain.com
+    2. 调用: https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://your-domain.com/api/webhook/telegram
+    3. 或者访问本系统的 /api/webhook/telegram/setup?url=https://your-domain.com 自动设置
+    
+    支持的命令:
+    - /start - 开始使用
+    - /bind <用户名> - 绑定网站账号
+    - /unbind - 解绑账号
+    - /status - 查看账号状态
+    """
+    # 记录 Webhook 请求信息
+    app.logger.info(f'[Webhook] 收到 Telegram Webhook 请求 - IP: {request.remote_addr}, Headers: {dict(request.headers)}')
+    
+    if not TELEGRAM_BOT_TOKEN:
+        app.logger.warning('[Webhook] TELEGRAM_BOT_TOKEN 未配置')
+        return jsonify({'ok': True})  # 静默返回
+    
+    try:
+        data = request.get_json(force=True) or {}
+        app.logger.info(f'[Webhook] 接收到数据: {json.dumps(data, ensure_ascii=False)[:500]}')
+    except Exception as e:
+        app.logger.error(f'[Webhook] 解析 JSON 失败: {e}')
+        return jsonify({'ok': True})
+    
+    # 处理回调查询（内联按钮点击）
+    callback_query = data.get('callback_query')
+    if callback_query:
+        return handle_callback_query(callback_query)
+    
+    # 处理消息
+    message = data.get('message', {})
+    if not message:
+        app.logger.info('[Webhook] 消息为空或非消息类型更新')
+        return jsonify({'ok': True})
+    
+    chat_id = message.get('chat', {}).get('id')
+    text = message.get('text', '').strip()
+    message_id = message.get('message_id')  # 获取消息ID用于删除
+    chat_type = message.get('chat', {}).get('type', '')  # private, group, supergroup
+    from_user = message.get('from', {})
+    telegram_user_id = from_user.get('id')
+    telegram_username = from_user.get('username', '')
+    telegram_first_name = from_user.get('first_name', '')
+    
+    if not chat_id or not text:
+        app.logger.info(f'[Webhook] chat_id 或 text 为空: chat_id={chat_id}, text={text}')
+        return jsonify({'ok': True})
+    
+    app.logger.info(f'[Webhook] 处理消息 - chat_id={chat_id}, user_id={telegram_user_id}, username={telegram_username}, text={text[:100]}')
+    
+    # 群组中如果有@机器人，移除@部分
+    if chat_type in ['group', 'supergroup']:
+        bot_username = get_bot_username()
+        if bot_username and f'@{bot_username}' in text:
+            text = text.replace(f'@{bot_username}', '').strip()
+    
+    # 如果是命令，尝试删除用户发送的命令消息（/kk 命令除外，因为它需要回复消息来获取目标用户）
+    if text.startswith('/') and message_id and not text.startswith('/kk'):
+        delete_telegram_message(chat_id, message_id)
+    
+    # 检查用户是否处于注册状态（私聊中）
+    if chat_type == 'private' and not text.startswith('/'):
+        # 先检查是否是签到验证码
+        if telegram_user_id in TELEGRAM_CHECKIN_CODES:
+            checkin_data = TELEGRAM_CHECKIN_CODES[telegram_user_id]
+            
+            # 检查验证码是否过期
+            if checkin_data.get('expires_at') and checkin_data['expires_at'] < datetime.now():
+                del TELEGRAM_CHECKIN_CODES[telegram_user_id]
+                send_telegram_reply(chat_id, "❌ 验证码已过期，请重新发送 /checkin")
+                return jsonify({'ok': True})
+            
+            # 验证验证码
+            if text == checkin_data.get('code'):
+                # 验证码正确，执行签到
+                try:
+                    user_tg = checkin_data.get('user_tg')
+                    user = db.session.get(User, user_tg)
+                    
+                    if not user:
+                        send_telegram_reply(chat_id, "❌ 用户不存在")
+                        del TELEGRAM_CHECKIN_CODES[telegram_user_id]
+                        return jsonify({'ok': True})
+                    
+                    # 获取签到配置
+                    checkin_config = get_db_config('checkin', {})
+                    coin_name = checkin_config.get('coin_name', '积分')
+                    
+                    # 再次检查今天是否已签到（防止并发）
+                    today = datetime.now().date()
+                    existing = CheckInRecord.query.filter_by(
+                        user_tg=user.tg,
+                        checkin_date=today
+                    ).first()
+                    
+                    if existing:
+                        send_telegram_reply(chat_id, "❌ 今天已经签到过了")
+                        del TELEGRAM_CHECKIN_CODES[telegram_user_id]
+                        return jsonify({'ok': True})
+                    
+                    # 计算连续签到天数
+                    yesterday = today - timedelta(days=1)
+                    yesterday_record = CheckInRecord.query.filter_by(
+                        user_tg=user.tg,
+                        checkin_date=yesterday
+                    ).first()
+                    
+                    continuous_days = (yesterday_record.continuous_days + 1) if yesterday_record else 1
+                    
+                    # 随机生成签到积分
+                    coin_min = checkin_config.get('coin_min', 1)
+                    coin_max = checkin_config.get('coin_max', 10)
+                    coins_earned = random.randint(coin_min, coin_max)
+                    
+                    # 创建签到记录
+                    checkin_record = CheckInRecord(
+                        user_tg=user.tg,
+                        checkin_date=today,
+                        coins_earned=coins_earned,
+                        continuous_days=continuous_days
+                    )
+                    db.session.add(checkin_record)
+                    
+                    # 更新用户积分和签到时间
+                    user.coins = (user.coins or 0) + coins_earned
+                    user.ch = datetime.now()
+                    
+                    # 创建积分交易记录
+                    coin_trans = CoinTransaction(
+                        user_tg=user.tg,
+                        amount=coins_earned,
+                        balance_after=user.coins,
+                        trans_type='checkin',
+                        description=f'BOT签到，连续{continuous_days}天',
+                        related_id=checkin_record.id
+                    )
+                    db.session.add(coin_trans)
+                    
+                    db.session.commit()
+                    
+                    # 删除验证码
+                    del TELEGRAM_CHECKIN_CODES[telegram_user_id]
+                    
+                    app.logger.info(f'用户BOT签到成功: {user.name}, 获得积分: {coins_earned}, 连续{continuous_days}天')
+                    
+                    # embyboss 风格的签到成功文案
+                    today_str = datetime.now().strftime('%Y-%m-%d')
+                    reply = f"""🎉 <b>签到成功</b> | +{coins_earned} {coin_name}
+💴 <b>当前持有</b> | {user.coins} {coin_name}
+📅 <b>连续签到</b> | {continuous_days} 天
+⏳ <b>签到日期</b> | {today_str}"""
+                    send_telegram_reply(chat_id, reply)
+                    return jsonify({'ok': True})
+                    
+                except Exception as e:
+                    app.logger.error(f'BOT签到失败: {e}')
+                    db.session.rollback()
+                    send_telegram_reply(chat_id, f"❌ 签到失败: {str(e)}")
+                    if telegram_user_id in TELEGRAM_CHECKIN_CODES:
+                        del TELEGRAM_CHECKIN_CODES[telegram_user_id]
+                    return jsonify({'ok': True})
+            else:
+                # 验证码错误
+                send_telegram_reply(chat_id, "❌ 验证码错误，请重新输入或发送 /checkin 获取新验证码")
+                return jsonify({'ok': True})
+        
+        # 再检查注册状态
+        reg_result = handle_registration_input(chat_id, telegram_user_id, text)
+        if reg_result:
+            return reg_result
+    
+    # 处理 /cancel 命令（取消注册状态）
+    if text.startswith('/cancel') and chat_type == 'private':
+        reg_state_key = f'reg_state_{telegram_user_id}'
+        reg_state = get_db_config(reg_state_key, None)
+        if reg_state:
+            delete_db_config(reg_state_key)
+            send_telegram_reply(chat_id, "✅ 已退出注册状态")
+            return jsonify({'ok': True})
+    
+    # 解析命令
+    if text.startswith('/start'):
+        # 检查是否带有参数（如 /start gift_xxx）
+        parts = text.split(maxsplit=1)
+        if len(parts) > 1 and parts[1].startswith('gift_'):
+            # 处理赠送领取
+            gift_code = parts[1][5:]  # 移除 'gift_' 前缀
+            return handle_gift_claim(chat_id, telegram_user_id, telegram_username or telegram_first_name, gift_code)
+        
+        # 只在私聊中显示图片面板
+        if chat_type == 'private':
+            caption, reply_markup, photo_url = build_start_panel(
+                telegram_user_id, 
+                telegram_first_name, 
+                telegram_username
+            )
+            send_telegram_photo_url(chat_id, photo_url, caption, reply_markup)
+        else:
+            # 群组中提示私聊
+            bot_username = get_bot_username()
+            user_name = telegram_first_name or telegram_username or '用户'
+            reply = f"🤖 亲爱的 <a href=\"tg://user?id={telegram_user_id}\">{user_name}</a> 这是一条私聊命令"
+            if bot_username:
+                reply_markup = {
+                    'inline_keyboard': [[
+                        {'text': '👉 点击私聊我', 'url': f'https://t.me/{bot_username}'}
+                    ]]
+                }
+                send_telegram_reply(chat_id, reply, reply_markup)
+            else:
+                send_telegram_reply(chat_id, reply)
+        return jsonify({'ok': True})
+        
+    elif text.startswith('/bind'):
+        # 解析绑定码
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            reply = """❌ 请提供绑定码
+
+<b>绑定步骤：</b>
+1. 登录网站，点击左下角"绑定 Telegram"按钮
+2. 复制弹窗中显示的绑定码
+3. 发送: <code>/bind 绑定码</code>"""
+            send_telegram_reply(chat_id, reply)
+            return jsonify({'ok': True})
+        
+        bind_input = parts[1].strip().upper()
+        
+        # 清理过期的绑定码
+        cleanup_expired_bind_codes()
+        
+        # 检查是否是绑定码
+        if bind_input in TELEGRAM_BIND_CODES:
+            bind_data = TELEGRAM_BIND_CODES[bind_input]
+            user_tg = bind_data.get('user_tg')
+            user_name = bind_data.get('user_name')
+            
+            # 查找用户
+            user = db.session.get(User, user_tg)
+            if not user:
+                reply = "❌ 绑定码无效或已过期"
+                send_telegram_reply(chat_id, reply)
+                return jsonify({'ok': True})
+            
+            # 检查该 Telegram 是否已绑定其他账号
+            existing = User.query.filter_by(telegram_id=telegram_user_id).first()
+            if existing and existing.tg != user.tg:
+                reply = f"⚠️ 您的 Telegram 已绑定账号 <b>{existing.name}</b>\n\n如需更换，请先发送 /unbind 解绑。"
+                send_telegram_reply(chat_id, reply)
+                return jsonify({'ok': True})
+            
+            # 绑定
+            user.telegram_id = telegram_user_id
+            db.session.commit()
+            
+            # 删除已使用的绑定码
+            del TELEGRAM_BIND_CODES[bind_input]
+            
+            # 获取订阅状态
+            status_text = "未订阅"
+            if user.lv == 'a':
+                status_text = "✅ 白名单 (永久有效)"
+            elif user.ex and user.ex > datetime.now():
+                status_text = f"✅ 已订阅 (到期: {user.ex.strftime('%Y-%m-%d')})"
+            
+            reply = f"""✅ <b>绑定成功！</b>
+
+👤 用户名: <b>{user.name}</b>
+📊 订阅状态: {status_text}
+
+您将收到：
+• 求片进度通知
+• 订阅到期提醒
+• 系统公告推送"""
+            send_telegram_reply(chat_id, reply)
+            
+            app.logger.info(f'用户 {user.name} 通过绑定码 {bind_input} 绑定 Telegram: {telegram_user_id}')
+        else:
+            # 尝试用户名绑定（保留旧方式兼容）
+            username = bind_input
+            
+            # 查找用户
+            user = User.query.filter_by(name=username).first()
+            if not user:
+                reply = f"""❌ 绑定码 <b>{bind_input}</b> 无效或已过期
+
+<b>绑定步骤：</b>
+1. 登录网站，点击左下角"绑定 Telegram"按钮
+2. 复制弹窗中显示的绑定码
+3. 发送: <code>/bind 绑定码</code>
+
+绑定码有效期为 5 分钟。"""
+                send_telegram_reply(chat_id, reply)
+                return jsonify({'ok': True})
+            
+            # 检查是否已被其他 Telegram 账号绑定
+            existing = User.query.filter_by(telegram_id=telegram_user_id).first()
+            if existing and existing.tg != user.tg:
+                reply = f"⚠️ 您的 Telegram 已绑定账号 <b>{existing.name}</b>\n\n如需更换，请先发送 /unbind 解绑。"
+                send_telegram_reply(chat_id, reply)
+                return jsonify({'ok': True})
+            
+            # 检查该账号是否已被其他 Telegram 绑定
+            if user.telegram_id and user.telegram_id != telegram_user_id:
+                reply = f"⚠️ 账号 <b>{username}</b> 已被其他 Telegram 绑定"
+                send_telegram_reply(chat_id, reply)
+                return jsonify({'ok': True})
+            
+            # 绑定
+            user.telegram_id = telegram_user_id
+            db.session.commit()
+            
+            # 获取订阅状态
+            status_text = "未订阅"
+            if user.lv == 'a':
+                status_text = "✅ 白名单 (永久有效)"
+            elif user.ex and user.ex > datetime.now():
+                status_text = f"✅ 已订阅 (到期: {user.ex.strftime('%Y-%m-%d')})"
+            
+            reply = f"""✅ <b>绑定成功！</b>
+
+👤 用户名: <b>{user.name}</b>
+📊 订阅状态: {status_text}
+
+您将收到：
+• 求片进度通知
+• 订阅到期提醒
+• 系统公告推送"""
+            send_telegram_reply(chat_id, reply)
+        
+    elif text.startswith('/unbind'):
+        # 查找绑定的用户
+        user = User.query.filter_by(telegram_id=telegram_user_id).first()
+        if not user:
+            reply = "❌ 您尚未绑定任何账号"
+            send_telegram_reply(chat_id, reply)
+            return jsonify({'ok': True})
+        
+        username = user.name
+        user.telegram_id = None
+        db.session.commit()
+        
+        reply = f"✅ 已解绑账号 <b>{username}</b>\n\n您将不再收到通知消息。"
+        send_telegram_reply(chat_id, reply)
+        
+    elif text.startswith('/status'):
+        # 查找绑定的用户
+        user = User.query.filter_by(telegram_id=telegram_user_id).first()
+        if not user:
+            reply = "❌ 您尚未绑定账号\n\n请先发送: <code>/bind 你的用户名</code>"
+            send_telegram_reply(chat_id, reply)
+            return jsonify({'ok': True})
+        
+        # 获取订阅状态
+        status_text = "❌ 未订阅"
+        if user.lv == 'a':
+            status_text = "✅ 白名单 (永久有效)"
+        elif user.lv == 'c':
+            status_text = "🚫 已禁用"
+        elif user.ex and user.ex > datetime.now():
+            days_left = (user.ex - datetime.now()).days
+            status_text = f"✅ 已订阅 ({days_left} 天后到期)"
+        
+        # 获取今日求片次数
+        today_count = user.get_today_request_count()
+        daily_limit = user.get_daily_limit()
+        
+        # Emby 绑定状态
+        emby_status = "✅ 已绑定" if user.embyid else "❌ 未绑定"
+        
+        reply = f"""📊 <b>账号状态</b>
+
+👤 用户名: <b>{user.name}</b>
+📱 Telegram ID: <code>{telegram_user_id}</code>
+🎬 Emby: {emby_status}
+
+📊 订阅状态: {status_text}
+🎯 今日求片: {today_count}/{daily_limit}"""
+        send_telegram_reply(chat_id, reply)
+    
+    elif text.startswith('/count'):
+        # 检查是否为私聊
+        chat_type = message.get('chat', {}).get('type', '')
+        if chat_type != 'private':
+            # 群组中提示去私聊，使用 inline button
+            user_name = telegram_first_name or telegram_username or '用户'
+            bot_username = get_bot_username()
+            reply = f"🤖 亲爱的 <a href=\"tg://user?id={telegram_user_id}\">{user_name}</a> 这是一条私聊命令"
+            if bot_username:
+                reply_markup = {
+                    'inline_keyboard': [[
+                        {'text': '👉 点击我(•̀ᴗ•́)و', 'url': f'https://t.me/{bot_username}'}
+                    ]]
+                }
+                send_telegram_reply(chat_id, reply, reply_markup)
+            else:
+                send_telegram_reply(chat_id, reply + "\n\n请私聊机器人发送 /count")
+            return jsonify({'ok': True})
+        
+        # 获取媒体库统计
+        try:
+            counts = emby_client.get_library_counts()
+            reply = f"""🎬 电影数量：{counts.get('movies', 0)}
+📽️ 剧集数量：{counts.get('series', 0)}
+🎞️ 总集数：{counts.get('episodes', 0)}"""
+        except Exception as e:
+            app.logger.error(f'获取媒体库统计失败: {e}')
+            reply = "❌ 获取媒体库统计失败，请稍后再试"
+        send_telegram_reply(chat_id, reply)
+    
+    elif text.startswith('/myinfo'):
+        # 查找用户信息
+        user_name = telegram_first_name or telegram_username or '用户'
+        user = User.query.filter_by(telegram_id=telegram_user_id).first()
+        
+        # 获取货币名称配置
+        checkin_config = get_db_config('checkin', {})
+        coin_name = checkin_config.get('coin_name', '积分')
+        
+        if user and user.lv in ['a', 'b', 'c']:
+            # 已注册用户
+            # 状态判断
+            if user.lv == 'a':
+                status = "白名单"
+            elif user.lv == 'c':
+                status = "已封禁"
+            elif user.ex and user.ex > datetime.now():
+                status = "正常"
+            else:
+                status = "已过期"
+            
+            # 到期时间
+            if user.lv == 'a':
+                expire_time = "+ ∞"
+            elif user.ex:
+                expire_time = user.ex.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                expire_time = "未设置"
+            
+            # 账号名称
+            account_name = user.name if user.name else "无账户信息"
+            
+            # 获取最近30天观看时间
+            watch_time_30days = get_user_watch_time_30days(user.tg)
+            if watch_time_30days > 0:
+                watch_time_text = f"{watch_time_30days} 分钟"
+            else:
+                watch_time_text = "无记录"
+            
+            reply = f"""· 🍉 TG&名称 | {user_name}
+· 🍒 识别のID | {telegram_user_id}
+· 🍓 当前状态 | {status}
+· 🍥 持有{coin_name} | {user.coins or 0}
+· 💠 账号名称 | {account_name}
+· 🚨 到期时间 | {expire_time}
+· 📅 过去30天 | {watch_time_text}"""
+        else:
+            # 未注册用户
+            reply = f"""· 🍉 TG&名称 | {user_name}
+· 🍒 识别のID | {telegram_user_id}
+· 🍓 当前状态 | 未注册
+· 🍥 持有{coin_name} | 0
+· 💠 账号名称 | 无账户信息
+· 🚨 到期时间 | 无账户信息"""
+        
+        send_telegram_reply(chat_id, reply)
+    
+    elif text.startswith('/checkin'):
+        # 检查是否为私聊
+        if chat_type != 'private':
+            user_name = telegram_first_name or telegram_username or '用户'
+            bot_username = get_bot_username()
+            reply = f"🤖 亲爱的 <a href=\"tg://user?id={telegram_user_id}\">{user_name}</a> 这是一条私聊命令"
+            if bot_username:
+                reply_markup = {
+                    'inline_keyboard': [[
+                        {'text': '👉 点击我(•̀ᴗ•́)و', 'url': f'https://t.me/{bot_username}'}
+                    ]]
+                }
+                send_telegram_reply(chat_id, reply, reply_markup)
+            else:
+                send_telegram_reply(chat_id, reply + "\n\n请私聊机器人发送 /checkin")
+            return jsonify({'ok': True})
+        
+        # 获取签到配置
+        checkin_config = get_db_config('checkin', {})
+        coin_name = checkin_config.get('coin_name', '积分')
+        
+        # 检查签到功能是否启用
+        if not checkin_config.get('enabled', False):
+            send_telegram_reply(chat_id, "❌ 签到功能未开启")
+            return jsonify({'ok': True})
+        
+        # 检查BOT签到功能是否启用
+        if not checkin_config.get('bot_enabled', False):
+            send_telegram_reply(chat_id, "❌ 管理员未开启BOT签到")
+            return jsonify({'ok': True})
+        
+        # 查找用户
+        user = User.query.filter_by(telegram_id=telegram_user_id).first()
+        if not user:
+            send_telegram_reply(chat_id, "❌ 您还未绑定账号\n\n请先使用 /bind 命令绑定账号")
+            return jsonify({'ok': True})
+        
+        # 检查今天是否已签到
+        today = datetime.now().date()
+        existing = CheckInRecord.query.filter_by(
+            user_tg=user.tg,
+            checkin_date=today
+        ).first()
+        
+        if existing:
+            # embyboss 风格文案
+            reply = f"""⭕ <b>您今天已经签到过了！</b>
+
+🎉 <b>今日获得</b> | {existing.coins_earned} {coin_name}
+💴 <b>当前持有</b> | {user.coins or 0} {coin_name}
+📅 <b>连续签到</b> | {existing.continuous_days} 天
+
+签到是无聊的活动哦，明天再来吧~"""
+            send_telegram_reply(chat_id, reply)
+            return jsonify({'ok': True})
+        
+        # 生成4位数字验证码
+        verify_code = str(random.randint(1000, 9999))
+        
+        # 清理过期的验证码
+        now = datetime.now()
+        expired_keys = [uid for uid, data in TELEGRAM_CHECKIN_CODES.items() 
+                       if data.get('expires_at') and data['expires_at'] < now]
+        for key in expired_keys:
+            del TELEGRAM_CHECKIN_CODES[key]
+        
+        # 保存验证码（2分钟有效期）
+        TELEGRAM_CHECKIN_CODES[telegram_user_id] = {
+            'code': verify_code,
+            'user_tg': user.tg,
+            'created_at': now,
+            'expires_at': now + timedelta(minutes=2)
+        }
+        
+        # 生成验证码图片
+        captcha_image = generate_captcha_image(verify_code)
+        
+        if captcha_image:
+            # 发送图片验证码
+            caption = f"""🎯 <b>签到验证</b>
+
+请输入图片中的验证码完成签到
+有效期: 2 分钟"""
+            send_telegram_photo(chat_id, captcha_image, caption)
+        else:
+            # 如果图片生成失败，降级为文本验证码
+            reply = f"""🎯 <b>签到验证</b>
+
+验证码: <code>{verify_code}</code>
+
+请直接发送此验证码完成签到
+有效期: 2 分钟"""
+            send_telegram_reply(chat_id, reply)
+    
+    elif text.startswith('/create'):
+        # /create 命令：用户名冲突时创建自定义用户名账号
+        # 只在私聊中有效
+        if chat_type != 'private':
+            return jsonify({'ok': True})
+        
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            send_telegram_reply(chat_id, "❌ 请提供用户名\n\n用法：<code>/create 您的用户名</code>")
+            return jsonify({'ok': True})
+        
+        custom_username = parts[1].strip()
+        
+        # 验证用户名格式
+        if len(custom_username) < 3:
+            send_telegram_reply(chat_id, "❌ 用户名至少需要 3 个字符")
+            return jsonify({'ok': True})
+        
+        if len(custom_username) > 20:
+            send_telegram_reply(chat_id, "❌ 用户名不能超过 20 个字符")
+            return jsonify({'ok': True})
+        
+        # 检查用户名是否包含非法字符
+        import re
+        if not re.match(r'^[a-zA-Z0-9_\u4e00-\u9fff]+$', custom_username):
+            send_telegram_reply(chat_id, "❌ 用户名只能包含字母、数字、下划线和中文")
+            return jsonify({'ok': True})
+        
+        # 检查是否有同名账号
+        name_conflict = User.query.filter_by(name=custom_username).first()
+        if name_conflict:
+            send_telegram_reply(chat_id, f"❌ 用户名 <b>{custom_username}</b> 已被占用，请换一个")
+            return jsonify({'ok': True})
+        
+        # 查找该用户的待领取赠送码
+        pending_gift = None
+        pending_gift_key = None
+        
+        # 遍历查找（简单实现，可优化）
+        all_configs = get_all_db_configs()
+        for key, value in all_configs.items():
+            if key.startswith('gift_') and isinstance(value, dict):
+                if value.get('pending_create') and value.get('telegram_user_id') == telegram_user_id:
+                    pending_gift = value
+                    pending_gift_key = key
+                    break
+        
+        if not pending_gift:
+            send_telegram_reply(chat_id, "❌ 您没有待领取的赠送\n\n如有赠送链接，请先点击链接领取。")
+            return jsonify({'ok': True})
+        
+        # 获取赠送码
+        gift_code = pending_gift_key[5:]  # 移除 'gift_' 前缀
+        
+        # 创建账号
+        return create_gift_account(chat_id, telegram_user_id, custom_username, gift_code, pending_gift)
+    
+    elif text.startswith('/kk'):
+        # /kk 命令：管理员用户管理快捷操作
+        # 用法：
+        # 1. 回复消息 /kk
+        # 2. /kk tgid（tgid 是 Telegram 用户ID）
+        
+        # 删除用户发送的 /kk 命令消息
+        if message_id:
+            delete_telegram_message(chat_id, message_id)
+        
+        # 检查是否在管理员群组中发送（TELEGRAM_CHAT_ID）
+        if str(chat_id) != str(TELEGRAM_CHAT_ID):
+            # 非管理群组，静默忽略
+            return jsonify({'ok': True})
+        
+        # 检查是否是 BOT 管理员（必须配置且在列表中才能使用）
+        config = load_system_config()
+        bot_admins_str = config.get('telegram', {}).get('bot_admins', '')
+        bot_admin_ids = [x.strip() for x in bot_admins_str.split(',') if x.strip()]
+        
+        # 如果未配置 bot_admins 或者用户不在列表中，静默忽略（不发送任何消息）
+        if not bot_admin_ids or str(telegram_user_id) not in bot_admin_ids:
+            app.logger.info(f'[/kk] 权限拒绝 - 用户 {telegram_user_id} 不在管理员列表 {bot_admin_ids}')
+            return jsonify({'ok': True})
+        
+        # 解析命令参数
+        parts = text.split()
+        target_user_id = None
+        target_username = None
+        target_first_name = None
+        
+        # 检查是否是回复消息
+        reply_to_message = message.get('reply_to_message', {})
+        if reply_to_message:
+            # 回复模式：/kk
+            target_user = reply_to_message.get('from', {})
+            target_user_id = target_user.get('id')
+            target_username = target_user.get('username', '')
+            target_first_name = target_user.get('first_name', '')
+        else:
+            # 直接指定模式：/kk tgid
+            if len(parts) < 2:
+                send_telegram_reply(chat_id, """❌ 参数不足
+
+<b>用法：</b>
+1. 回复用户消息：<code>/kk</code>
+2. 指定 Telegram ID：<code>/kk tgid</code>
+
+<b>示例：</b>
+<code>/kk 123456789</code> - 管理 TG ID 123456789 用户""")
+                return jsonify({'ok': True})
+            
+            # 解析 tgid
+            tg_input = parts[1]
+            if tg_input.startswith('@'):
+                # @username 格式
+                target_username = tg_input[1:]  # 移除 @
+            else:
+                # 尝试解析为数字 ID
+                try:
+                    target_user_id = int(tg_input)
+                except ValueError:
+                    # 不是数字，当作用户名
+                    target_username = tg_input
+        
+        if not target_user_id and not target_username:
+            send_telegram_reply(chat_id, "❌ 无法识别目标用户")
+            return jsonify({'ok': True})
+        
+        # 获取系统配置中的赠送天数
+        config = load_system_config()
+        gift_days = config.get('telegram', {}).get('gift_days', 30)
+        
+        # 获取货币名称配置
+        checkin_config = get_db_config('checkin', {})
+        coin_name = checkin_config.get('coin_name', '积分')
+        
+        # 查询用户在数据库中的信息
+        existing_user = None
+        if target_user_id:
+            existing_user = User.query.filter_by(telegram_id=target_user_id).first()
+        
+        # 构建用户信息显示 - 按照新格式
+        display_name = target_username or target_first_name or str(target_user_id)
+        
+        # TG名称带链接
+        if target_user_id:
+            tg_name_link = f'<a href="tg://user?id={target_user_id}">{display_name}</a>'
+        else:
+            tg_name_link = display_name
+        
+        if existing_user:
+            # 用户已有网站账号
+            # 状态判断
+            if existing_user.lv == 'a':
+                status = "白名单"
+            elif existing_user.lv == 'c':
+                status = "已封禁"
+            elif existing_user.ex and existing_user.ex > datetime.now():
+                status = "正常"
+            else:
+                status = "已过期"
+            
+            # 到期时间
+            if existing_user.lv == 'a':
+                expire_time = "+ ∞"
+            elif existing_user.ex:
+                expire_time = existing_user.ex.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                expire_time = "已过期"
+            
+            # 账号名称（Emby 账号）
+            account_name = existing_user.name if existing_user.name else "无账户信息"
+            
+            user_info = f"""· 🍉 TG&名称 | {tg_name_link}
+· 🍒 识别のID | {target_user_id}
+· 🍓 当前状态 | {status}
+· 🍥 持有{coin_name} | {existing_user.coins or 0}
+· 💠 账号名称 | {account_name}
+· 🚨 到期时间 | {expire_time}"""
+        else:
+            # 未注册用户
+            user_info = f"""· 🍉 TG&名称 | {tg_name_link}
+· 🍒 识别のID | {target_user_id}
+· 🍓 当前状态 | 无账户信息
+· 🍥 持有{coin_name} | 0
+· 💠 账号名称 | 无账户信息
+· 🚨 到期时间 | 已过期"""
+        
+        # 创建内联按钮 - 水平排列赠送和踢出，删除消息单独一行
+        # callback_data 格式: kk_action_targetUserId_targetUsername_targetFirstName
+        # 注意：first_name 可能包含特殊字符，需要编码处理
+        target_first_name_safe = (target_first_name or '').replace('_', ' ')[:20]  # 限制长度，替换下划线
+        reply_markup = {
+            'inline_keyboard': [
+                [
+                    {'text': '🎁 赠送资格', 'callback_data': f'kk_gift_{target_user_id}_{target_username or ""}_{target_first_name_safe}'},
+                    {'text': '🚫 踢出并封禁', 'callback_data': f'kk_kick_{target_user_id}_{target_username or ""}_{target_first_name_safe}'}
+                ],
+                [
+                    {'text': '🗑️ 删除消息', 'callback_data': f'kk_delete_0'}
+                ]
+            ]
+        }
+        
+        send_telegram_reply(chat_id, user_info, reply_markup)
+        app.logger.info(f'[/kk] 管理员 {telegram_user_id} 显示用户操作菜单: {target_username or target_user_id}')
+    
+    # 不回复未知命令，只处理已定义的命令
+    
+    return jsonify({'ok': True})
+
+
+def handle_callback_query(callback_query):
+    """处理内联按钮回调"""
+    callback_id = None
+    try:
+        callback_id = callback_query.get('id')
+        callback_data = callback_query.get('data', '')
+        from_user = callback_query.get('from', {})
+        user_id = from_user.get('id')
+        user_username = from_user.get('username', '')  # TG 用户名（可能为空）
+        user_first_name = from_user.get('first_name', '')  # 显示名称
+        username = user_username or user_first_name  # 兼容旧代码
+        message = callback_query.get('message', {})
+        chat_id = message.get('chat', {}).get('id')
+        message_id = message.get('message_id')
+        
+        app.logger.info(f'[Callback] 收到回调: data={callback_data}, user_id={user_id}, chat_id={chat_id}')
+        
+        # 处理 /kk 命令的回调
+        if callback_data.startswith('kk_'):
+            # 检查是否在管理员群组
+            if str(chat_id) != str(TELEGRAM_CHAT_ID):
+                answer_callback_query(callback_id, "❌ 只能在管理群组中操作", show_alert=True)
+                return jsonify({'ok': True})
+            
+            # 检查操作者是否是 BOT 管理员
+            config = load_system_config()
+            bot_admins_str = config.get('telegram', {}).get('bot_admins', '')
+            bot_admin_ids = [x.strip() for x in bot_admins_str.split(',') if x.strip()]
+            
+            if not bot_admin_ids or str(user_id) not in bot_admin_ids:
+                app.logger.info(f'[kk回调] 权限拒绝 - 用户 {user_id} 不在管理员列表 {bot_admin_ids}')
+                answer_callback_query(callback_id, "❌ 请不要以下犯上 ok？", show_alert=True)
+                return jsonify({'ok': True})
+            
+            parts = callback_data.split('_', 4)  # kk_action_targetUserId_targetUsername_targetFirstName
+            if len(parts) < 3:
+                answer_callback_query(callback_id, "❌ 参数错误", show_alert=True)
+                return jsonify({'ok': True})
+            
+            action = parts[1]
+            target_user_id = parts[2] if parts[2] else None
+            target_username = parts[3] if len(parts) > 3 and parts[3] else None
+            target_first_name = parts[4] if len(parts) > 4 and parts[4] else None
+            
+            if target_user_id and target_user_id != 'None':
+                try:
+                    target_user_id = int(target_user_id)
+                except ValueError:
+                    target_user_id = None
+            else:
+                target_user_id = None
+            
+            if action == 'gift':
+                # 赠送资格 - 传递目标用户信息和管理员信息
+                return handle_kk_gift(callback_id, chat_id, message_id, target_user_id, target_username, target_first_name, user_id, user_username, user_first_name)
+            
+            elif action == 'kick':
+                # 踢出并封禁
+                return handle_kk_kick(callback_id, chat_id, message_id, target_user_id, target_username, username)
+            
+            elif action == 'delete':
+                # 删除消息
+                delete_telegram_message(chat_id, message_id)
+                answer_callback_query(callback_id, "✅ 消息已删除")
+                return jsonify({'ok': True})
+        
+        # 处理注册相关的回调
+        if callback_data.startswith('reg_'):
+            parts = callback_data.split('_', 2)  # reg_action_giftCode
+            if len(parts) < 3:
+                answer_callback_query(callback_id, "❌ 参数错误", show_alert=True)
+                return jsonify({'ok': True})
+            
+            action = parts[1]
+            gift_code = parts[2]
+            
+            if action == 'start':
+                # 开始注册
+                return handle_reg_start(callback_id, chat_id, message_id, user_id, gift_code)
+            
+            elif action == 'cancel':
+                # 取消注册
+                return handle_reg_cancel(callback_id, chat_id, message_id, user_id, gift_code)
+        
+        # 处理 /start 面板按钮回调
+        if callback_data.startswith('cmd_'):
+            return handle_start_panel_callback(callback_id, callback_data, chat_id, message_id, user_id, username)
+        
+        # 应答回调（防止按钮一直转圈）
+        answer_callback_query(callback_id)
+        return jsonify({'ok': True})
+        
+    except Exception as e:
+        app.logger.error(f'[Callback] 处理回调异常: {e}', exc_info=True)
+        if callback_id:
+            answer_callback_query(callback_id, "❌ 处理失败，请重试", show_alert=True)
+        return jsonify({'ok': True})
+
+
+def answer_callback_query(callback_id, text=None, show_alert=False):
+    """应答 Telegram 回调查询"""
+    try:
+        answer_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
+        payload = {'callback_query_id': callback_id}
+        if text:
+            payload['text'] = text
+        if show_alert:
+            payload['show_alert'] = True
+        PROXY_SESSION.post(answer_url, json=payload, timeout=5)
+    except:
+        pass
+
+
+def send_telegram_alert(user_id, text):
+    """向用户发送私聊提示消息（用于权限不足等提示）
+    
+    通过私聊发送消息，用户会收到 Telegram 通知弹窗
+    """
+    if not TELEGRAM_BOT_TOKEN:
+        return False
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            'chat_id': user_id,
+            'text': text,
+            'parse_mode': 'HTML'
+        }
+        response = PROXY_SESSION.post(url, json=payload, timeout=5)
+        data = response.json()
+        return data.get('ok', False)
+    except Exception as e:
+        app.logger.debug(f'[发送提示] 发送失败: {e}')
+        return False
+
+
+def handle_start_panel_callback(callback_id, callback_data, chat_id, message_id, user_id, username):
+    """处理 /start 面板按钮回调"""
+    try:
+        app.logger.info(f'[面板回调] 处理回调: data={callback_data}, user_id={user_id}, chat_id={chat_id}')
+        
+        if callback_data == 'cmd_close':
+            # 关闭面板 - 删除消息
+            delete_telegram_message(chat_id, message_id)
+            answer_callback_query(callback_id, "✅ 已关闭")
+            return jsonify({'ok': True})
+        
+        elif callback_data == 'cmd_status':
+            # 查看状态 - 先删除原消息
+            delete_telegram_message(chat_id, message_id)
+            answer_callback_query(callback_id, "正在查询...")
+            user = User.query.filter_by(telegram_id=user_id).first()
+            if user:
+                now = datetime.now()
+                lv_display = {
+                    'a': '👑 白名单',
+                    'b': '⭐ 订阅用户' if user.ex and user.ex > now else '普通用户',
+                    'c': '🚫 已禁用',
+                    'd': '📭 无账号'
+                }.get(user.lv, '未知')
+                
+                ex_display = '永久' if user.lv == 'a' else (user.ex.strftime('%Y-%m-%d %H:%M') if user.ex else '未设置')
+                
+                checkin_config = get_db_config('checkin', {})
+                coin_name = checkin_config.get('coin_name', '积分')
+                
+                reply = f"""📊 <b>账号状态</b>
+
+<b>· 💠 账号名称</b> | {user.name or '未设置'}
+<b>· 📊 当前状态</b> | {lv_display}
+<b>· 🍒 持有{coin_name}</b> | {user.coins or 0}
+<b>· 🚨 到期时间</b> | {ex_display}"""
+                send_telegram_reply(chat_id, reply)
+            else:
+                send_telegram_reply(chat_id, "❌ 您还未绑定账号")
+            return jsonify({'ok': True})
+        
+        elif callback_data == 'cmd_count':
+            # 媒体统计 - 先删除原消息
+            delete_telegram_message(chat_id, message_id)
+            answer_callback_query(callback_id, "正在统计...")
+            try:
+                counts = emby_client.get_media_counts()
+                if counts:
+                    reply = f"""🎬 <b>媒体库统计</b>
+
+📽️ 电影: {counts.get('MovieCount', 0)} 部
+📺 电视剧: {counts.get('SeriesCount', 0)} 部
+🎞️ 剧集: {counts.get('EpisodeCount', 0)} 集
+🎵 音乐: {counts.get('MusicCount', 0)} 首
+📚 书籍: {counts.get('BookCount', 0)} 本"""
+                    send_telegram_reply(chat_id, reply)
+                else:
+                    send_telegram_reply(chat_id, "❌ 获取媒体统计失败")
+            except Exception as e:
+                app.logger.error(f'获取媒体统计失败: {e}')
+                send_telegram_reply(chat_id, "❌ 获取媒体统计失败")
+            return jsonify({'ok': True})
+        
+        elif callback_data == 'cmd_checkin':
+            # 签到 - 先删除原消息
+            delete_telegram_message(chat_id, message_id)
+            answer_callback_query(callback_id, "正在签到...")
+            
+            checkin_config = get_db_config('checkin', {})
+            coin_name = checkin_config.get('coin_name', '积分')
+            
+            if not checkin_config.get('enabled', False) or not checkin_config.get('bot_enabled', False):
+                send_telegram_reply(chat_id, "❌ 签到功能未开启")
+                return jsonify({'ok': True})
+            
+            user = User.query.filter_by(telegram_id=user_id).first()
+            if not user:
+                send_telegram_reply(chat_id, "❌ 请先绑定账号")
+                return jsonify({'ok': True})
+            
+            # 检查今天是否已签到
+            today = datetime.now().date()
+            existing = CheckInRecord.query.filter_by(user_tg=user.tg, checkin_date=today).first()
+            
+            if existing:
+                # embyboss 风格：使用弹窗提示，不发送新消息
+                answer_callback_query(callback_id, "⭕ 您今天已经签到过了！签到是无聊的活动哦。", show_alert=True)
+                return jsonify({'ok': True})
+            
+            # 生成验证码图片
+            verify_code = str(random.randint(1000, 9999))
+            
+            # 保存验证码
+            TELEGRAM_CHECKIN_CODES[user_id] = {
+                'code': verify_code,
+                'user_tg': user.tg,
+                'created_at': datetime.now(),
+                'expires_at': datetime.now() + timedelta(minutes=2)
+            }
+            
+            # 生成验证码图片
+            captcha_image = generate_captcha_image(verify_code)
+            if captcha_image:
+                caption = f"""🎯 <b>每日签到</b>
+
+请输入图中的 4 位数字完成签到
+验证码 2 分钟内有效"""
+                send_telegram_photo(chat_id, captcha_image, caption)
+            else:
+                send_telegram_reply(chat_id, f"请回复数字 <code>{verify_code}</code> 完成签到（2分钟内有效）")
+            return jsonify({'ok': True})
+        
+        elif callback_data == 'cmd_checkin_need_bind':
+            answer_callback_query(callback_id, "❌ 请先绑定账号后再签到", show_alert=True)
+            return jsonify({'ok': True})
+        
+        elif callback_data == 'cmd_unbind':
+            # 解绑 - 显示确认消息
+            delete_telegram_message(chat_id, message_id)
+            answer_callback_query(callback_id)
+            user = User.query.filter_by(telegram_id=user_id).first()
+            if user:
+                reply = f"""⚠️ <b>确认解绑</b>
+
+您确定要解绑账号 <b>{user.name}</b> 吗？
+
+解绑后将无法接收通知消息。"""
+                buttons = [
+                    [{'text': '✅ 确认解绑', 'callback_data': 'cmd_unbind_confirm'}],
+                    [{'text': '❌ 取消', 'callback_data': 'cmd_unbind_cancel'}]
+                ]
+                reply_markup = {'inline_keyboard': buttons}
+                send_telegram_reply(chat_id, reply, reply_markup)
+            else:
+                send_telegram_reply(chat_id, "❌ 您还未绑定账号")
+            return jsonify({'ok': True})
+        
+        elif callback_data == 'cmd_unbind_confirm':
+            # 确认解绑
+            delete_telegram_message(chat_id, message_id)
+            answer_callback_query(callback_id, "正在解绑...")
+            user = User.query.filter_by(telegram_id=user_id).first()
+            if user:
+                user.telegram_id = None
+                db.session.commit()
+                send_telegram_reply(chat_id, "✅ 已成功解绑账号")
+            else:
+                send_telegram_reply(chat_id, "❌ 您还未绑定账号")
+            return jsonify({'ok': True})
+        
+        elif callback_data == 'cmd_unbind_cancel':
+            # 取消解绑
+            delete_telegram_message(chat_id, message_id)
+            answer_callback_query(callback_id, "已取消")
+            send_telegram_reply(chat_id, "❌ 已取消解绑操作")
+            return jsonify({'ok': True})
+        
+        elif callback_data == 'cmd_bind_help':
+            # 绑定帮助 - 先删除原消息
+            delete_telegram_message(chat_id, message_id)
+            answer_callback_query(callback_id)
+            reply = """🔗 <b>如何绑定账号</b>
+
+1️⃣ 登录网站 Dashboard
+2️⃣ 点击左下角"绑定 Telegram"按钮
+3️⃣ 复制弹窗中显示的绑定码
+4️⃣ 回到这里发送: <code>/bind 绑定码</code>
+
+绑定后可收到：
+• 🎬 求片进度通知
+• ⏰ 订阅到期提醒
+• 🎯 签到领积分"""
+            send_telegram_reply(chat_id, reply)
+            return jsonify({'ok': True})
+        
+        # 未知回调
+        answer_callback_query(callback_id)
+        return jsonify({'ok': True})
+        
+    except Exception as e:
+        app.logger.error(f'[面板回调] 处理回调异常: {e}', exc_info=True)
+        answer_callback_query(callback_id, "❌ 处理失败，请重试", show_alert=True)
+        return jsonify({'ok': True})
+
+
+def handle_reg_start(callback_id, chat_id, message_id, user_id, gift_code):
+    """处理点击注册按钮 - 进入注册状态"""
+    
+    # 验证赠送码
+    gift_key = f'gift_{gift_code}'
+    gift_data = get_db_config(gift_key, None)
+    
+    if not gift_data:
+        answer_callback_query(callback_id, "❌ 赠送码已过期", show_alert=True)
+        return jsonify({'ok': True})
+    
+    # 检查是否已被使用
+    if gift_data.get('used'):
+        used_by = gift_data.get('used_by_id', '未知')
+        answer_callback_query(callback_id, f"❌ 该注册码已被 {used_by} 使用", show_alert=True)
+        return jsonify({'ok': True})
+    
+    # 验证用户身份
+    target_user_id = gift_data.get('target_user_id')
+    if target_user_id and int(target_user_id) != int(user_id):
+        answer_callback_query(callback_id, "❌ 这不是给你的邀请", show_alert=True)
+        return jsonify({'ok': True})
+    
+    # 设置用户为注册状态
+    reg_state_key = f'reg_state_{user_id}'
+    reg_state = {
+        'gift_code': gift_code,
+        'state': 'waiting_credentials',
+        'created_at': datetime.now().isoformat(),
+        'expires_at': (datetime.now() + timedelta(minutes=2)).isoformat()
+    }
+    set_db_config(reg_state_key, reg_state)
+    
+    # 更新消息为注册提示
+    register_prompt = """🤖注意：您已进入注册状态:
+
+• 请在2min内输入 [用户名][空格][密码]
+• 举个例子🌰：苏苏 1234
+
+• 用户名中不限制中/英文/emoji，🚫特殊字符
+• 请填入最熟悉的数字4~6位；退出请点 /cancel"""
+    
+    edit_telegram_message(chat_id, message_id, register_prompt, None)
+    answer_callback_query(callback_id, "✅ 已进入注册状态，请在2分钟内输入用户名和密码")
+    
+    app.logger.info(f'[Reg] 用户 {user_id} 进入注册状态，gift_code={gift_code}')
+    return jsonify({'ok': True})
+
+
+def handle_reg_cancel(callback_id, chat_id, message_id, user_id, gift_code):
+    """处理取消注册"""
+    
+    # 删除注册状态
+    reg_state_key = f'reg_state_{user_id}'
+    delete_db_config(reg_state_key)
+    
+    # 更新消息
+    edit_telegram_message(chat_id, message_id, "❌ 已取消注册。如需重新领取，请返回群组点击领取按钮。", None)
+    answer_callback_query(callback_id, "已取消")
+    
+    app.logger.info(f'[Reg] 用户 {user_id} 取消注册')
+    return jsonify({'ok': True})
+
+
+def handle_registration_input(chat_id, telegram_user_id, text):
+    """处理用户在注册状态下的输入"""
+    import re
+    
+    # 检查用户是否处于注册状态
+    reg_state_key = f'reg_state_{telegram_user_id}'
+    reg_state = get_db_config(reg_state_key, None)
+    
+    if not reg_state:
+        return None  # 不在注册状态，不处理
+    
+    # 检查是否超时
+    expires_at = reg_state.get('expires_at')
+    if expires_at:
+        try:
+            expire_time = datetime.fromisoformat(expires_at)
+            if datetime.now() > expire_time:
+                delete_db_config(reg_state_key)
+                send_telegram_reply(chat_id, "⏰ 注册超时，请重新点击领取按钮")
+                return jsonify({'ok': True})
+        except:
+            pass
+    
+    gift_code = reg_state.get('gift_code')
+    if not gift_code:
+        delete_db_config(reg_state_key)
+        send_telegram_reply(chat_id, "❌ 注册信息异常，请重新领取")
+        return jsonify({'ok': True})
+    
+    # 获取赠送信息
+    gift_key = f'gift_{gift_code}'
+    gift_data = get_db_config(gift_key, None)
+    
+    if not gift_data:
+        delete_db_config(reg_state_key)
+        send_telegram_reply(chat_id, "❌ 赠送码已过期，请联系管理员重新赠送")
+        return jsonify({'ok': True})
+    
+    # 解析用户名和密码
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2:
+        send_telegram_reply(chat_id, """❌ 格式错误
+
+请输入：[用户名][空格][密码]
+例如：苏苏 1234
+
+退出请点 /cancel""")
+        return jsonify({'ok': True})
+    
+    username = parts[0].strip()
+    password = parts[1].strip()
+    
+    # 验证用户名: 3-20个字符，只支持字母、数字、下划线
+    if not re.match(r'^[a-zA-Z0-9_]+$', username):
+        send_telegram_reply(chat_id, """❌ 用户名格式错误
+
+用户名只支持字母、数字、下划线
+请重新输入：[用户名][空格][密码]""")
+        return jsonify({'ok': True})
+    
+    if len(username) < 3 or len(username) > 20:
+        send_telegram_reply(chat_id, "❌ 用户名长度应在3-20个字符之间")
+        return jsonify({'ok': True})
+    
+    # 验证密码: 6-32个字符，支持字母、数字、特殊字符
+    if len(password) < 6 or len(password) > 32:
+        send_telegram_reply(chat_id, """❌ 密码长度错误
+
+密码应为6-32个字符
+请重新输入：[用户名][空格][密码]""")
+        return jsonify({'ok': True})
+    
+    # 检查用户名是否已存在
+    existing_user = User.query.filter_by(name=username).first()
+    if existing_user:
+        send_telegram_reply(chat_id, f"""❌ 用户名 "{username}" 已被占用
+
+请选择其他用户名
+请重新输入：[用户名][空格][密码]""")
+        return jsonify({'ok': True})
+    
+    # 创建账号
+    days = gift_data.get('days', 0)
+    from_user_id = gift_data.get('from_user_id')
+    from_username = gift_data.get('from_username', '管理员')
+    
+    # 构建邀请人链接
+    if from_user_id:
+        inviter_text = f'<a href="tg://user?id={from_user_id}">{from_username}</a>'
+    else:
+        inviter_text = f'<b>{from_username}</b>'
+    
+    try:
+        new_user = User(
+            tg=telegram_user_id,
+            telegram_id=telegram_user_id,
+            name=username,
+            pwd=password,
+            lv='b',
+            cr=datetime.now(),
+            ex=datetime.now() + timedelta(days=days),
+            us=1,
+            coins=0,
+        )
+        
+        db.session.add(new_user)
+        db.session.commit()
+        
+        # 删除赠送码和注册状态
+        delete_db_config(gift_key)
+        delete_db_config(reg_state_key)
+        
+        # 获取面板登录链接
+        site_config = load_site_config()
+        panel_url = site_config.get('panel_url', '')
+        
+        # 构建登录链接文本
+        if panel_url:
+            login_link = f'\n\n🔗 <b>面板登录:</b> {panel_url}'
+        else:
+            login_link = ''
+        
+        # 发送成功消息
+        send_telegram_reply(chat_id, f"""🎉 <b>注册成功！</b>
+
+感谢 {inviter_text} 的邀请！
+
+━━━━━━━━━━━━━━━━
+👤 <b>账号信息</b>
+━━━━━━━━━━━━━━━━
+用户名: <code>{username}</code>
+密码: <code>{password}</code>
+订阅天数: <b>{days}</b> 天
+到期时间: <b>{new_user.ex.strftime('%Y-%m-%d %H:%M')}</b>
+
+⚠️ <b>请妥善保存账号信息！</b>
+使用此账号密码登录网站即可使用。{login_link}""")
+        
+        app.logger.info(f'[Reg] 用户 {telegram_user_id} 成功注册账号: {username}, 赠送 {days} 天')
+        return jsonify({'ok': True})
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'[Reg] 创建账号失败: {e}')
+        send_telegram_reply(chat_id, f"❌ 创建账号失败: {str(e)}")
+        return jsonify({'ok': True})
+
+
+def handle_kk_gift(callback_id, chat_id, message_id, target_user_id, target_username, target_first_name, operator_id, operator_username, operator_first_name):
+    """处理赠送资格回调
+    
+    Args:
+        target_username: 目标用户的 TG 用户名（可能为空）
+        target_first_name: 目标用户的显示名称
+        operator_username: 管理员的 TG 用户名（可能为空）
+        operator_first_name: 管理员的显示名称
+    """
+    import secrets
+    
+    if not target_user_id:
+        answer_callback_query(callback_id, "❌ 无法识别目标用户", show_alert=True)
+        return jsonify({'ok': True})
+    
+    # 获取系统配置中的赠送天数
+    config = load_system_config()
+    gift_days = config.get('telegram', {}).get('gift_days', 30)
+    
+    # 生成赠送码
+    gift_code = secrets.token_urlsafe(16)
+    
+    # 存储赠送信息
+    gift_data = {
+        'target_user_id': target_user_id,
+        'target_username': target_username,
+        'days': gift_days,
+        'from_user_id': operator_id,
+        'from_username': operator_username or operator_first_name,
+        'created_at': datetime.now().isoformat(),
+    }
+    
+    gift_key = f'gift_{gift_code}'
+    set_db_config(gift_key, gift_data)
+    
+    # 获取 Bot 用户名
+    bot_username = get_bot_username()
+    
+    # 构建赠送消息
+    # 目标用户显示：显示名称，使用 tg://user?id 链接（不会产生预览）
+    target_display_name = target_first_name or target_username or str(target_user_id)
+    target_display = f'<a href="tg://user?id={target_user_id}">{target_display_name}</a>'
+    
+    # 管理员显示：显示名称，使用 tg://user?id 链接（不会产生预览）
+    operator_display_name = operator_first_name or operator_username or str(operator_id)
+    operator_link = f'<a href="tg://user?id={operator_id}">{operator_display_name}</a>'
+    
+    gift_message = f"""🌟 好的，管理员 {operator_link}
+已为 {target_display} 赠予资格。前往bot进行下一步操作："""
+    
+    # 创建领取按钮
+    start_param = f"gift_{gift_code}"
+    reply_markup = {
+        'inline_keyboard': [[
+            {
+                'text': '🎁 点击领取',
+                'url': f'https://t.me/{bot_username}?start={start_param}'
+            }
+        ]]
+    }
+    
+    # 更新原消息为赠送消息
+    edit_telegram_message(chat_id, message_id, gift_message, reply_markup)
+    
+    # 日志记录
+    operator_log_name = operator_username or operator_first_name or operator_id
+    target_log_name = target_username or target_first_name or target_user_id
+    answer_callback_query(callback_id, f"✅ 已发送赠送链接 ({gift_days}天)")
+    app.logger.info(f'[/kk gift] 管理员 {operator_log_name} 赠送 {target_log_name} {gift_days} 天订阅，码: {gift_code}')
+    
+    return jsonify({'ok': True})
+
+
+def handle_kk_kick(callback_id, chat_id, message_id, target_user_id, target_username, operator_name):
+    """处理踢出并封禁回调"""
+    
+    if not target_user_id:
+        answer_callback_query(callback_id, "❌ 无法识别目标用户（需要用户 ID）", show_alert=True)
+        return jsonify({'ok': True})
+    
+    display_name = f"@{target_username}" if target_username else str(target_user_id)
+    
+    # 1. 在数据库中封禁用户
+    existing_user = User.query.filter_by(telegram_id=target_user_id).first()
+    if existing_user:
+        existing_user.lv = 'c'  # 封禁状态
+        db.session.commit()
+        app.logger.info(f'[/kk kick] 已封禁用户 {existing_user.name} (tg_id={target_user_id})')
+    
+    # 2. 从群组踢出用户
+    kick_result = kick_chat_member(TELEGRAM_CHAT_ID, target_user_id)
+    
+    # 3. 更新消息显示结果
+    result_message = f"""🚫 <b>用户已被处理</b>
+
+用户: {display_name}
+TG ID: <code>{target_user_id}</code>
+操作者: {operator_name}
+
+状态:
+• 群组踢出: {'✅ 成功' if kick_result else '❌ 失败（可能已不在群中或权限不足）'}
+• 账号封禁: {'✅ 已封禁' if existing_user else '⚠️ 该用户无网站账号'}"""
+    
+    edit_telegram_message(chat_id, message_id, result_message, None)
+    
+    answer_callback_query(callback_id, "✅ 用户已被踢出并封禁")
+    app.logger.info(f'[/kk kick] 管理员 {operator_name} 踢出并封禁 {display_name}')
+    
+    return jsonify({'ok': True})
+
+
+def kick_chat_member(chat_id, user_id):
+    """踢出群组成员并封禁"""
+    if not TELEGRAM_BOT_TOKEN:
+        return False
+    
+    try:
+        # 使用 banChatMember 踢出并封禁用户
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/banChatMember"
+        payload = {
+            'chat_id': chat_id,
+            'user_id': user_id,
+        }
+        response = PROXY_SESSION.post(url, json=payload, timeout=10)
+        data = response.json()
+        
+        if data.get('ok'):
+            app.logger.info(f'[踢出用户] 成功踢出 user_id={user_id} 从 chat_id={chat_id}')
+            return True
+        else:
+            app.logger.warning(f'[踢出用户] 踢出失败: {data.get("description", "未知错误")}')
+            return False
+    except Exception as e:
+        app.logger.error(f'[踢出用户] 踢出异常: {e}')
+        return False
+
+
+def edit_telegram_message(chat_id, message_id, text, reply_markup=None):
+    """编辑 Telegram 消息"""
+    if not TELEGRAM_BOT_TOKEN:
+        return False
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
+        payload = {
+            'chat_id': chat_id,
+            'message_id': message_id,
+            'text': text,
+            'parse_mode': 'HTML'
+        }
+        if reply_markup:
+            payload['reply_markup'] = reply_markup
+        
+        response = PROXY_SESSION.post(url, json=payload, timeout=10)
+        data = response.json()
+        
+        if data.get('ok'):
+            return True
+        else:
+            app.logger.warning(f'[编辑消息] 编辑失败: {data.get("description", "未知错误")}')
+            return False
+    except Exception as e:
+        app.logger.error(f'[编辑消息] 编辑异常: {e}')
+        return False
+
+
+def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
+    """处理赠送领取 - 验证用户身份并显示注册选项"""
+    
+    app.logger.info(f'[Gift] 用户 {telegram_user_id} ({telegram_username}) 尝试领取赠送码: {gift_code}')
+    
+    # 获取赠送信息
+    gift_key = f'gift_{gift_code}'
+    gift_data = get_db_config(gift_key, None)
+    
+    if not gift_data:
+        send_telegram_reply(chat_id, "❌ 赠送码无效或已过期")
+        return jsonify({'ok': True})
+    
+    # 检查是否已被使用
+    if gift_data.get('used'):
+        used_by = gift_data.get('used_by_id', '未知')
+        used_by_name = gift_data.get('used_by_name', '')
+        used_at = gift_data.get('used_at', '')
+        if used_by_name:
+            send_telegram_reply(chat_id, f"❌ 该注册码已被 <code>{used_by}</code>（{used_by_name}）使用")
+        else:
+            send_telegram_reply(chat_id, f"❌ 该注册码已被 <code>{used_by}</code> 使用")
+        return jsonify({'ok': True})
+    
+    days = gift_data.get('days', 0)
+    from_user_id = gift_data.get('from_user_id')
+    from_username = gift_data.get('from_username', '管理员')
+    target_user_id = gift_data.get('target_user_id')
+    
+    # 构建邀请人链接
+    if from_user_id:
+        inviter_text = f'<a href="tg://user?id={from_user_id}">{from_username}</a>'
+    else:
+        inviter_text = f'<b>{from_username}</b>'
+    
+    if days <= 0:
+        send_telegram_reply(chat_id, "❌ 赠送信息异常")
+        return jsonify({'ok': True})
+    
+    # 验证是否是被赠送的用户
+    if target_user_id and int(target_user_id) != int(telegram_user_id):
+        # 不是被赠送的用户
+        send_telegram_reply(chat_id, "你也想和BOT击剑吗？")
+        return jsonify({'ok': True})
+    
+    # 检查用户是否已有账号
+    existing_user = User.query.filter_by(telegram_id=telegram_user_id).first()
+    
+    if existing_user and existing_user.lv in ['a', 'b']:
+        # 用户已有账号，直接增加订阅天数
+        if existing_user.lv == 'a':
+            # 白名单用户
+            send_telegram_reply(chat_id, f"""✅ <b>领取成功！</b>
+
+您是白名单用户，已拥有永久订阅！
+感谢 {inviter_text} 的赠送 🎉
+
+👤 账号: <b>{existing_user.name}</b>""")
+        else:
+            # 普通用户，增加天数
+            if existing_user.ex and existing_user.ex > datetime.now():
+                existing_user.ex = existing_user.ex + timedelta(days=days)
+            else:
+                existing_user.ex = datetime.now() + timedelta(days=days)
+            
+            db.session.commit()
+            
+            send_telegram_reply(chat_id, f"""✅ <b>领取成功！</b>
+
+已为您的账号增加 <b>{days}</b> 天订阅！
+感谢 {inviter_text} 的赠送 🎉
+
+👤 账号: <b>{existing_user.name}</b>
+📅 新到期时间: <b>{existing_user.ex.strftime('%Y-%m-%d %H:%M')}</b>""")
+        
+        # 标记赠送码为已使用
+        gift_data['used'] = True
+        gift_data['used_by_id'] = telegram_user_id
+        gift_data['used_by_name'] = telegram_username or ''
+        gift_data['used_at'] = datetime.now().isoformat()
+        set_db_config(gift_key, gift_data)
+        return jsonify({'ok': True})
+    
+    # 用户没有账号，显示注册选项
+    display_name = telegram_username or str(telegram_user_id)
+    
+    # 发送注册提示消息，带注册和取消按钮
+    register_message = f"""🎊 少年郎，恭喜你，已经收到了 {inviter_text} 发送的邀请注册资格
+
+请选择你的选项~"""
+    
+    reply_markup = {
+        'inline_keyboard': [[
+            {'text': '📝 注册', 'callback_data': f'reg_start_{gift_code}'},
+            {'text': '⭕ 取消', 'callback_data': f'reg_cancel_{gift_code}'}
+        ]]
+    }
+    
+    send_telegram_reply(chat_id, register_message, reply_markup)
+    return jsonify({'ok': True})
+
+
+def create_gift_account(chat_id, telegram_user_id, username, gift_code, gift_data):
+    """创建赠送账号"""
+    import secrets
+    
+    days = gift_data.get('days', 0)
+    from_user_id = gift_data.get('from_user_id')
+    from_username = gift_data.get('from_username', '管理员')
+    
+    # 构建邀请人链接
+    if from_user_id:
+        inviter_text = f'<a href="tg://user?id={from_user_id}">{from_username}</a>'
+    else:
+        inviter_text = f'<b>{from_username}</b>'
+    
+    # 生成随机密码
+    password = secrets.token_urlsafe(8)
+    
+    try:
+        # 创建新用户
+        new_user = User(
+            tg=telegram_user_id,  # 使用 Telegram ID 作为主键
+            telegram_id=telegram_user_id,
+            name=username,
+            pwd=password,
+            lv='b',  # 普通用户
+            cr=datetime.now(),
+            ex=datetime.now() + timedelta(days=days),
+            us=1,
+            coins=0,
+        )
+        
+        db.session.add(new_user)
+        db.session.commit()
+        
+        app.logger.info(f'[Gift] 成功创建账号: {username}, 赠送 {days} 天')
+        
+        # 标记赠送码为已使用
+        gift_key = f'gift_{gift_code}'
+        gift_data['used'] = True
+        gift_data['used_by_id'] = telegram_user_id
+        gift_data['used_by_name'] = username
+        gift_data['used_at'] = datetime.now().isoformat()
+        set_db_config(gift_key, gift_data)
+        
+        # 获取面板登录链接
+        site_config = load_site_config()
+        panel_url = site_config.get('panel_url', '')
+        
+        # 构建登录链接文本
+        if panel_url:
+            login_link = f'\n\n🔗 <b>面板登录:</b> {panel_url}'
+        else:
+            login_link = ''
+        
+        send_telegram_reply(chat_id, f"""🎉 <b>账号创建成功！</b>
+
+感谢 {inviter_text} 的赠送！
+
+━━━━━━━━━━━━━━━━
+👤 <b>账号信息</b>
+━━━━━━━━━━━━━━━━
+用户名: <code>{username}</code>
+密码: <code>{password}</code>
+订阅天数: <b>{days}</b> 天
+到期时间: <b>{new_user.ex.strftime('%Y-%m-%d %H:%M')}</b>
+
+⚠️ <b>请妥善保存账号信息！</b>
+使用此账号密码登录网站即可使用。{login_link}
+
+💡 如需修改密码，请登录网站后在个人中心修改。""")
+        
+        return jsonify({'ok': True})
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'[Gift] 创建账号失败: {e}')
+        send_telegram_reply(chat_id, f"❌ 创建账号失败: {str(e)}")
+        return jsonify({'ok': True})
+
+
+def send_telegram_reply(chat_id, text, reply_markup=None):
+    """发送 Telegram 消息（支持 inline button）"""
+    if not TELEGRAM_BOT_TOKEN:
+        app.logger.warning(f'[发送消息] Bot Token 未配置，无法发送到 chat_id={chat_id}')
+        return False
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            'chat_id': chat_id,
+            'text': text,
+            'parse_mode': 'HTML'
+        }
+        if reply_markup:
+            payload['reply_markup'] = reply_markup
+        app.logger.info(f'[发送消息] 发送到 chat_id={chat_id}, 文本长度={len(text)}, 使用代理: {PROXY_SESSION.proxies if hasattr(PROXY_SESSION, "proxies") else "无"}')
+        
+        response = PROXY_SESSION.post(url, json=payload, timeout=10)
+        data = response.json()
+        
+        if data.get('ok'):
+            app.logger.info(f'[发送消息] 发送成功到 chat_id={chat_id}')
+            return True
+        else:
+            error_desc = data.get('description', '未知错误')
+            app.logger.error(f'[发送消息] 发送失败到 chat_id={chat_id}: {error_desc}')
+            return False
+    except requests.exceptions.Timeout:
+        app.logger.error(f'[发送消息] 请求超时，无法发送到 chat_id={chat_id}，请检查网络和代理设置')
+        return False
+    except requests.exceptions.ConnectionError as e:
+        app.logger.error(f'[发送消息] 连接错误，无法发送到 chat_id={chat_id}: {e}，请检查网络和代理设置')
+        return False
+    except Exception as e:
+        app.logger.error(f'[发送消息] 发送 Telegram 消息失败到 chat_id={chat_id}: {e}', exc_info=True)
+        return False
+
+
+def generate_captcha_image(code):
+    """生成验证码图片"""
+    try:
+        # 创建图片 (宽300, 高100)
+        width, height = 300, 100
+        image = Image.new('RGB', (width, height), color=(255, 255, 255))
+        draw = ImageDraw.Draw(image)
+        
+        # 绘制背景干扰线
+        for _ in range(5):
+            x1 = random.randint(0, width)
+            y1 = random.randint(0, height)
+            x2 = random.randint(0, width)
+            y2 = random.randint(0, height)
+            draw.line([(x1, y1), (x2, y2)], fill=(200, 200, 200), width=2)
+        
+        # 绘制干扰点
+        for _ in range(100):
+            x = random.randint(0, width)
+            y = random.randint(0, height)
+            draw.point((x, y), fill=(random.randint(150, 200), random.randint(150, 200), random.randint(150, 200)))
+        
+        # 尝试加载字体，如果失败使用默认字体
+        try:
+            # 尝试使用系统字体
+            font = ImageFont.truetype("arial.ttf", 50)
+        except:
+            try:
+                # Windows系统字体
+                font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", 50)
+            except:
+                try:
+                    # 其他可能的字体路径
+                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50)
+                except:
+                    # 使用默认字体
+                    font = ImageFont.load_default()
+        
+        # 计算文本位置（居中）
+        text = str(code)
+        try:
+            # 新版本PIL
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+        except:
+            # 旧版本PIL
+            text_width, text_height = draw.textsize(text, font=font)
+        
+        x = (width - text_width) // 2
+        y = (height - text_height) // 2
+        
+        # 绘制验证码文字（添加颜色变化）
+        for i, char in enumerate(text):
+            char_x = x + i * (text_width // len(text))
+            char_y = y + random.randint(-5, 5)  # 随机上下偏移
+            color = (
+                random.randint(0, 100),
+                random.randint(0, 100),
+                random.randint(0, 100)
+            )
+            draw.text((char_x, char_y), char, font=font, fill=color)
+        
+        # 保存到BytesIO
+        bio = BytesIO()
+        image.save(bio, format='PNG')
+        bio.seek(0)
+        return bio
+    except Exception as e:
+        app.logger.error(f'生成验证码图片失败: {e}')
+        return None
+
+
+def send_telegram_photo(chat_id, photo_bytes, caption=None):
+    """发送 Telegram 图片"""
+    if not TELEGRAM_BOT_TOKEN:
+        app.logger.warning(f'[发送图片] Bot Token 未配置，无法发送到 chat_id={chat_id}')
+        return False
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+        
+        files = {
+            'photo': ('captcha.png', photo_bytes, 'image/png')
+        }
+        
+        data = {
+            'chat_id': chat_id
+        }
+        
+        if caption:
+            data['caption'] = caption
+            data['parse_mode'] = 'HTML'
+        
+        app.logger.info(f'[发送图片] 发送到 chat_id={chat_id}')
+        
+        response = PROXY_SESSION.post(url, data=data, files=files, timeout=15)
+        result = response.json()
+        
+        if result.get('ok'):
+            app.logger.info(f'[发送图片] 发送成功到 chat_id={chat_id}')
+            return True
+        else:
+            error_desc = result.get('description', '未知错误')
+            app.logger.error(f'[发送图片] 发送失败到 chat_id={chat_id}: {error_desc}')
+            return False
+    except requests.exceptions.Timeout:
+        app.logger.error(f'[发送图片] 请求超时，无法发送到 chat_id={chat_id}')
+        return False
+    except Exception as e:
+        app.logger.error(f'[发送图片] 发送失败到 chat_id={chat_id}: {e}', exc_info=True)
+        return False
+
+
+def send_telegram_photo_url(chat_id, photo_url, caption=None, reply_markup=None):
+    """通过 URL 发送 Telegram 图片
+    
+    Args:
+        chat_id: 聊天ID
+        photo_url: 图片URL
+        caption: 图片说明文字
+        reply_markup: 内联键盘按钮
+    """
+    if not TELEGRAM_BOT_TOKEN:
+        app.logger.warning(f'[发送图片URL] Bot Token 未配置，无法发送到 chat_id={chat_id}')
+        return False
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+        
+        payload = {
+            'chat_id': chat_id,
+            'photo': photo_url
+        }
+        
+        if caption:
+            payload['caption'] = caption
+            payload['parse_mode'] = 'HTML'
+        
+        if reply_markup:
+            payload['reply_markup'] = reply_markup
+        
+        app.logger.info(f'[发送图片URL] 发送到 chat_id={chat_id}, photo_url={photo_url[:50]}...')
+        
+        response = PROXY_SESSION.post(url, json=payload, timeout=15)
+        result = response.json()
+        
+        if result.get('ok'):
+            app.logger.info(f'[发送图片URL] 发送成功到 chat_id={chat_id}')
+            return result.get('result', {}).get('message_id')
+        else:
+            error_desc = result.get('description', '未知错误')
+            app.logger.error(f'[发送图片URL] 发送失败到 chat_id={chat_id}: {error_desc}')
+            return False
+    except requests.exceptions.Timeout:
+        app.logger.error(f'[发送图片URL] 请求超时，无法发送到 chat_id={chat_id}')
+        return False
+    except Exception as e:
+        app.logger.error(f'[发送图片URL] 发送失败到 chat_id={chat_id}: {e}', exc_info=True)
+        return False
+
+
+def build_start_panel(telegram_user_id, telegram_first_name, telegram_username):
+    """构建 /start 面板内容
+    
+    返回: (caption, reply_markup, photo_url)
+    """
+    # 获取配置
+    checkin_config = get_db_config('checkin', {})
+    coin_name = checkin_config.get('coin_name', '积分')
+    checkin_enabled = checkin_config.get('enabled', False) and checkin_config.get('bot_enabled', False)
+    
+    # 获取系统配置中的 bot_photo
+    system_config = load_system_config()
+    bot_photo = system_config.get('telegram', {}).get('bot_photo', '')
+    
+    # 默认图片
+    if not bot_photo:
+        bot_photo = 'https://telegra.ph/file/3b6cd2a89b652e72e0d3b.png'
+    
+    # 查询用户信息
+    user = User.query.filter_by(telegram_id=telegram_user_id).first()
+    user_name = telegram_first_name or telegram_username or '用户'
+    
+    if user:
+        # 已绑定用户
+        now = datetime.now()
+        
+        # 获取用户等级显示
+        lv_display = {
+            'a': '👑 白名单',
+            'b': '⭐ 订阅用户' if user.ex and user.ex > now else '普通用户',
+            'c': '🚫 已禁用',
+            'd': '📭 无账号'
+        }.get(user.lv, '未知')
+        
+        # 到期时间显示
+        if user.lv == 'a':
+            ex_display = '永久'
+        elif user.ex:
+            ex_display = user.ex.strftime('%Y-%m-%d %H:%M')
+        else:
+            ex_display = '未设置'
+        
+        caption = f"""<b>✨ 欢迎回来，{user_name}！</b>
+
+<b>· 🆔 用户ID</b> | <code>{telegram_user_id}</code>
+<b>· 📊 当前状态</b> | {lv_display}
+<b>· 🍒 持有{coin_name}</b> | {user.coins or 0}
+<b>· 💠 账号名称</b> | {user.name or '未设置'}
+<b>· 🚨 到期时间</b> | {ex_display}
+
+<i>👇 请选择功能</i>"""
+    else:
+        # 未绑定用户
+        caption = f"""<b>▎欢迎进入用户面板！{user_name}</b>
+
+<b>· 🆔 用户ID</b> | <code>{telegram_user_id}</code>
+<b>· 📊 当前状态</b> | 未绑定
+<b>· 🍒 持有{coin_name}</b> | 0
+<b>· 💠 账号名称</b> | 无账户信息
+<b>· 🚨 到期时间</b> | 无账户信息
+
+<i>👇 请先绑定账号或注册</i>"""
+    
+    # 构建按钮
+    buttons = []
+    
+    if user:
+        # 已绑定用户的按钮
+        # 第一排：我的状态 + 每日签到
+        row1 = [{'text': '📊 我的状态', 'callback_data': 'cmd_status'}]
+        if checkin_enabled:
+            row1.append({'text': '🎯 每日签到', 'callback_data': 'cmd_checkin'})
+        buttons.append(row1)
+        
+        # 第二排：解绑账号
+        row2 = [{'text': '🔓 解绑账号', 'callback_data': 'cmd_unbind'}]
+        buttons.append(row2)
+    else:
+        # 未绑定用户的按钮
+        row1 = [{'text': '🔗 如何绑定', 'callback_data': 'cmd_bind_help'}]
+        buttons.append(row1)
+    
+    # 第三排：删除消息
+    buttons.append([{'text': '🗑️ 删除消息', 'callback_data': 'cmd_close'}])
+    
+    reply_markup = {'inline_keyboard': buttons}
+    
+    return caption, reply_markup, bot_photo
+
+
+def delete_telegram_message(chat_id, message_id):
+    """删除 Telegram 消息"""
+    if not TELEGRAM_BOT_TOKEN:
+        return False
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/deleteMessage"
+        payload = {
+            'chat_id': chat_id,
+            'message_id': message_id
+        }
+        response = PROXY_SESSION.post(url, json=payload, timeout=5)
+        data = response.json()
+        
+        if data.get('ok'):
+            app.logger.info(f'[删除消息] 成功删除消息 chat_id={chat_id}, message_id={message_id}')
+            return True
+        else:
+            # 删除失败不打印错误，可能是权限不足或消息已被删除
+            app.logger.debug(f'[删除消息] 删除失败: {data.get("description", "未知错误")}')
+            return False
+    except Exception as e:
+        app.logger.debug(f'[删除消息] 删除异常: {e}')
+        return False
+
+
+# 缓存机器人用户名
+_bot_username_cache = None
+_bot_username_cache_time = 0
+
+def get_bot_username():
+    """获取机器人用户名（带缓存）"""
+    global _bot_username_cache, _bot_username_cache_time
+    
+    if not TELEGRAM_BOT_TOKEN:
+        return None
+    
+    # 缓存有效期 1 小时
+    if _bot_username_cache and (time.time() - _bot_username_cache_time) < 3600:
+        return _bot_username_cache
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getMe"
+        response = PROXY_SESSION.get(url, timeout=10)
+        data = response.json()
+        
+        if data.get('ok'):
+            _bot_username_cache = data.get('result', {}).get('username')
+            _bot_username_cache_time = time.time()
+            return _bot_username_cache
+    except Exception as e:
+        app.logger.error(f'获取机器人用户名失败: {e}')
+    
+    return None
+
+
+def get_user_watch_time_30days(user_tg):
+    """获取用户最近30天的观看时间（分钟）
+    
+    优先从 Emby Playback Reporting 插件获取，如果失败则从本地数据库获取
+    
+    Args:
+        user_tg: 用户的 tg ID
+        
+    Returns:
+        int: 观看时间（分钟），如果没有记录返回 0
+    """
+    try:
+        # 先获取用户的 Emby ID
+        user = User.query.filter_by(tg=user_tg).first()
+        if not user:
+            user = User.query.filter_by(telegram_id=user_tg).first()
+        
+        if user and user.embyid and emby_client.is_enabled():
+            # 尝试从 Emby Playback Reporting 插件获取
+            watch_time = get_emby_user_watch_time(user.embyid, 30)
+            if watch_time is not None:
+                return watch_time
+        
+        # 回退：从本地 PlaybackRecord 表查询
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        result = db.session.query(
+            db.func.sum(PlaybackRecord.play_duration)
+        ).filter(
+            PlaybackRecord.user_tg == user_tg,
+            PlaybackRecord.started_at >= thirty_days_ago
+        ).scalar()
+        
+        if result:
+            return int(result / 60)
+        return 0
+    except Exception as e:
+        app.logger.error(f'获取用户观看时间失败: {e}')
+        return 0
+
+
+def get_emby_user_watch_time(emby_user_id, days=30):
+    """从 Emby 获取用户观看时间
+    
+    尝试多种方式获取：
+    1. Playback Reporting 插件 API
+    2. Emby 标准 PlaybackInfo API
+    
+    Args:
+        emby_user_id: Emby 用户 ID
+        days: 统计天数
+        
+    Returns:
+        int: 观看时间（分钟），失败返回 None
+    """
+    if not emby_client.is_enabled():
+        return None
+    
+    try:
+        # 计算日期范围
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+        
+        # 方式1: Playback Reporting 插件 API: /user_usage_stats/UserPlaylist
+        try:
+            url = f"{emby_client.base_url}/user_usage_stats/UserPlaylist"
+            params = {
+                'api_key': emby_client.api_key,
+                'user_id': emby_user_id,
+                'days': days,
+                'end_date': end_date.strftime('%Y-%m-%d'),
+                'filter': ''
+            }
+            
+            response = emby_client.session.get(url, params=params, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                total_seconds = 0
+                for item in data:
+                    duration = item.get('PlayDuration', 0)
+                    if duration:
+                        total_seconds += duration
+                
+                if total_seconds > 0:
+                    app.logger.debug(f'从 Playback Reporting 获取观看时间: user={emby_user_id}, {total_seconds}秒')
+                    return int(total_seconds / 60)
+        except Exception as e:
+            app.logger.debug(f'Playback Reporting API 失败: {e}')
+        
+        # 方式2: user_usage_stats/user_activity API
+        try:
+            url2 = f"{emby_client.base_url}/user_usage_stats/user_activity"
+            params2 = {
+                'api_key': emby_client.api_key,
+                'user_id': emby_user_id,
+                'days': days
+            }
+            
+            response2 = emby_client.session.get(url2, params=params2, timeout=10)
+            if response2.status_code == 200:
+                data2 = response2.json()
+                total_minutes = 0
+                for day_data in data2:
+                    time_val = day_data.get('Time', 0) or day_data.get('PlayDuration', 0)
+                    if time_val:
+                        total_minutes += time_val
+                
+                if total_minutes > days * 24 * 60:
+                    total_minutes = int(total_minutes / 60)
+                
+                if total_minutes > 0:
+                    app.logger.debug(f'从 user_activity API 获取观看时间: user={emby_user_id}, {total_minutes}分钟')
+                    return int(total_minutes)
+        except Exception as e:
+            app.logger.debug(f'user_activity API 失败: {e}')
+        
+        # 方式3: 从 Items/PlayedItems 获取已播放项目并计算
+        try:
+            url3 = f"{emby_client.base_url}/Users/{emby_user_id}/Items"
+            params3 = {
+                'api_key': emby_client.api_key,
+                'Filters': 'IsPlayed',
+                'Recursive': 'true',
+                'Fields': 'RunTimeTicks,UserData',
+                'Limit': 500,
+                'SortBy': 'DatePlayed',
+                'SortOrder': 'Descending'
+            }
+            
+            response3 = emby_client.session.get(url3, params=params3, timeout=15)
+            if response3.status_code == 200:
+                data3 = response3.json()
+                items = data3.get('Items', [])
+                
+                total_ticks = 0
+                for item in items:
+                    user_data = item.get('UserData', {})
+                    last_played = user_data.get('LastPlayedDate')
+                    
+                    if last_played:
+                        try:
+                            # 解析播放日期
+                            played_date = datetime.fromisoformat(last_played.replace('Z', '+00:00'))
+                            if played_date.replace(tzinfo=None) >= start_date:
+                                # 在30天内播放过
+                                play_count = user_data.get('PlayCount', 1) or 1
+                                runtime = item.get('RunTimeTicks', 0)
+                                if runtime:
+                                    total_ticks += runtime * play_count
+                        except:
+                            pass
+                
+                if total_ticks > 0:
+                    total_minutes = int(total_ticks / 10000000 / 60)
+                    app.logger.debug(f'从 PlayedItems 计算观看时间: user={emby_user_id}, {total_minutes}分钟')
+                    return total_minutes
+        except Exception as e:
+            app.logger.debug(f'PlayedItems API 失败: {e}')
+        
+        return None
+    except Exception as e:
+        app.logger.debug(f'从 Emby 获取观看时间失败: {e}')
+        return None
+
+
+def register_telegram_commands():
+    """注册 Telegram Bot 命令菜单"""
+    if not TELEGRAM_BOT_TOKEN:
+        return False
+    return register_telegram_commands_with_token(TELEGRAM_BOT_TOKEN)
+
+
+def register_telegram_commands_with_token(bot_token):
+    """使用指定的 token 注册 Telegram Bot 命令菜单"""
+    if not bot_token:
+        app.logger.warning('[Telegram] 注册命令失败: bot_token 为空')
+        return False
+    
+    commands = [
+        {"command": "start", "description": "开始使用"},
+        {"command": "bind", "description": "绑定网站账号"},
+        {"command": "unbind", "description": "解绑账号"},
+        {"command": "status", "description": "查看账号状态"},
+        {"command": "myinfo", "description": "查看我的信息"},
+        {"command": "count", "description": "查看媒体库统计"},
+        {"command": "checkin", "description": "每日签到"},
+        {"command": "kk", "description": "管理员快捷操作"},
+        {"command": "cancel", "description": "取消当前操作"}
+    ]
+    
+    try:
+        app.logger.info(f'[Telegram] 开始注册命令菜单，共 {len(commands)} 个命令')
+        
+        # 先删除旧的命令
+        delete_url = f"https://api.telegram.org/bot{bot_token}/deleteMyCommands"
+        try:
+            delete_resp = PROXY_SESSION.post(delete_url, timeout=10)
+            app.logger.info(f'[Telegram] 清除旧命令结果: {delete_resp.json()}')
+        except Exception as e:
+            app.logger.warning(f'[Telegram] 清除旧命令失败（可忽略）: {e}')
+        
+        # 注册新命令
+        url = f"https://api.telegram.org/bot{bot_token}/setMyCommands"
+        payload = {"commands": commands}
+        app.logger.info(f'[Telegram] 注册命令请求: {payload}')
+        
+        response = PROXY_SESSION.post(url, json=payload, timeout=10)
+        data = response.json()
+        app.logger.info(f'[Telegram] 注册命令响应: {data}')
+        
+        if data.get('ok'):
+            app.logger.info('[Telegram] 命令菜单注册成功')
+            
+            # 验证注册结果
+            try:
+                verify_url = f"https://api.telegram.org/bot{bot_token}/getMyCommands"
+                verify_resp = PROXY_SESSION.get(verify_url, timeout=10)
+                verify_data = verify_resp.json()
+                if verify_data.get('ok'):
+                    registered_commands = verify_data.get('result', [])
+                    app.logger.info(f'[Telegram] 验证已注册命令: {registered_commands}')
+                else:
+                    app.logger.warning(f'[Telegram] 验证命令失败: {verify_data}')
+            except Exception as e:
+                app.logger.warning(f'[Telegram] 验证命令异常: {e}')
+            
+            return True
+        else:
+            app.logger.warning(f'[Telegram] 命令菜单注册失败: {data.get("description")}')
+            return False
+    except Exception as e:
+        app.logger.error(f'[Telegram] 注册命令失败: {e}')
+        return False
+
+
+@app.route('/api/webhook/telegram/setup', methods=['GET', 'POST'])
+@admin_required
+def setup_telegram_webhook():
+    """
+    设置 Telegram Bot Webhook (管理员)
+    
+    GET: 查看当前 Webhook 状态
+    POST: 设置新的 Webhook URL
+        参数: { "url": "https://your-domain.com" }
+        或 ?url=https://your-domain.com
+    """
+    global TELEGRAM_CONFIGURED_URL
+    
+    if not TELEGRAM_BOT_TOKEN:
+        return jsonify({
+            'success': False,
+            'error': 'Telegram Bot Token 未配置'
+        }), 400
+    
+    if request.method == 'GET':
+        # 获取当前 Webhook 信息
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getWebhookInfo"
+            response = PROXY_SESSION.get(url, timeout=10)
+            data = response.json()
+            return jsonify({
+                'success': True,
+                'webhook_info': data.get('result', {}),
+                'setup_url': '/api/webhook/telegram/setup?url=https://your-domain.com'
+            })
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    else:  # POST
+        # 设置 Webhook
+        base_url = request.args.get('url') or (request.json or {}).get('url', '')
+        app.logger.info(f'[Telegram设置] 收到设置请求 - base_url={base_url}')
+        
+        if not base_url:
+            app.logger.warning('[Telegram设置] URL 参数为空')
+            return jsonify({
+                'success': False,
+                'error': '请提供 url 参数',
+                'example': '/api/webhook/telegram/setup?url=https://your-domain.com'
+            }), 400
+        
+        # Webhook 模式需要 HTTPS 域名
+        if not base_url.startswith('https://'):
+            app.logger.warning(f'[Telegram设置] URL 格式不正确: {base_url}')
+            return jsonify({
+                'success': False,
+                'error': 'Webhook 模式需要 HTTPS 域名',
+                'tip': '请使用 https:// 开头的域名',
+                'example': 'https://your-domain.com'
+            }), 400
+        
+        # 构建完整的 webhook URL
+        webhook_url = base_url.rstrip('/') + '/api/webhook/telegram'
+        app.logger.info(f'[Webhook模式] 构建 Webhook URL: {webhook_url}')
+        
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
+            payload = {
+                'url': webhook_url,
+                'allowed_updates': ['message', 'callback_query'],
+                'drop_pending_updates': True
+            }
+            app.logger.info(f'[Webhook模式] 发送设置请求 - payload: {payload}')
+            
+            response = PROXY_SESSION.post(url, json=payload, timeout=10)
+            data = response.json()
+            
+            app.logger.info(f'[Webhook模式] Telegram 响应: {json.dumps(data, ensure_ascii=False)}')
+            
+            if data.get('ok'):
+                app.logger.info(f'[Webhook模式] 设置成功: {webhook_url}')
+                
+                # 保存到数据库
+                TELEGRAM_CONFIGURED_URL = base_url
+                current_config = get_db_config(CONFIG_KEY_TELEGRAM) or {}
+                current_config['configured_url'] = base_url
+                set_db_config(CONFIG_KEY_TELEGRAM, current_config, 'Telegram BOT配置')
+                
+                # 注册命令菜单
+                register_telegram_commands()
+                
+                return jsonify({
+                    'success': True,
+                    'configured_url': base_url,
+                    'message': '✅ Webhook 设置成功',
+                    'webhook_url': webhook_url,
+                    'tip': 'Webhook 模式下，Telegram 将推送消息到您的服务器'
+                })
+            else:
+                error_msg = data.get('description', '设置失败')
+                app.logger.error(f'[Webhook模式] 设置失败: {error_msg}')
+                return jsonify({
+                    'success': False,
+                    'error': error_msg
+                }), 400
+        except requests.exceptions.Timeout:
+            app.logger.error('[Webhook模式] 请求超时')
+            return jsonify({'success': False, 'error': '请求超时，请检查网络和代理设置'}), 500
+        except requests.exceptions.ConnectionError as e:
+            app.logger.error(f'[Webhook模式] 连接错误: {e}')
+            return jsonify({'success': False, 'error': f'连接失败，请检查网络和代理设置: {str(e)}'}), 500
+        except Exception as e:
+            app.logger.error(f'[Webhook模式] 设置失败: {e}', exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/webhook/telegram/mode', methods=['GET'])
+@admin_required
+def get_telegram_mode():
+    """获取当前 Telegram Webhook 状态"""
+    return jsonify({
+        'success': True,
+        'configured_url': TELEGRAM_CONFIGURED_URL
+    })
+
+
+@app.route('/api/webhook/telegram/delete', methods=['POST'])
+@admin_required
+def delete_telegram_webhook():
+    """删除 Telegram Bot Webhook (管理员)"""
+    if not TELEGRAM_BOT_TOKEN:
+        return jsonify({
+            'success': False,
+            'error': 'Telegram Bot Token 未配置'
+        }), 400
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/deleteWebhook"
+        response = PROXY_SESSION.post(url, timeout=10)
+        data = response.json()
+        
+        if data.get('ok'):
+            return jsonify({
+                'success': True,
+                'message': 'Webhook 已删除'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': data.get('description', '删除失败')
+            }), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/downloads/<int:request_id>')
+def get_download_status(request_id):
+    movie_request = db.session.get(MovieRequest, request_id)
+    
+    # 如果记录不存在，返回 200 但标记为无任务（避免触发 toast 错误）
+    if not movie_request:
+        return jsonify({'success': False, 'error': '记录不存在', 'not_found': True}), 200
+
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'error': '未登录'}), 401
+
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        return jsonify({'success': False, 'error': '未登录'}), 401
+    
+    # 验证session_token
+    if user.session_token and session.get('session_token') != user.session_token:
+        return jsonify({'success': False, 'error': '会话已失效，请重新登录'}), 401
+
+    if not user.is_admin and movie_request.user_tg != user.tg:
+        return jsonify({'success': False, 'error': '无权查看该下载任务'}), 403
+
+    if not movie_request.download_task:
+        return jsonify({'success': False, 'error': '暂无下载任务', 'no_task': True}), 200
+
+    task = movie_request.download_task
+    
+    # 实时同步 qBittorrent 状态（扩展条件：只要任务未完成/失败就查询 qB）
+    # 注意：即使后端状态显示 completed，也查一下 qB 确保进度准确
+    should_sync = (
+        task.torrent_hash and 
+        qbit_client.is_enabled() and
+        task.status not in ['failed', 'cancelled']
+    )
+    
+    if should_sync:
+        try:
+            infos = qbit_client.get_torrents_info(hashes=[task.torrent_hash])
+            if infos:
+                info = infos[0]
+                qb_state = info.get('state', '').lower()
+                qb_progress = info.get('progress') or 0
+                progress = round(qb_progress * 100, 2)
+                
+                # 记录进度差异以便调试
+                old_progress = task.progress or 0
+                if abs(progress - old_progress) > 1:
+                    app.logger.info(f'任务 {task.id} 进度同步: {old_progress:.1f}% -> {progress:.1f}% (qB状态: {qb_state})')
+                
+                # 更新进度信息
+                task.progress = progress
+                task.download_speed = info.get('dlspeed', 0)
+                task.eta = info.get('eta', -1)
+                
+                # 检查是否已完成（做种状态）
+                if qb_state in {'uploading', 'stalledup', 'queuedup', 'checkingup', 'pausedup', 'completed', 'forcedup', 'seeding'}:
+                    if task.status != 'completed':
+                        task.status = 'completed'
+                        task.progress = 100.0
+                        task.finished_at = task.finished_at or datetime.now()
+                        movie_request.status = 'downloaded'
+                        app.logger.info(f'API 查询时同步: 任务 {task.id} 已完成')
+                elif qb_state in {'downloading', 'stalleddl', 'forceddl', 'metadl', 'checkingdl', 'allocating', 'moving'}:
+                    if task.status != 'downloading':
+                        task.status = 'downloading'
+                        movie_request.status = 'downloading'
+                
+                db.session.commit()
+            else:
+                # qB 中任务不存在
+                if task.progress >= 100 or task.status == 'completed':
+                    if task.status != 'completed':
+                        task.status = 'completed'
+                        task.finished_at = task.finished_at or datetime.now()
+                        movie_request.status = 'downloaded'
+                        db.session.commit()
+                        app.logger.info(f'API 查询时同步: 任务 {task.id} qB已删除但进度100%，标记完成')
+        except Exception as e:
+            app.logger.warning(f'实时同步 qB 状态失败 (任务 {task.id}): {e}')
+            db.session.rollback()  # 确保回滚以防止事务问题
+
+    # 如果求片状态已完成（已入库），确保下载任务进度也显示为 100%
+    if movie_request.status == 'completed' and task.status != 'completed':
+        task.status = 'completed'
+        task.progress = 100.0
+        task.finished_at = task.finished_at or datetime.now()
+        try:
+            db.session.commit()
+        except:
+            db.session.rollback()
+
+    return jsonify({
+        'success': True, 
+        'task': task.to_dict(),
+        'request_status': movie_request.status  # 添加求片状态
+    })
+
+
+@app.route('/api/admin/sync-downloads', methods=['POST'])
+@admin_required
+def sync_all_downloads():
+    """手动同步所有下载任务状态（管理员）"""
+    if not qbit_client.is_enabled():
+        return jsonify({'success': False, 'error': 'qBittorrent 未配置'}), 400
+    
+    # 获取所有未完成的下载任务
+    tasks = DownloadTask.query.filter(
+        DownloadTask.status.in_(['queued', 'downloading'])
+    ).all()
+    
+    synced = 0
+    completed = 0
+    failed = 0
+    
+    for task in tasks:
+        if not task.torrent_hash:
+            continue
+        
+        try:
+            infos = qbit_client.get_torrents_info(hashes=[task.torrent_hash])
+            if infos:
+                info = infos[0]
+                qb_state = info.get('state', '').lower()
+                progress = round((info.get('progress') or 0) * 100, 2)
+                
+                task.progress = progress
+                task.download_speed = info.get('dlspeed', 0)
+                task.eta = info.get('eta', -1)
+                
+                if qb_state in {'uploading', 'stalledup', 'queuedup', 'checkingup', 'pausedup', 'completed', 'forcedup'}:
+                    task.status = 'completed'
+                    task.progress = 100.0
+                    task.finished_at = task.finished_at or datetime.now()
+                    if task.request:
+                        task.request.status = 'downloaded'
+                    completed += 1
+                else:
+                    synced += 1
+            else:
+                # qB 中不存在
+                if task.progress >= 100:
+                    task.status = 'completed'
+                    if task.request:
+                        task.request.status = 'downloaded'
+                    completed += 1
+                else:
+                    task.status = 'failed'
+                    task.error_message = 'qBittorrent 中任务不存在'
+                    if task.request:
+                        task.request.status = 'failed'
+                    failed += 1
+        except Exception as e:
+            app.logger.error(f'同步任务 {task.id} 失败: {e}')
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': f'同步完成: {synced} 个任务更新进度, {completed} 个已完成, {failed} 个失败'
+    })
+
+
+@app.route('/api/downloads/<int:request_id>/retry', methods=['POST'])
+@login_required
+def retry_download(request_id):
+    """重试失败的下载任务"""
+    movie_request = db.session.get(MovieRequest, request_id)
+    
+    if not movie_request:
+        return jsonify({'success': False, 'error': '求片记录不存在'}), 404
+    
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        return jsonify({'success': False, 'error': '未登录'}), 401
+    
+    # 检查权限: 管理员或求片用户本人
+    if not user.is_admin and movie_request.user_tg != user.tg:
+        return jsonify({'success': False, 'error': '无权操作该任务'}), 403
+    
+    task = movie_request.download_task
+    if not task:
+        return jsonify({'success': False, 'error': '该求片没有下载任务'}), 400
+    
+    # 检查是否可以重试
+    if not task.can_retry():
+        if task.retry_count >= task.max_retries:
+            return jsonify({
+                'success': False, 
+                'error': f'已达到最大重试次数 ({task.max_retries}次)'
+            }), 400
+        else:
+            return jsonify({
+                'success': False, 
+                'error': '只有失败的任务才能重试'
+            }), 400
+    
+    # 记录重试
+    task.retry_count += 1
+    task.last_retry_at = datetime.now()
+    task.error_message = f'第 {task.retry_count} 次重试中...'
+    
+    # 重置任务状态
+    task.status = 'queued'
+    task.progress = 0.0
+    task.download_speed = 0
+    task.eta = -1
+    
+    # 重置求片状态
+    movie_request.status = 'approved'
+    
+    try:
+        db.session.commit()
+        app.logger.info(f'用户 {user.name} 重试下载任务 {task.id} (第{task.retry_count}次)')
+        
+        # TODO: 这里应该触发重新下载逻辑
+        # 可以通过 MoviePilot API 或 qBittorrent 重新添加种子
+        # 暂时只是重置状态，实际下载逻辑需要根据你的系统实现
+        
+        return jsonify({
+            'success': True,
+            'message': f'已提交重试 (第{task.retry_count}/{task.max_retries}次)',
+            'retry_count': task.retry_count,
+            'max_retries': task.max_retries
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'重试下载失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== 批量操作 API ====================
+@app.route('/admin/batch-update', methods=['POST'])
+@admin_required
+def batch_update_status():
+    """批量更新求片状态"""
+    data = request.get_json()
+    
+    request_ids = data.get('ids', [])
+    status = data.get('status')
+    admin_note = data.get('admin_note', '')
+    
+    if not request_ids:
+        return jsonify({'success': False, 'error': '未选择任何请求'}), 400
+    
+    if status not in ['approved', 'rejected', 'completed']:
+        return jsonify({'success': False, 'error': '无效的状态'}), 400
+    
+    success_count = 0
+    fail_count = 0
+    
+    for req_id in request_ids:
+        try:
+            movie_request = db.session.get(MovieRequest, req_id)
+            if movie_request:
+                old_status = movie_request.status
+                movie_request.status = status
+                if admin_note:
+                    movie_request.admin_note = admin_note
+                success_count += 1
+                
+                # 发送通知（只在拒绝和完成时）
+                if status in ['rejected', 'completed'] and old_status != status:
+                    # 获取用户信息
+                    user = movie_request.user
+                    if not user:
+                        user = User.query.filter_by(tg=movie_request.user_tg).first()
+                    
+                    user_tg = user.tg if user else movie_request.user_tg
+                    username = user.name if user else '用户'
+                    
+                    if user_tg:
+                        # 发送私聊通知
+                        send_user_telegram_notification(
+                            user_tg,
+                            movie_request.title,
+                            status,
+                            admin_note,
+                            movie_request.media_type,
+                            movie_request.tmdb_id,
+                            movie_request.poster_path
+                        )
+                        
+                        # 入库完成时额外发送群组通知
+                        if status == 'completed':
+                            send_group_completion_notification(
+                                user_tg_id=user_tg,
+                                username=username,
+                                title=movie_request.title,
+                                year=movie_request.year,
+                                media_type=movie_request.media_type,
+                                tmdb_id=movie_request.tmdb_id,
+                                poster_path=movie_request.poster_path
+                            )
+            else:
+                fail_count += 1
+        except Exception as e:
+            app.logger.error(f'批量更新失败: ID={req_id}, error={e}')
+            fail_count += 1
+    
+    db.session.commit()
+    app.logger.info(f'管理员 {session.get("username")} 批量更新状态: 成功={success_count}, 失败={fail_count}, 状态={status}')
+    
+    return jsonify({
+        'success': True,
+        'message': f'已更新 {success_count} 条记录',
+        'success_count': success_count,
+        'fail_count': fail_count
+    }), 200
+
+
+@app.route('/admin/batch-delete', methods=['POST'])
+@admin_required
+def batch_delete_requests():
+    """批量删除求片记录"""
+    data = request.get_json()
+    
+    request_ids = data.get('ids', [])
+    
+    if not request_ids:
+        return jsonify({'success': False, 'error': '未选择任何请求'}), 400
+    
+    success_count = 0
+    fail_count = 0
+    
+    for req_id in request_ids:
+        try:
+            movie_request = db.session.get(MovieRequest, req_id)
+            if movie_request:
+                # 同时删除关联的下载任务
+                if movie_request.download_task:
+                    db.session.delete(movie_request.download_task)
+                db.session.delete(movie_request)
+                success_count += 1
+            else:
+                fail_count += 1
+        except Exception as e:
+            app.logger.error(f'批量删除失败: ID={req_id}, error={e}')
+            fail_count += 1
+    
+    db.session.commit()
+    app.logger.info(f'管理员 {session.get("username")} 批量删除记录: 成功={success_count}, 失败={fail_count}')
+    
+    return jsonify({
+        'success': True,
+        'message': f'已删除 {success_count} 条记录',
+        'success_count': success_count,
+        'fail_count': fail_count
+    }), 200
+
+
+# ==================== 统计图表 API ====================
+@app.route('/admin/stats/daily')
+@admin_required
+def get_daily_stats():
+    """获取每日求片趋势数据（最近30天）"""
+    from sqlalchemy import func
+    
+    # 获取最近30天的日期范围
+    end_date = datetime.now().date()
+    start_date = end_date - timedelta(days=29)
+    
+    # 查询每日求片数量
+    daily_stats = db.session.query(
+        func.date(MovieRequest.created_at).label('date'),
+        func.count(MovieRequest.id).label('count')
+    ).filter(
+        func.date(MovieRequest.created_at) >= start_date
+    ).group_by(
+        func.date(MovieRequest.created_at)
+    ).order_by(
+        func.date(MovieRequest.created_at)
+    ).all()
+    
+    # 构建完整的日期数据（填充空缺日期）
+    stats_dict = {str(stat.date): stat.count for stat in daily_stats}
+    
+    result = []
+    current_date = start_date
+    while current_date <= end_date:
+        date_str = str(current_date)
+        result.append({
+            'date': date_str,
+            'count': stats_dict.get(date_str, 0)
+        })
+        current_date += timedelta(days=1)
+    
+    return jsonify({
+        'success': True,
+        'data': result
+    }), 200
+
+
+@app.route('/admin/stats/type')
+@admin_required
+def get_type_stats():
+    """获取求片类型分布统计"""
+    from sqlalchemy import func
+    
+    type_stats = db.session.query(
+        MovieRequest.media_type,
+        func.count(MovieRequest.id).label('count')
+    ).group_by(MovieRequest.media_type).all()
+    
+    result = {stat.media_type: stat.count for stat in type_stats}
+    
+    return jsonify({
+        'success': True,
+        'data': {
+            'movie': result.get('movie', 0),
+            'tv': result.get('tv', 0)
+        }
+    }), 200
+
+
+@app.route('/admin/stats/summary')
+@admin_required
+def get_stats_summary():
+    """获取统计数据摘要（用于刷新功能）"""
+    try:
+        total = MovieRequest.query.count()
+        pending = MovieRequest.query.filter_by(status='pending').count()
+        approved = MovieRequest.query.filter_by(status='approved').count()
+        completed = MovieRequest.query.filter_by(status='completed').count()
+        rejected = MovieRequest.query.filter_by(status='rejected').count()
+        downloading = MovieRequest.query.filter_by(status='downloading').count()
+        downloaded = MovieRequest.query.filter_by(status='downloaded').count()
+        failed = MovieRequest.query.filter_by(status='failed').count()
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'total': total,
+                'pending': pending,
+                'approved': approved,
+                'completed': completed,
+                'rejected': rejected,
+                'downloading': downloading,
+                'downloaded': downloaded,
+                'failed': failed
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取统计数据失败: {str(e)}')
+        return jsonify({
+            'success': False,
+            'error': '获取统计数据失败'
+        }), 500
+
+
+@app.route('/my-requests')
+@login_required
+def my_requests():
+    user = db.session.get(User, session['user_id'])
+    requests = MovieRequest.query.options(joinedload(MovieRequest.download_task)).filter_by(user_tg=user.tg).order_by(MovieRequest.created_at.desc()).all()
+    
+    return render_template('my_requests.html',
+                         requests=requests,
+                         tmdb_image_base=TMDB_IMAGE_BASE_URL)
+
+
+@app.route('/api/my-requests')
+@login_required
+def api_my_requests():
+    """获取当前用户的求片记录（API）"""
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        return jsonify({'success': False, 'error': '用户不存在'}), 401
+    
+    requests_list = MovieRequest.query.options(
+        joinedload(MovieRequest.download_task)
+    ).filter_by(user_tg=user.tg).order_by(MovieRequest.created_at.desc()).limit(100).all()
+    
+    # 根据配置决定是否使用图片代理
+    site_config = get_site_config()
+    if site_config.get('use_image_proxy', True):
+        tmdb_image_base = '/api/tmdb-image/w500'
+    else:
+        tmdb_image_base = 'https://image.tmdb.org/t/p/w500'
+    
+    results = []
+    for req in requests_list:
+        item = {
+            'id': req.id,
+            'tmdb_id': req.tmdb_id,
+            'title': req.title,
+            'year': req.year,
+            'poster_path': req.poster_path,
+            'poster_url': f"{tmdb_image_base}{req.poster_path}" if req.poster_path else None,
+            'overview': req.overview,
+            'media_type': req.media_type,
+            'request_type': req.request_type,
+            'season_number': req.season_number,
+            'episode_number': req.episode_number,
+            'total_seasons': req.total_seasons,
+            'status': req.status,
+            'created_at': req.created_at.strftime('%Y-%m-%d %H:%M') if req.created_at else None,
+            'admin_note': req.admin_note,
+            'user_note': req.user_note,
+            'request_scope': req.get_request_scope()
+        }
+        
+        # 下载任务信息
+        if req.download_task:
+            item['download_task'] = {
+                'progress': req.download_task.progress,
+                'download_speed': req.download_task.download_speed,
+                'eta': req.download_task.eta
+            }
+        
+        results.append(item)
+    
+    return jsonify({
+        'success': True,
+        'requests': results,
+        'total': len(results)
+    })
+
+
+# ==================== 订阅管理 API ====================
+
+@app.route('/api/subscription/benefits', methods=['GET'])
+@login_required
+def get_subscription_benefits():
+    """根据用户订阅状态获取对应的权益配置"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        config = load_system_config()
+        default_benefits = config.get('default_benefits', {})
+        
+        # 白名单用户
+        if user.lv == 'a':
+            benefits = default_benefits.get('whitelist', [
+                {'icon': '🎬', 'text': '无限求片'},
+                {'icon': '⚡', 'text': '最高优先级'},
+                {'icon': '📺', 'text': '4K超清资源'},
+                {'icon': '💬', 'text': 'VIP专属客服'}
+            ])
+            return jsonify({
+                'success': True,
+                'benefits': benefits,
+                'plan_type': 'whitelist'
+            }), 200
+        
+        # 检查用户是否有有效订阅
+        if user.ex and user.ex > datetime.now():
+            # 获取用户当前订阅的套餐类型
+            subscription = Subscription.query.filter_by(
+                user_tg=user.tg,
+                status='active'
+            ).order_by(Subscription.end_date.desc()).first()
+            
+            if subscription:
+                # 从套餐配置中获取对应的权益
+                plans = load_plans_config()
+                for plan in plans:
+                    if plan.get('id') == subscription.plan_type or plan.get('type') == subscription.plan_type:
+                        benefits = plan.get('benefits', plan.get('features', []))
+                        # 如果是字符串数组，转换为对象数组
+                        if benefits and isinstance(benefits[0], str):
+                            benefits = [{'icon': '✨', 'text': b} for b in benefits]
+                        return jsonify({
+                            'success': True,
+                            'benefits': benefits,
+                            'plan_type': subscription.plan_type,
+                            'plan_name': plan.get('name', '')
+                        }), 200
+            
+            # 有订阅但找不到套餐配置，使用默认订阅权益
+            benefits = default_benefits.get('subscribed', [
+                {'icon': '🎬', 'text': '每日求片'},
+                {'icon': '⚡', 'text': '优先处理'},
+                {'icon': '📺', 'text': '高清资源'},
+                {'icon': '💬', 'text': '专属客服'}
+            ])
+            return jsonify({
+                'success': True,
+                'benefits': benefits,
+                'plan_type': 'subscribed'
+            }), 200
+        
+        # 未订阅用户
+        benefits = default_benefits.get('unsubscribed', [
+            {'icon': '🚫', 'text': '无求片权限'},
+            {'icon': '⏳', 'text': '普通处理'},
+            {'icon': '📺', 'text': '标清资源'},
+            {'icon': '💬', 'text': '社区支持'}
+        ])
+        return jsonify({
+            'success': True,
+            'benefits': benefits,
+            'plan_type': 'unsubscribed'
+        }), 200
+        
+    except Exception as e:
+        app.logger.error(f'获取订阅权益配置失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/default-benefits', methods=['GET', 'POST'])
+@admin_required
+def admin_default_benefits():
+    """管理默认权益配置（未订阅用户和白名单用户）"""
+    config = load_system_config()
+    
+    if request.method == 'GET':
+        default_benefits = config.get('default_benefits', {
+            'unsubscribed': [
+                {'icon': '🚫', 'text': '无求片权限'},
+                {'icon': '⏳', 'text': '普通处理'},
+                {'icon': '📺', 'text': '标清资源'},
+                {'icon': '💬', 'text': '社区支持'}
+            ],
+            'whitelist': [
+                {'icon': '🎬', 'text': '无限求片'},
+                {'icon': '⚡', 'text': '最高优先级'},
+                {'icon': '📺', 'text': '4K超清资源'},
+                {'icon': '💬', 'text': 'VIP专属客服'}
+            ]
+        })
+        return jsonify({
+            'success': True,
+            'default_benefits': default_benefits
+        }), 200
+    
+    elif request.method == 'POST':
+        try:
+            data = request.json
+            default_benefits = data.get('default_benefits', {})
+            
+            # 验证数据格式
+            for key in ['unsubscribed', 'whitelist']:
+                benefits = default_benefits.get(key, [])
+                if len(benefits) > 8:
+                    return jsonify({'success': False, 'error': f'{key}最多只能配置8个权益'}), 400
+            
+            config['default_benefits'] = default_benefits
+            
+            if save_system_config(config):
+                return jsonify({
+                    'success': True,
+                    'message': '默认权益配置已保存'
+                }), 200
+            else:
+                return jsonify({'success': False, 'error': '保存配置失败'}), 500
+                
+        except Exception as e:
+            app.logger.error(f'保存默认权益配置失败: {e}')
+            return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/subscription/current', methods=['GET'])
+@login_required
+def get_current_subscription():
+    """获取当前用户的订阅信息"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'error': '用户不存在'}), 404
+        
+        # 白名单用户特殊处理：lv='a' 的用户是白名单用户，不需要购买订阅
+        if user.lv == 'a':
+            return jsonify({
+                'success': True,
+                'subscription': {
+                    'id': 0,
+                    'user_tg_id': user.tg,
+                    'user_name': user.name,
+                    'plan_type': 'whitelist',
+                    'plan_name': '白名单用户',
+                    'duration_months': -1,  # -1 表示永久
+                    'price': 0,
+                    'start_date': user.cr.isoformat() if user.cr else None,
+                    'end_date': None,  # 永不过期
+                    'status': 'active',
+                    'days_remaining': '永久',
+                    'is_whitelist': True
+                }
+            }), 200
+        
+        # 优先检查用户的 ex（到期时间）字段 - 这是订阅状态的主要来源
+        if user.ex and user.ex > datetime.now():
+            # 用户有有效的到期时间
+            days_remaining = (user.ex - datetime.now()).days
+            
+            # 尝试从 Subscription 表获取更多信息
+            subscription = Subscription.query.filter_by(
+                user_tg=user.tg,
+                status='active'
+            ).order_by(Subscription.end_date.desc()).first()
+            
+            if subscription:
+                return jsonify({
+                    'success': True,
+                    'subscription': subscription.to_dict()
+                }), 200
+            else:
+                # 没有 Subscription 记录但有 user.ex，说明是通过其他方式设置的（如管理员手动设置）
+                return jsonify({
+                    'success': True,
+                    'subscription': {
+                        'id': 0,
+                        'user_tg_id': user.tg,
+                        'user_name': user.name,
+                        'plan_type': 'manual',
+                        'plan_name': '订阅用户',
+                        'duration_months': 0,
+                        'price': 0,
+                        'start_date': user.cr.isoformat() if user.cr else None,
+                        'end_date': user.ex.isoformat() if user.ex else None,
+                        'status': 'active',
+                        'days_remaining': days_remaining,
+                        'is_whitelist': False
+                    }
+                }), 200
+        
+        # 用户没有有效的到期时间
+        return jsonify({
+            'success': True,
+            'subscription': None,
+            'message': '暂无有效订阅'
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取订阅信息失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/subscription/history', methods=['GET'])
+@login_required
+def get_subscription_history():
+    """获取订阅历史"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        now = datetime.now()
+        
+        # 自动更新订阅状态：
+        # 1. 将已过期的 active 订阅标记为 expired
+        # 2. 将已到开始时间的 pending 订阅激活为 active
+        expired_subs = Subscription.query.filter_by(
+            user_tg=user.tg,
+            status='active'
+        ).filter(Subscription.end_date <= now).all()
+        
+        for sub in expired_subs:
+            sub.status = 'expired'
+        
+        pending_subs = Subscription.query.filter_by(
+            user_tg=user.tg,
+            status='pending'
+        ).filter(Subscription.start_date <= now).all()
+        
+        for sub in pending_subs:
+            sub.status = 'active'
+        
+        if expired_subs or pending_subs:
+            db.session.commit()
+        
+        subscriptions = Subscription.query.filter_by(user_tg=user.tg).order_by(
+            Subscription.start_date.desc()
+        ).all()
+        
+        # 如果没有 Subscription 记录，但用户有有效的到期时间(user.ex)，补充创建一条记录
+        if not subscriptions and user.ex and user.ex > datetime.now():
+            # 尝试从订单表找到最近的已支付订单来确定套餐信息
+            recent_order = Order.query.filter_by(
+                user_tg=user.tg,
+                payment_status='paid'
+            ).order_by(Order.payment_time.desc()).first()
+            
+            if recent_order:
+                # 根据订单创建订阅记录
+                subscription = Subscription(
+                    user_tg=user.tg,
+                    plan_type=recent_order.plan_type,
+                    plan_name=recent_order.plan_name,
+                    duration_months=recent_order.duration_months,
+                    price=recent_order.final_price,
+                    start_date=recent_order.payment_time or datetime.now(),
+                    end_date=user.ex,
+                    status='active',
+                    source='purchase'
+                )
+                db.session.add(subscription)
+                db.session.commit()
+                app.logger.info(f'自动补充创建订阅记录: 用户={user.name}, 套餐={recent_order.plan_name}')
+                subscriptions = [subscription]
+            else:
+                # 没有订单记录，可能是管理员手动设置的，创建一个通用记录
+                subscription = Subscription(
+                    user_tg=user.tg,
+                    plan_type='manual',
+                    plan_name='订阅会员',
+                    duration_months=max(1, (user.ex - datetime.now()).days // 30),
+                    price=0,
+                    start_date=user.cr or datetime.now(),
+                    end_date=user.ex,
+                    status='active',
+                    source='manual'
+                )
+                db.session.add(subscription)
+                db.session.commit()
+                app.logger.info(f'自动补充创建订阅记录(手动设置): 用户={user.name}')
+                subscriptions = [subscription]
+        
+        return jsonify({
+            'success': True,
+            'subscriptions': [sub.to_dict() for sub in subscriptions]
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取订阅历史失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== 购买/订单 API ====================
+@app.route('/api/plans', methods=['GET'])
+@login_required
+def get_plans():
+    """获取可购买的套餐列表"""
+    plans = load_plans_config()
+    
+    return jsonify({
+        'success': True,
+        'plans': plans
+    }), 200
+
+
+@app.route('/api/orders/create', methods=['POST'])
+@login_required
+def create_order():
+    """创建订单"""
+    try:
+        data = request.json
+        app.logger.info(f'收到创建订单请求: {data}')
+        
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            app.logger.error('创建订单失败: 用户未找到')
+            return jsonify({'error': '用户未找到'}), 401
+        
+        # 检查 orders 表是否存在
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
+        if 'orders' not in inspector.get_table_names():
+            app.logger.warning('orders 表不存在，正在创建...')
+            db.create_all()
+            app.logger.info('orders 表已创建')
+        
+        plan_type = data.get('plan_type')  # 套餐类型
+        duration = int(data.get('duration', 1))  # 订阅时长
+        payment_method = data.get('payment_method', 'alipay')
+        
+        app.logger.info(f'创建订单参数: plan_type={plan_type}, duration={duration}, payment_method={payment_method}, user={user.name}')
+        
+        # 从配置文件加载套餐
+        plans_config = load_plans_config()
+        
+        # 查找对应类型的套餐
+        plan_config = None
+        for plan in plans_config:
+            if plan.get('type') == plan_type:
+                plan_config = plan
+                break
+        
+        if not plan_config:
+            return jsonify({'error': '无效的套餐类型'}), 400
+        
+        # 获取对应周期的价格
+        duration_price_map = {
+            1: plan_config.get('price_1m') or plan_config.get('price', 0),
+            3: plan_config.get('price_3m', 0),
+            6: plan_config.get('price_6m', 0),
+            12: plan_config.get('price_12m', 0)
+        }
+        
+        if duration not in duration_price_map:
+            return jsonify({'error': '无效的订阅时长'}), 400
+        
+        final_price = float(duration_price_map[duration])
+        if final_price <= 0:
+            # 如果该周期没有设置价格，使用月付价格计算
+            monthly_price = float(plan_config.get('price_1m') or plan_config.get('price', 0))
+            if monthly_price <= 0:
+                return jsonify({'error': '套餐价格未配置'}), 400
+            # 使用默认折扣计算
+            multipliers = {1: 1.0, 3: 2.8, 6: 5.0, 12: 9.0}
+            final_price = round(monthly_price * multipliers.get(duration, duration), 2)
+        
+        # 计算原价和折扣
+        monthly_price = float(plan_config.get('price_1m') or plan_config.get('price', 0))
+        original_price = round(monthly_price * duration, 2)
+        discount = round(original_price - final_price, 2)
+        if discount < 0:
+            discount = 0
+        
+        # 构建套餐名称
+        duration_names = {1: '', 3: '(季付)', 6: '(半年付)', 12: '(年付)'}
+        plan_name = plan_config.get('name', '套餐')
+        if duration > 1:
+            plan_name = f"{plan_config.get('name', '套餐')}{duration_names.get(duration, f'({duration}个月)')}"
+        
+        # 生成订单号
+        order_no = f'ORD{int(time.time())}{user.tg % 10000}'
+        
+        # 创建订单
+        order = Order(
+            order_no=order_no,
+            user_tg=user.tg,
+            plan_type=plan_type,
+            plan_name=plan_name,
+            duration_months=duration,
+            original_price=original_price,
+            discount=discount,
+            final_price=final_price,
+            payment_method=payment_method,
+            payment_status='pending'
+        )
+        
+        db.session.add(order)
+        db.session.commit()
+        
+        # 验证订单是否真的保存了
+        saved_order = Order.query.filter_by(order_no=order_no).first()
+        if saved_order:
+            app.logger.info(f'创建订单成功: {order_no}, ID={saved_order.id}, 用户: {user.name}, 套餐: {plan_name}, 金额: {final_price}')
+        else:
+            app.logger.error(f'订单保存失败！order_no={order_no} 无法查询到')
+            # 尝试直接用SQL查询
+            from sqlalchemy import text
+            result = db.session.execute(text(f"SELECT COUNT(*) FROM orders WHERE order_no='{order_no}'"))
+            count = result.scalar()
+            app.logger.error(f'直接SQL查询结果: {count}')
+        
+        # 记录创建订单日志
+        log_user_activity(UserActivityLog.ACTION_CREATE_ORDER, user=user,
+                         detail={'order_no': order_no, 'plan_type': plan_type, 'plan_name': plan_name,
+                                'duration_months': duration, 'final_price': final_price, 'payment_method': payment_method})
+        
+        return jsonify({
+            'success': True,
+            'order': order.to_dict()
+        }), 200
+        
+    except Exception as e:
+        app.logger.error(f'创建订单失败: {e}')
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/orders/my', methods=['GET'])
+@login_required
+def get_my_orders():
+    """获取我的订单"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        orders = Order.query.filter_by(user_tg=user.tg).order_by(
+            Order.created_at.desc()
+        ).limit(20).all()  # 限制最多返回20条
+        
+        return jsonify({
+            'success': True,
+            'orders': [order.to_dict() for order in orders]
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取订单失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/orders/cancel', methods=['POST'])
+@login_required
+def cancel_order():
+    """取消订单"""
+    try:
+        data = request.json
+        order_no = data.get('order_no')
+        
+        if not order_no:
+            return jsonify({'error': '订单号不能为空'}), 400
+        
+        user = db.session.get(User, session.get('user_id'))
+        order = Order.query.filter_by(order_no=order_no, user_tg=user.tg).first()
+        
+        if not order:
+            return jsonify({'error': '订单不存在'}), 404
+        
+        if order.payment_status != 'pending':
+            return jsonify({'error': '只能取消待支付订单'}), 400
+        
+        order.payment_status = 'cancelled'
+        db.session.commit()
+        
+        app.logger.info(f'取消订单: {order_no}, 用户: {user.name}')
+        
+        return jsonify({
+            'success': True,
+            'message': '订单已取消'
+        }), 200
+        
+    except Exception as e:
+        app.logger.error(f'取消订单失败: {e}')
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== 兑换码 API ====================
+
+@app.route('/api/redeem/use', methods=['POST'])
+@login_required
+def use_redeem_code():
+    """使用兑换码"""
+    try:
+        data = request.json
+        code = data.get('code', '').strip().upper()
+        
+        if not code:
+            return jsonify({'success': False, 'error': '请输入兑换码'}), 400
+        
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在，请重新登录'}), 401
+        
+        if not user.tg:
+            return jsonify({'success': False, 'error': '用户账户异常，缺少TG标识'}), 400
+        
+        app.logger.info(f'用户 {user.name}(tg={user.tg}) 尝试使用兑换码: {code}')
+        
+        # 查找兑换码
+        redeem = RedeemCode.query.filter_by(code=code).first()
+        
+        if not redeem:
+            return jsonify({'success': False, 'error': '兑换码不存在，请检查输入是否正确'}), 404
+        
+        if redeem.is_used:
+            return jsonify({'success': False, 'error': '兑换码已被使用，每个兑换码只能使用一次'}), 400
+        
+        if not redeem.is_active:
+            return jsonify({'success': False, 'error': '兑换码已被禁用，请联系管理员'}), 400
+        
+        # 检查是否过期
+        if redeem.expires_at and redeem.expires_at < datetime.now():
+            return jsonify({'success': False, 'error': '兑换码已过期，请使用有效的兑换码'}), 400
+        
+        # 获取套餐配置
+        plans_config = []
+        try:
+            plans_config_path = os.path.join(app.instance_path, 'plans_config.json')
+            if os.path.exists(plans_config_path):
+                with open(plans_config_path, 'r', encoding='utf-8') as f:
+                    plans_config = json.load(f)
+        except Exception as e:
+            app.logger.error(f'加载套餐配置失败: {e}')
+        
+        # 从配置中获取套餐名称
+        plan_name = redeem.plan_type
+        for plan in plans_config:
+            if plan.get('id') == redeem.plan_type:
+                plan_name = plan.get('name', redeem.plan_type)
+                break
+        
+        # 计算月数
+        duration_months = max(1, redeem.duration_days // 30)
+        
+        # 计算订阅时间 - 所有类型都立即生效，在现有到期时间基础上叠加
+        now = datetime.now()
+        start_date = now
+        
+        # 如果用户已有未过期的到期时间，在此基础上叠加
+        if user.ex and user.ex > now:
+            end_date = user.ex + timedelta(days=redeem.duration_days)
+        else:
+            end_date = now + timedelta(days=redeem.duration_days)
+        
+        # 创建订阅记录
+        subscription = Subscription(
+            user_tg=user.tg,
+            plan_type=redeem.plan_type,
+            plan_name=plan_name,
+            duration_months=duration_months,
+            price=0,  # 兑换码免费
+            start_date=start_date,
+            end_date=end_date,
+            status='active',
+            source='redeem'
+        )
+        db.session.add(subscription)
+        
+        # 标记兑换码已使用
+        redeem.is_used = True
+        redeem.used_by = user.tg
+        redeem.used_at = datetime.now()
+        
+        # 同步更新用户表的订阅状态
+        try:
+            # 设置用户等级为 'b'（注册用户/付费用户），但不降级管理员
+            if user.lv not in ['a']:  # 不改变管理员等级
+                user.lv = 'b'
+            
+            # 更新过期时间 - 使用不带时区的时间，与数据库一致
+            now = datetime.now()
+            end_date = now + timedelta(days=redeem.duration_days)
+            # 如果用户已有过期时间且未过期，则在此基础上续期
+            if user.ex and user.ex > now:
+                end_date = user.ex + timedelta(days=redeem.duration_days)
+            user.ex = end_date
+            
+            app.logger.info(f'更新用户订阅状态: lv={user.lv}, ex={user.ex}')
+        except Exception as e:
+            app.logger.warning(f'更新用户订阅状态失败: {e}')
+        
+        db.session.commit()
+        
+        app.logger.info(f'兑换码使用成功: {code}, 用户: {user.name}(tg={user.tg}), 类型: {redeem.code_type}, 套餐: {plan_name}, 天数: {redeem.duration_days}')
+        
+        # 恢复Emby账号（如果之前因过期被禁用）
+        if user.embyid and emby_client.is_enabled():
+            if emby_client.enable_user(user.embyid):
+                app.logger.info(f'用户 {user.name} 兑换成功，已恢复Emby账号')
+        
+        # 记录兑换码使用日志
+        log_user_activity(UserActivityLog.ACTION_REDEEM_CODE, user=user,
+                         detail={'code': code, 'plan_type': redeem.plan_type, 'plan_name': plan_name, 
+                                'duration_days': redeem.duration_days, 'code_type': redeem.code_type})
+        
+        # 检查用户是否有 Emby 账号
+        has_emby_account = bool(user.embyid)
+        
+        return jsonify({
+            'success': True,
+            'message': f'🎉 兑换成功！已获得 {plan_name} {redeem.duration_days} 天',
+            'plan_type': redeem.plan_type,
+            'plan_name': plan_name,
+            'duration_days': redeem.duration_days,
+            'code_type': redeem.code_type,
+            'has_emby_account': has_emby_account
+        }), 200
+        
+    except Exception as e:
+        app.logger.error(f'使用兑换码失败: {e}')
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== 支付 API ====================
+
+def epay_sign(params, key):
+    """易支付签名生成"""
+    # 1. 过滤空值和sign、sign_type参数
+    filtered = {k: v for k, v in params.items() if v and k not in ['sign', 'sign_type']}
+    # 2. 按参数名ASCII码排序
+    sorted_params = sorted(filtered.items(), key=lambda x: x[0])
+    # 3. 拼接为 key=value& 格式
+    sign_str = '&'.join([f'{k}={v}' for k, v in sorted_params])
+    # 4. 拼接商户密钥
+    sign_str += key
+    # 5. MD5加密
+    return hashlib.md5(sign_str.encode('utf-8')).hexdigest()
+
+
+def epay_verify_sign(params, key):
+    """易支付签名验证"""
+    sign = params.get('sign', '')
+    if not sign:
+        return False
+    return epay_sign(params, key) == sign
+
+
+@app.route('/api/payment/create', methods=['POST'])
+@login_required
+def create_payment():
+    """创建支付（对接易支付）"""
+    try:
+        data = request.json
+        order_no = data.get('order_no')
+        payment_method = data.get('payment_method', 'alipay')
+        
+        order = Order.query.filter_by(order_no=order_no).first()
+        if not order:
+            return jsonify({'error': '订单不存在'}), 404
+        
+        if order.payment_status == 'paid':
+            return jsonify({'error': '订单已支付'}), 400
+        
+        # 动态获取易支付配置
+        epay_config = get_epay_config()
+        epay_url = epay_config['epay_url'].rstrip('/') if epay_config['epay_url'] else ''
+        epay_pid = epay_config['epay_pid']
+        epay_key = epay_config['epay_key']
+        epay_notify = epay_config['epay_notify_url']
+        epay_return = epay_config['epay_return_url']
+        
+        # 检查易支付配置
+        if not epay_url or not epay_pid or not epay_key:
+            # 如果未配置易支付，返回测试模式提示
+            return jsonify({
+                'success': False,
+                'error': '支付功能未配置，请联系管理员在系统设置中配置易支付参数',
+                'test_mode': True
+            }), 400
+        
+        # 构建易支付请求参数
+        # 获取当前站点地址
+        site_url = request.host_url.rstrip('/')
+        notify_url = epay_notify or f'{site_url}/api/payment/notify'
+        return_url = epay_return or f'{site_url}/dashboard#purchase'
+        
+        # 支付类型映射
+        pay_type_map = {
+            'alipay': 'alipay',
+            'wxpay': 'wxpay', 
+            'qqpay': 'qqpay'
+        }
+        pay_type = pay_type_map.get(payment_method, 'alipay')
+        
+        params = {
+            'pid': epay_pid,
+            'type': pay_type,
+            'out_trade_no': order_no,
+            'notify_url': notify_url,
+            'return_url': return_url,
+            'name': order.plan_name or f'{order.plan_type}套餐',
+            'money': str(order.final_price),
+            'sitename': 'Emby媒体库'
+        }
+        
+        # 生成签名
+        params['sign'] = epay_sign(params, epay_key)
+        params['sign_type'] = 'MD5'
+        
+        # 构建支付URL（提交到易支付网关）
+        payment_url = f'{epay_url}/submit.php'
+        
+        # 使用 GET 方式跳转
+        query_string = '&'.join([f'{k}={requests.utils.quote(str(v))}' for k, v in params.items()])
+        redirect_url = f'{epay_url}/submit.php?{query_string}'
+        
+        app.logger.info(f'创建易支付订单: 订单={order_no}, 金额={order.final_price}, 方式={payment_method}')
+        
+        return jsonify({
+            'success': True,
+            'payment_url': redirect_url,
+            'params': params,  # 也返回参数供前端表单提交
+            'submit_url': payment_url
+        }), 200
+        
+    except Exception as e:
+        app.logger.error(f'创建支付失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/payment/notify', methods=['POST', 'GET'])
+def payment_notify():
+    """易支付异步通知回调"""
+    try:
+        # 易支付会同时发送 GET 和 POST 请求
+        if request.method == 'GET':
+            params = request.args.to_dict()
+        else:
+            params = request.form.to_dict() if request.form else request.json or {}
+        
+        app.logger.info(f'收到易支付通知: {params}')
+        
+        # 动态获取配置验证签名
+        epay_config = get_epay_config()
+        epay_key = epay_config['epay_key']
+        
+        # 验证签名
+        if epay_key and not epay_verify_sign(params, epay_key):
+            app.logger.warning(f'易支付签名验证失败: {params}')
+            return 'sign error', 400
+        
+        # 获取参数
+        trade_status = params.get('trade_status', '')
+        out_trade_no = params.get('out_trade_no', '')  # 商户订单号
+        trade_no = params.get('trade_no', '')  # 易支付订单号
+        money = params.get('money', '')
+        
+        # 只处理支付成功的通知
+        if trade_status != 'TRADE_SUCCESS':
+            app.logger.info(f'订单状态非成功: {trade_status}')
+            return 'success'  # 返回success避免重复通知
+        
+        # 查找订单
+        order = Order.query.filter_by(order_no=out_trade_no).first()
+        if not order:
+            app.logger.error(f'订单不存在: {out_trade_no}')
+            return 'order not found', 404
+        
+        # 检查是否已处理
+        if order.payment_status == 'paid':
+            app.logger.info(f'订单已处理: {out_trade_no}')
+            return 'success'
+        
+        # 验证金额（可选，但推荐）
+        if money and float(money) != float(order.final_price):
+            app.logger.warning(f'金额不匹配: 订单金额={order.final_price}, 实付={money}')
+        
+        # 更新订单状态
+        order.payment_status = 'paid'
+        order.payment_time = datetime.now()
+        order.trade_no = trade_no
+        
+        # 创建订阅记录
+        user = db.session.get(User, order.user_tg)
+        if user:
+            # 计算订阅开始和结束时间 - 在现有订阅基础上叠加
+            now = datetime.now()
+            start_date = now
+            purchased_days = order.duration_months * 30
+            
+            # 如果用户已有未过期的订阅，在此基础上叠加
+            if user.ex and user.ex > now:
+                end_date = user.ex + timedelta(days=purchased_days)
+            else:
+                end_date = now + timedelta(days=purchased_days)
+            
+            subscription = Subscription(
+                user_tg=user.tg,
+                plan_type=order.plan_type,
+                plan_name=order.plan_name,
+                duration_months=order.duration_months,
+                price=order.final_price,
+                start_date=start_date,
+                end_date=end_date,
+                status='active',
+                source='purchase'
+            )
+            
+            db.session.add(subscription)
+            
+            # 更新用户信息
+            user.ex = end_date
+            if user.lv == 'a':  # 只有访客才升级
+                user.lv = 'b'  # 升级为注册用户
+            
+            # 恢复Emby账号（如果之前因过期被禁用）
+            if user.embyid and emby_client.is_enabled():
+                if emby_client.enable_user(user.embyid):
+                    app.logger.info(f'用户 {user.name} 续费成功，已恢复Emby账号')
+            
+            # 邀请返利：检查是否有邀请人，给邀请人返利购买金额10%的天数
+            invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first()
+            if invite_record:
+                inviter = db.session.get(User, invite_record.inviter_tg)
+                if inviter:
+                    # 计算返利天数：购买天数的10%
+                    purchased_days = order.duration_months * 30
+                    reward_days = max(1, int(purchased_days * 0.1))  # 至少1天
+                    
+                    # 给邀请人增加天数
+                    if inviter.ex and inviter.ex > datetime.now():
+                        inviter.ex = inviter.ex + timedelta(days=reward_days)
+                    else:
+                        inviter.ex = datetime.now() + timedelta(days=reward_days)
+                    
+                    # 更新邀请记录
+                    invite_record.reward_type = 'days'
+                    invite_record.reward_value = (invite_record.reward_value or 0) + reward_days
+                    invite_record.reward_claimed = True
+                    
+                    app.logger.info(f'邀请返利: 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}')
+        
+        db.session.commit()
+        app.logger.info(f'易支付成功: 订单={out_trade_no}, 交易号={trade_no}')
+        
+        # 记录支付成功日志
+        if user:
+            log_user_activity(UserActivityLog.ACTION_PAYMENT_SUCCESS, user=user,
+                             detail={'order_no': out_trade_no, 'trade_no': trade_no, 'amount': money,
+                                    'plan_name': order.plan_name, 'duration_months': order.duration_months})
+        
+        # 返回success告知易支付不再重复通知
+        return 'success'
+        
+    except Exception as e:
+        app.logger.error(f'易支付通知处理失败: {e}')
+        db.session.rollback()
+        return 'error', 500
+
+
+@app.route('/api/payment/callback', methods=['POST'])
+def payment_callback():
+    """支付回调（兼容旧接口）"""
+    try:
+        # 这里应该验证支付回调的签名
+        data = request.json or request.form.to_dict()
+        
+        order_no = data.get('order_no')
+        trade_no = data.get('trade_no')
+        status = data.get('status')
+        
+        order = Order.query.filter_by(order_no=order_no).first()
+        if not order:
+            return jsonify({'error': '订单不存在'}), 404
+        
+        if status == 'success':
+            order.payment_status = 'paid'
+            order.payment_time = datetime.now()
+            order.trade_no = trade_no
+            
+            # 创建订阅记录
+            user = db.session.get(User, order.user_tg)
+            if user:
+                # 计算订阅开始和结束时间
+                start_date = datetime.now()
+                end_date = start_date + timedelta(days=order.duration_months * 30)
+                
+                subscription = Subscription(
+                    user_tg=user.tg,
+                    plan_type=order.plan_type,
+                    plan_name=order.plan_name,
+                    duration_months=order.duration_months,
+                    price=order.final_price,
+                    start_date=start_date,
+                    end_date=end_date,
+                    status='active',
+                    source='purchase'
+                )
+                
+                db.session.add(subscription)
+                
+                # 更新用户信息
+                user.ex = end_date
+                user.lv = 'b'  # 升级为注册用户
+                
+                # 邀请返利：检查是否有邀请人，给邀请人返利购买金额10%的天数
+                invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first()
+                if invite_record:
+                    inviter = db.session.get(User, invite_record.inviter_tg)
+                    if inviter:
+                        # 计算返利天数：购买天数的10%
+                        purchased_days = order.duration_months * 30
+                        reward_days = max(1, int(purchased_days * 0.1))  # 至少1天
+                        
+                        # 给邀请人增加天数
+                        if inviter.ex and inviter.ex > datetime.now():
+                            inviter.ex = inviter.ex + timedelta(days=reward_days)
+                        else:
+                            inviter.ex = datetime.now() + timedelta(days=reward_days)
+                        
+                        # 更新邀请记录
+                        invite_record.reward_type = 'days'
+                        invite_record.reward_value = (invite_record.reward_value or 0) + reward_days
+                        invite_record.reward_claimed = True
+                        
+                        app.logger.info(f'邀请返利: 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}')
+            
+            db.session.commit()
+            app.logger.info(f'支付成功: 订单={order_no}, 交易号={trade_no}')
+            
+        return jsonify({'success': True}), 200
+        
+    except Exception as e:
+        app.logger.error(f'支付回调处理失败: {e}')
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/payment/query', methods=['GET'])
+@login_required
+def query_payment():
+    """查询订单支付状态"""
+    try:
+        order_no = request.args.get('order_no')
+        if not order_no:
+            return jsonify({'error': '缺少订单号'}), 400
+        
+        order = Order.query.filter_by(order_no=order_no).first()
+        if not order:
+            return jsonify({'error': '订单不存在'}), 404
+        
+        # 如果本地状态是已支付，直接返回
+        if order.payment_status == 'paid':
+            # 获取用户信息，判断是否有 Emby 账号
+            user = db.session.get(User, order.user_tg)
+            has_emby_account = bool(user and user.embyid) if user else False
+            return jsonify({
+                'success': True,
+                'paid': True,
+                'order_no': order_no,
+                'trade_no': order.trade_no,
+                'has_emby_account': has_emby_account
+            }), 200
+        
+        # 动态获取易支付配置
+        epay_config = get_epay_config()
+        epay_url = epay_config['epay_url'].rstrip('/') if epay_config['epay_url'] else ''
+        epay_pid = epay_config['epay_pid']
+        epay_key = epay_config['epay_key']
+        
+        # 如果配置了易支付，可以主动查询易支付订单状态
+        if epay_url and epay_pid and epay_key:
+            try:
+                params = {
+                    'act': 'order',
+                    'pid': epay_pid,
+                    'out_trade_no': order_no
+                }
+                params['sign'] = epay_sign(params, epay_key)
+                params['sign_type'] = 'MD5'
+                
+                response = requests.get(f'{epay_url}/api.php', params=params, timeout=10)
+                result = response.json()
+                
+                if result.get('code') == 1 and result.get('status') == 1:
+                    # 易支付显示已支付，更新本地状态
+                    order.payment_status = 'paid'
+                    order.payment_time = datetime.now()
+                    order.trade_no = result.get('trade_no', '')
+                    
+                    # 创建订阅（与notify相同逻辑）
+                    user = db.session.get(User, order.user_tg)
+                    if user:
+                        start_date = datetime.now()
+                        end_date = start_date + timedelta(days=order.duration_months * 30)
+                        
+                        subscription = Subscription(
+                            user_tg=user.tg,
+                            plan_type=order.plan_type,
+                            plan_name=order.plan_name,
+                            duration_months=order.duration_months,
+                            price=order.final_price,
+                            start_date=start_date,
+                            end_date=end_date,
+                            status='active',
+                            source='purchase'
+                        )
+                        db.session.add(subscription)
+                        user.ex = end_date
+                        if user.lv == 'a':
+                            user.lv = 'b'
+                    
+                    db.session.commit()
+                    
+                    # 判断用户是否有 Emby 账号
+                    has_emby_account = bool(user and user.embyid) if user else False
+                    return jsonify({
+                        'success': True,
+                        'paid': True,
+                        'order_no': order_no,
+                        'trade_no': order.trade_no,
+                        'has_emby_account': has_emby_account
+                    }), 200
+                    
+            except Exception as e:
+                app.logger.warning(f'查询易支付状态失败: {e}')
+        
+        return jsonify({
+            'success': True,
+            'paid': False,
+            'order_no': order_no,
+            'status': order.payment_status
+        }), 200
+        
+    except Exception as e:
+        app.logger.error(f'查询支付状态失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/payment-config', methods=['GET'])
+@admin_required
+def get_payment_config():
+    """获取支付配置（管理员）"""
+    config = get_epay_config()
+    return jsonify({
+        'success': True,
+        'config': {
+            'epay_url': config['epay_url'],
+            'epay_pid': config['epay_pid'],
+            'epay_key': config['epay_key'],  # 返回密钥供编辑
+            'epay_notify_url': config['epay_notify_url'],
+            'epay_return_url': config['epay_return_url'],
+            'configured': bool(config['epay_url'] and config['epay_pid'] and config['epay_key'])
+        }
+    }), 200
+
+
+@app.route('/api/admin/payment-config', methods=['POST'])
+@admin_required
+def save_payment_config_api():
+    """保存支付配置（管理员）"""
+    global EPAY_URL, EPAY_PID, EPAY_KEY, EPAY_NOTIFY_URL, EPAY_RETURN_URL
+    
+    try:
+        data = request.json
+        
+        config = {
+            'epay_url': data.get('epay_url', '').strip().rstrip('/'),
+            'epay_pid': data.get('epay_pid', '').strip(),
+            'epay_key': data.get('epay_key', '').strip(),
+            'epay_notify_url': data.get('epay_notify_url', '').strip(),
+            'epay_return_url': data.get('epay_return_url', '').strip()
+        }
+        
+        # 保存到文件
+        if save_epay_config(config):
+            # 更新全局变量
+            EPAY_URL = config['epay_url']
+            EPAY_PID = config['epay_pid']
+            EPAY_KEY = config['epay_key']
+            EPAY_NOTIFY_URL = config['epay_notify_url']
+            EPAY_RETURN_URL = config['epay_return_url']
+            
+            app.logger.info(f'易支付配置已更新: URL={EPAY_URL}, PID={EPAY_PID}')
+            
+            return jsonify({
+                'success': True,
+                'message': '配置保存成功'
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': '保存配置文件失败'
+            }), 500
+            
+    except Exception as e:
+        app.logger.error(f'保存支付配置失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== 前端配置 API ====================
+@app.route('/api/admin/site-config', methods=['GET'])
+@admin_required
+def get_site_config_api():
+    """获取前端配置（管理员）"""
+    config = get_site_config()
+    return jsonify({
+        'success': True,
+        'config': config
+    }), 200
+
+
+@app.route('/api/admin/site-config', methods=['POST'])
+@admin_required
+def save_site_config_api():
+    """保存前端配置（管理员）"""
+    try:
+        data = request.json
+        
+        # 获取当前配置作为基础
+        current_config = get_site_config()
+        
+        # 更新允许的字段
+        allowed_fields = [
+            'site_name', 'site_subtitle', 'site_title', 'site_logo', 'shop_url',
+            'panel_url', 'telegram_group', 'support_email', 'register_mode',
+            'footer_text', 'welcome_message', 'docs_intro',
+            'custom_css', 'custom_js'
+        ]
+        
+        for field in allowed_fields:
+            if field in data:
+                current_config[field] = str(data[field]).strip() if data[field] else ''
+        
+        # 单独处理 custom_links（列表类型）
+        if 'custom_links' in data:
+            current_config['custom_links'] = data['custom_links']
+        
+        # 保存到文件
+        if save_site_config(current_config):
+            app.logger.info(f'前端配置已更新: site_name={current_config.get("site_name")}')
+            
+            return jsonify({
+                'success': True,
+                'message': '配置保存成功，刷新页面后生效'
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': '保存配置文件失败'
+            }), 500
+            
+    except Exception as e:
+        app.logger.error(f'保存前端配置失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== 下载配置 API (MoviePilot & qBittorrent) ====================
+@app.route('/api/admin/download-config', methods=['GET'])
+@admin_required
+def get_download_config_api():
+    """获取下载工具配置（管理员）"""
+    config = get_download_config()
+    return jsonify({
+        'success': True,
+        'config': {
+            'moviepilot': {
+                'url': config['moviepilot']['url'],
+                'username': config['moviepilot']['username'],
+                'password': config['moviepilot']['password'],
+                'token': config['moviepilot']['token'],
+                'enabled': config['moviepilot']['enabled']
+            },
+            'qbittorrent': {
+                'url': config['qbittorrent']['url'],
+                'username': config['qbittorrent']['username'],
+                'password': config['qbittorrent']['password'],
+                'category': config['qbittorrent']['category'],
+                'save_path': config['qbittorrent']['save_path'],
+                'enabled': config['qbittorrent']['enabled']
+            }
+        }
+    }), 200
+
+
+@app.route('/api/admin/download-config', methods=['POST'])
+@admin_required
+def save_download_config_api():
+    """保存下载工具配置（管理员）"""
+    try:
+        data = request.json
+        
+        # 获取当前配置
+        current_config = load_download_config()
+        
+        # 更新 MoviePilot 配置
+        if 'moviepilot' in data:
+            mp = data['moviepilot']
+            current_config['moviepilot']['url'] = mp.get('url', '').strip().rstrip('/')
+            current_config['moviepilot']['username'] = mp.get('username', '').strip()
+            current_config['moviepilot']['password'] = mp.get('password', '').strip()
+            current_config['moviepilot']['token'] = mp.get('token', '').strip()
+        
+        # 更新 qBittorrent 配置
+        if 'qbittorrent' in data:
+            qb = data['qbittorrent']
+            current_config['qbittorrent']['url'] = qb.get('url', '').strip().rstrip('/')
+            current_config['qbittorrent']['username'] = qb.get('username', '').strip()
+            current_config['qbittorrent']['password'] = qb.get('password', '').strip()
+            current_config['qbittorrent']['category'] = qb.get('category', 'emby-request').strip()
+            current_config['qbittorrent']['save_path'] = qb.get('save_path', '').strip()
+        
+        # 移除 enabled 字段（这是计算出来的，不需要保存）
+        save_config = {
+            'moviepilot': {k: v for k, v in current_config['moviepilot'].items() if k != 'enabled'},
+            'qbittorrent': {k: v for k, v in current_config['qbittorrent'].items() if k != 'enabled'}
+        }
+        
+        # 保存到文件
+        if save_download_config(save_config):
+            # 更新全局变量
+            update_global_download_config()
+            
+            app.logger.info(f'下载配置已更新: MP={current_config["moviepilot"]["url"]}, QB={current_config["qbittorrent"]["url"]}')
+            
+            return jsonify({
+                'success': True,
+                'message': '下载配置保存成功'
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': '保存配置文件失败'
+            }), 500
+            
+    except Exception as e:
+        app.logger.error(f'保存下载配置失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/test-moviepilot', methods=['POST'])
+@admin_required
+def test_moviepilot_connection():
+    """测试 MoviePilot 连接"""
+    try:
+        data = request.json
+        url = data.get('url', '').strip().rstrip('/')
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        token = data.get('token', '').strip()
+        
+        if not url:
+            return jsonify({'success': False, 'error': 'MoviePilot URL 不能为空'}), 400
+        
+        if not token and (not username or not password):
+            return jsonify({'success': False, 'error': '请提供用户名密码或 Token'}), 400
+        
+        session = requests.Session()
+        session.headers.update({'User-Agent': 'EmbyRequest/1.0'})
+        
+        # 如果提供了 token，直接测试
+        if token:
+            session.headers.update({'Authorization': f'Bearer {token}'})
+            test_url = f"{url}/api/v1/user/current"
+            resp = session.get(test_url, timeout=10)
+            if resp.status_code == 200:
+                user_data = resp.json()
+                return jsonify({
+                    'success': True,
+                    'message': f'连接成功！当前用户: {user_data.get("name", "未知")}'
+                }), 200
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'Token 无效或已过期 (状态码: {resp.status_code})'
+                }), 400
+        
+        # 使用用户名密码登录
+        login_url = f"{url}/api/v1/login/access-token"
+        login_data = {'username': username, 'password': password}
+        resp = session.post(login_url, data=login_data, timeout=10)
+        
+        if resp.status_code == 200:
+            result = resp.json()
+            access_token = result.get('access_token')
+            if access_token:
+                return jsonify({
+                    'success': True,
+                    'message': f'登录成功！Token 有效期内可正常使用'
+                }), 200
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': '登录成功但未获取到 Token'
+                }), 400
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'登录失败 (状态码: {resp.status_code})'
+            }), 400
+            
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': '连接超时，请检查地址'}), 400
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': '无法连接到服务器，请检查地址和网络'}), 400
+    except Exception as e:
+        app.logger.error(f'测试 MoviePilot 连接失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/test-qbittorrent', methods=['POST'])
+@admin_required
+def test_qbittorrent_connection():
+    """测试 qBittorrent 连接"""
+    try:
+        data = request.json
+        url = data.get('url', '').strip().rstrip('/')
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        
+        if not url:
+            return jsonify({'success': False, 'error': 'qBittorrent URL 不能为空'}), 400
+        
+        if not username or not password:
+            return jsonify({'success': False, 'error': '请提供用户名和密码'}), 400
+        
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'EmbyRequest/1.0',
+            'Referer': url
+        })
+        
+        # 尝试登录
+        login_url = f"{url}/api/v2/auth/login"
+        login_data = {'username': username, 'password': password}
+        resp = session.post(login_url, data=login_data, timeout=10)
+        
+        if resp.status_code == 200:
+            if resp.text == 'Ok.' or 'ok' in resp.text.lower():
+                # 登录成功，获取版本信息
+                try:
+                    version_resp = session.get(f"{url}/api/v2/app/version", timeout=5)
+                    version = version_resp.text if version_resp.status_code == 200 else '未知'
+                except:
+                    version = '未知'
+                
+                return jsonify({
+                    'success': True,
+                    'message': f'连接成功！qBittorrent 版本: {version}'
+                }), 200
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': '登录失败，请检查用户名和密码'
+                }), 400
+        elif resp.status_code == 403:
+            return jsonify({
+                'success': False,
+                'error': '登录被拒绝，可能 IP 被暂时封禁或用户名密码错误'
+            }), 400
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'登录失败 (状态码: {resp.status_code})'
+            }), 400
+            
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': '连接超时，请检查地址'}), 400
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': '无法连接到服务器，请检查地址和网络'}), 400
+    except Exception as e:
+        app.logger.error(f'测试 qBittorrent 连接失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== 数据库配置管理 API ====================
+@app.route('/api/admin/db-config', methods=['GET'])
+@admin_required
+def get_db_config_status():
+    """获取数据库配置存储状态"""
+    try:
+        # 检查数据库中的所有配置
+        all_configs = get_all_db_configs()
+        
+        config_status = {
+            'admin': {
+                'in_db': CONFIG_KEY_ADMIN in all_configs,
+                'has_data': bool(all_configs.get(CONFIG_KEY_ADMIN))
+            },
+            'emby': {
+                'in_db': CONFIG_KEY_EMBY in all_configs,
+                'has_data': bool(all_configs.get(CONFIG_KEY_EMBY))
+            },
+            'telegram': {
+                'in_db': CONFIG_KEY_TELEGRAM in all_configs,
+                'has_data': bool(all_configs.get(CONFIG_KEY_TELEGRAM))
+            },
+            'tmdb': {
+                'in_db': CONFIG_KEY_TMDB in all_configs,
+                'has_data': bool(all_configs.get(CONFIG_KEY_TMDB))
+            },
+            'moviepilot': {
+                'in_db': CONFIG_KEY_MOVIEPILOT in all_configs,
+                'has_data': bool(all_configs.get(CONFIG_KEY_MOVIEPILOT))
+            },
+            'qbittorrent': {
+                'in_db': CONFIG_KEY_QBITTORRENT in all_configs,
+                'has_data': bool(all_configs.get(CONFIG_KEY_QBITTORRENT))
+            },
+            'epay': {
+                'in_db': CONFIG_KEY_EPAY in all_configs,
+                'has_data': bool(all_configs.get(CONFIG_KEY_EPAY))
+            },
+            'site': {
+                'in_db': CONFIG_KEY_SITE in all_configs,
+                'has_data': bool(all_configs.get(CONFIG_KEY_SITE))
+            },
+            'plans': {
+                'in_db': CONFIG_KEY_PLANS in all_configs,
+                'has_data': bool(all_configs.get(CONFIG_KEY_PLANS))
+            },
+            'search': {
+                'in_db': CONFIG_KEY_SEARCH in all_configs,
+                'has_data': bool(all_configs.get(CONFIG_KEY_SEARCH))
+            },
+            'request_limit': {
+                'in_db': CONFIG_KEY_REQUEST_LIMIT in all_configs,
+                'has_data': bool(all_configs.get(CONFIG_KEY_REQUEST_LIMIT))
+            },
+            'category': {
+                'in_db': CONFIG_KEY_CATEGORY in all_configs,
+                'has_data': bool(all_configs.get(CONFIG_KEY_CATEGORY))
+            }
+        }
+        
+        # 统计
+        total = len(config_status)
+        in_db_count = sum(1 for v in config_status.values() if v['in_db'])
+        
+        return jsonify({
+            'success': True,
+            'status': config_status,
+            'summary': {
+                'total': total,
+                'in_database': in_db_count,
+                'pending_migration': total - in_db_count
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取数据库配置状态失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/db-config/migrate', methods=['POST'])
+@admin_required
+def migrate_config_to_db():
+    """将文件配置迁移到数据库"""
+    try:
+        migrated = []
+        errors = []
+        
+        # 1. 迁移系统配置（admin, emby, telegram, search, tmdb, request_limit, category）
+        try:
+            file_config = load_system_config_from_file()
+            if file_config.get('admin'):
+                set_db_config(CONFIG_KEY_ADMIN, file_config['admin'], '管理员配置')
+                migrated.append('admin')
+            if file_config.get('emby'):
+                set_db_config(CONFIG_KEY_EMBY, file_config['emby'], 'Emby 服务器配置')
+                migrated.append('emby')
+            if file_config.get('telegram'):
+                set_db_config(CONFIG_KEY_TELEGRAM, file_config['telegram'], 'Telegram BOT配置')
+                migrated.append('telegram')
+            if file_config.get('search'):
+                set_db_config(CONFIG_KEY_SEARCH, file_config['search'], '搜索策略配置')
+                migrated.append('search')
+            if file_config.get('tmdb'):
+                set_db_config(CONFIG_KEY_TMDB, file_config['tmdb'], 'TMDB API 配置')
+                migrated.append('tmdb')
+            if file_config.get('request_limit'):
+                set_db_config(CONFIG_KEY_REQUEST_LIMIT, file_config['request_limit'], '求片限制配置')
+                migrated.append('request_limit')
+            if file_config.get('category'):
+                set_db_config(CONFIG_KEY_CATEGORY, file_config['category'], '二级分类策略')
+                migrated.append('category')
+        except Exception as e:
+            errors.append(f'系统配置迁移失败: {e}')
+        
+        # 2. 迁移下载配置（moviepilot, qbittorrent）
+        try:
+            if os.path.exists(DOWNLOAD_CONFIG_FILE):
+                with open(DOWNLOAD_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    dl_config = json.load(f)
+                    if dl_config.get('moviepilot'):
+                        set_db_config(CONFIG_KEY_MOVIEPILOT, dl_config['moviepilot'], 'MoviePilot 配置')
+                        migrated.append('moviepilot')
+                    if dl_config.get('qbittorrent'):
+                        set_db_config(CONFIG_KEY_QBITTORRENT, dl_config['qbittorrent'], 'qBittorrent 配置')
+                        migrated.append('qbittorrent')
+        except Exception as e:
+            errors.append(f'下载配置迁移失败: {e}')
+        
+        # 3. 迁移易支付配置
+        try:
+            if os.path.exists(EPAY_CONFIG_FILE):
+                with open(EPAY_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    epay_config = json.load(f)
+                    if epay_config:
+                        set_db_config(CONFIG_KEY_EPAY, epay_config, '易支付配置')
+                        migrated.append('epay')
+        except Exception as e:
+            errors.append(f'易支付配置迁移失败: {e}')
+        
+        # 4. 迁移前端配置
+        try:
+            if os.path.exists(SITE_CONFIG_FILE):
+                with open(SITE_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    site_config = json.load(f)
+                    if site_config:
+                        set_db_config(CONFIG_KEY_SITE, site_config, '前端站点配置')
+                        migrated.append('site')
+        except Exception as e:
+            errors.append(f'前端配置迁移失败: {e}')
+        
+        # 5. 迁移套餐配置
+        try:
+            if os.path.exists(PLANS_CONFIG_FILE):
+                with open(PLANS_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    plans_config = json.load(f)
+                    if plans_config:
+                        set_db_config(CONFIG_KEY_PLANS, plans_config, '套餐配置')
+                        migrated.append('plans')
+        except Exception as e:
+            errors.append(f'套餐配置迁移失败: {e}')
+        
+        # 清除配置缓存
+        clear_db_config_cache()
+        
+        return jsonify({
+            'success': True,
+            'message': f'配置迁移完成，成功迁移 {len(migrated)} 项',
+            'migrated': migrated,
+            'errors': errors
+        }), 200
+    except Exception as e:
+        app.logger.error(f'配置迁移失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/db-config/<config_key>', methods=['GET'])
+@admin_required
+def get_single_db_config(config_key):
+    """获取单个配置项详情"""
+    try:
+        config = get_db_config(config_key, use_cache=False)
+        if config is None:
+            return jsonify({'success': False, 'error': '配置不存在'}), 404
+        
+        # 敏感信息脱敏
+        if config_key in ['admin', 'epay', 'moviepilot', 'qbittorrent']:
+            if isinstance(config, dict):
+                config = config.copy()
+                for key in ['password', 'api_key', 'key', 'epay_key', 'token', 'secret']:
+                    if key in config and config[key]:
+                        config[key] = '******'
+        
+        return jsonify({
+            'success': True,
+            'key': config_key,
+            'config': config
+        }), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/db-config/<config_key>', methods=['DELETE'])
+@admin_required
+def delete_single_db_config(config_key):
+    """删除单个配置项（从数据库）"""
+    try:
+        if config_key == 'admin':
+            return jsonify({'success': False, 'error': '不能删除管理员配置'}), 400
+        
+        result = delete_db_config(config_key)
+        
+        return jsonify({
+            'success': result,
+            'message': f'配置 {config_key} 已从数据库删除' if result else '删除失败'
+        }), 200 if result else 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/db-config/clear-cache', methods=['POST'])
+@admin_required
+def clear_config_cache():
+    """清除配置缓存"""
+    try:
+        clear_db_config_cache()
+        return jsonify({
+            'success': True,
+            'message': '配置缓存已清除'
+        }), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== 系统配置 API (Emby、Telegram等) ====================
+@app.route('/api/admin/system-config', methods=['GET'])
+@admin_required
+def get_system_config_api():
+    """获取系统配置（管理员）"""
+    config = get_system_config()
+    templates = config['telegram'].get('templates', {'request': '', 'completion': ''})
+    return jsonify({
+        'success': True,
+        'config': {
+            'emby': {
+                'url': config['emby']['url'],
+                'api_key': config['emby']['api_key'],
+                'webhook_secret': config['emby']['webhook_secret'],
+                'configured': bool(config['emby']['url'] and config['emby']['api_key'])
+            },
+            'telegram': {
+                'bot_token': config['telegram']['bot_token'],
+                'chat_id': config['telegram']['chat_id'],
+                'group_id': config['telegram']['group_id'],
+                'gift_days': config['telegram'].get('gift_days', 30),
+                'bot_admins': config['telegram'].get('bot_admins', ''),
+                'bot_photo': config['telegram'].get('bot_photo', ''),
+                'templates': templates,
+                'request_notification': config['telegram'].get('request_notification', {
+                    'enabled': True,
+                    'send_to': 'group',
+                    'mention_admin': True,
+                    'show_overview': True,
+                    'show_poster': True,
+                    'custom_message': ''
+                }),
+                'library_notification': config['telegram'].get('library_notification', {
+                    'enabled': False,
+                    'chat_id': '',
+                    'show_poster': True,
+                    'template': {
+                        'title': '📜 {title_year}{% if season_episode %}之{season_episode}{% endif %}已入翰林珍藏阁！',
+                        'text': ''
+                    }
+                }),
+                'configured': bool(config['telegram']['bot_token'] and config['telegram']['chat_id'])
+            },
+            'search': {
+                'strategy': config['search']['strategy'],
+                'poll_interval': config['search']['poll_interval']
+            },
+            'tmdb': {
+                'api_key': config['tmdb']['api_key'],
+                'configured': bool(config['tmdb']['api_key'])
+            },
+            'request_limit': {
+                'max_daily': config['request_limit']['max_daily'],
+                'level_a': config['request_limit'].get('level_a', 3),
+                'level_b': config['request_limit'].get('level_b', 1),
+                'level_c': config['request_limit'].get('level_c', 0),
+                'level_d': config['request_limit'].get('level_d', 0)
+            },
+            'checkin': {
+                'enabled': config.get('checkin', {}).get('enabled', False),
+                'bot_enabled': config.get('checkin', {}).get('bot_enabled', False),
+                'coin_name': config.get('checkin', {}).get('coin_name', '积分'),
+                'coin_min': config.get('checkin', {}).get('coin_min', 1),
+                'coin_max': config.get('checkin', {}).get('coin_max', 10),
+                'exchange_plans': config.get('checkin', {}).get('exchange_plans', [])
+            },
+            'subscription_expire': {
+                'auto_disable': config.get('subscription_expire', {}).get('auto_disable', True),
+                'delete_days': config.get('subscription_expire', {}).get('delete_days', 0),
+                'delete_web_account': config.get('subscription_expire', {}).get('delete_web_account', False)
+            }
+        }
+    }), 200
+
+
+@app.route('/api/admin/system-config', methods=['POST'])
+@admin_required
+def save_system_config_api():
+    """保存系统配置（管理员）"""
+    try:
+        data = request.json
+        
+        # 获取当前配置
+        current_config = load_system_config()
+        
+        # 更新 Emby 配置
+        if 'emby' in data:
+            emby = data['emby']
+            if 'url' in emby:
+                current_config['emby']['url'] = emby['url'].strip().rstrip('/')
+            if 'api_key' in emby:
+                current_config['emby']['api_key'] = emby['api_key'].strip()
+            if 'webhook_secret' in emby:
+                current_config['emby']['webhook_secret'] = emby['webhook_secret'].strip()
+        
+        # 更新 Telegram 配置
+        if 'telegram' in data:
+            tg = data['telegram']
+            if 'bot_token' in tg:
+                current_config['telegram']['bot_token'] = tg['bot_token'].strip()
+            if 'chat_id' in tg:
+                current_config['telegram']['chat_id'] = tg['chat_id'].strip()
+            if 'group_id' in tg:
+                current_config['telegram']['group_id'] = tg['group_id'].strip()
+            if 'gift_days' in tg:
+                current_config['telegram']['gift_days'] = int(tg['gift_days'])
+            if 'bot_admins' in tg:
+                current_config['telegram']['bot_admins'] = tg['bot_admins'].strip()
+            # 更新欢迎图片 URL
+            if 'bot_photo' in tg:
+                current_config['telegram']['bot_photo'] = tg['bot_photo'].strip()
+            # 更新通知模板配置
+            if 'templates' in tg:
+                if 'templates' not in current_config['telegram']:
+                    current_config['telegram']['templates'] = {'request': '', 'completion': ''}
+                if 'request' in tg['templates']:
+                    current_config['telegram']['templates']['request'] = tg['templates']['request']
+                if 'completion' in tg['templates']:
+                    current_config['telegram']['templates']['completion'] = tg['templates']['completion']
+            # 更新求片通知配置
+            if 'request_notification' in tg:
+                if 'request_notification' not in current_config['telegram']:
+                    current_config['telegram']['request_notification'] = {}
+                current_config['telegram']['request_notification'].update(tg['request_notification'])
+            # 更新通用入库通知配置
+            if 'library_notification' in tg:
+                if 'library_notification' not in current_config['telegram']:
+                    current_config['telegram']['library_notification'] = {}
+                current_config['telegram']['library_notification'].update(tg['library_notification'])
+        
+        # 更新搜索配置
+        if 'search' in data:
+            search = data['search']
+            if 'strategy' in search:
+                current_config['search']['strategy'] = search['strategy'].strip()
+            if 'poll_interval' in search:
+                current_config['search']['poll_interval'] = int(search['poll_interval'])
+        
+        # 更新 TMDB 配置
+        if 'tmdb' in data:
+            tmdb = data['tmdb']
+            if 'api_key' in tmdb:
+                current_config['tmdb']['api_key'] = tmdb['api_key'].strip()
+        
+        # 更新求片限制配置
+        if 'request_limit' in data:
+            limit = data['request_limit']
+            if 'max_daily' in limit:
+                current_config['request_limit']['max_daily'] = int(limit['max_daily'])
+            if 'level_a' in limit:
+                current_config['request_limit']['level_a'] = int(limit['level_a'])
+            if 'level_b' in limit:
+                current_config['request_limit']['level_b'] = int(limit['level_b'])
+            if 'level_c' in limit:
+                current_config['request_limit']['level_c'] = int(limit['level_c'])
+            if 'level_d' in limit:
+                current_config['request_limit']['level_d'] = int(limit['level_d'])
+        
+        # 更新签到配置
+        if 'checkin' in data:
+            checkin = data['checkin']
+            if 'checkin' not in current_config:
+                current_config['checkin'] = {}
+            if 'enabled' in checkin:
+                current_config['checkin']['enabled'] = bool(checkin['enabled'])
+            if 'bot_enabled' in checkin:
+                current_config['checkin']['bot_enabled'] = bool(checkin['bot_enabled'])
+            if 'coin_name' in checkin:
+                current_config['checkin']['coin_name'] = checkin['coin_name'].strip()
+            if 'coin_min' in checkin:
+                current_config['checkin']['coin_min'] = int(checkin['coin_min'])
+            if 'coin_max' in checkin:
+                current_config['checkin']['coin_max'] = int(checkin['coin_max'])
+            if 'exchange_plans' in checkin:
+                current_config['checkin']['exchange_plans'] = checkin['exchange_plans']
+        
+        # 更新订阅过期配置
+        if 'subscription_expire' in data:
+            expire = data['subscription_expire']
+            if 'subscription_expire' not in current_config:
+                current_config['subscription_expire'] = {}
+            if 'auto_disable' in expire:
+                current_config['subscription_expire']['auto_disable'] = bool(expire['auto_disable'])
+            if 'delete_days' in expire:
+                current_config['subscription_expire']['delete_days'] = int(expire['delete_days'])
+            if 'delete_web_account' in expire:
+                current_config['subscription_expire']['delete_web_account'] = bool(expire['delete_web_account'])
+        
+        # 保存到文件
+        if save_system_config(current_config):
+            # 更新全局变量
+            update_global_system_config()
+            
+            # 如果更新了Telegram配置，重新注册命令
+            if 'telegram' in data and 'bot_token' in data['telegram']:
+                bot_token = current_config['telegram']['bot_token']
+                if bot_token:
+                    try:
+                        register_telegram_commands_with_token(bot_token)
+                        app.logger.info('Telegram命令已重新注册')
+                    except Exception as e:
+                        app.logger.warning(f'重新注册Telegram命令失败: {e}')
+            
+            app.logger.info(f'系统配置已更新')
+            
+            return jsonify({
+                'success': True,
+                'message': '系统配置保存成功'
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': '保存配置文件失败'
+            }), 500
+            
+    except Exception as e:
+        app.logger.error(f'保存系统配置失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== 二级分类策略配置 API ====================
+@app.route('/api/admin/category-config', methods=['GET'])
+@admin_required
+def get_category_config_api():
+    """获取二级分类策略配置"""
+    config = load_system_config()
+    category_config = config.get('category', DEFAULT_CATEGORY_CONFIG)
+    
+    # 获取genre_ids字典用于前端显示
+    genre_dict = {
+        16: '动画',
+        99: '纪录片',
+        10762: '儿童',
+        10764: '真人秀',
+        10767: '脱口秀',
+        28: '动作',
+        12: '冒险',
+        35: '喜剧',
+        80: '犯罪',
+        18: '剧情',
+        10751: '家庭',
+        14: '奇幻',
+        36: '历史',
+        27: '恐怖',
+        10402: '音乐',
+        9648: '悬疑',
+        10749: '爱情',
+        878: '科幻',
+        10770: '电视电影',
+        53: '惊悚',
+        10752: '战争',
+        37: '西部'
+    }
+    
+    # 获取国家/地区字典
+    country_dict = {
+        'CN': '中国大陆',
+        'TW': '中国台湾',
+        'HK': '中国香港',
+        'US': '美国',
+        'GB': '英国',
+        'UK': '英国',
+        'FR': '法国',
+        'DE': '德国',
+        'ES': '西班牙',
+        'IT': '意大利',
+        'NL': '荷兰',
+        'PT': '葡萄牙',
+        'RU': '俄罗斯',
+        'CA': '加拿大',
+        'AU': '澳大利亚',
+        'NZ': '新西兰',
+        'JP': '日本',
+        'KR': '韩国',
+        'KP': '朝鲜',
+        'TH': '泰国',
+        'IN': '印度',
+        'SG': '新加坡',
+        'VN': '越南',
+        'PH': '菲律宾',
+        'MY': '马来西亚'
+    }
+    
+    # 获取语言字典
+    language_dict = {
+        'zh': '中文',
+        'cn': '中文',
+        'en': '英语',
+        'ja': '日语',
+        'ko': '韩语',
+        'fr': '法语',
+        'de': '德语',
+        'es': '西班牙语',
+        'it': '意大利语',
+        'ru': '俄语',
+        'pt': '葡萄牙语',
+        'th': '泰语',
+        'vi': '越南语',
+        'bo': '藏语',
+        'za': '壮语'
+    }
+    
+    return jsonify({
+        'success': True,
+        'category': category_config,
+        'default_category': DEFAULT_CATEGORY_CONFIG,
+        'dictionaries': {
+            'genre_ids': genre_dict,
+            'country': country_dict,
+            'language': language_dict
+        }
+    }), 200
+
+
+@app.route('/api/admin/category-config', methods=['POST'])
+@admin_required
+def save_category_config_api():
+    """保存二级分类策略配置"""
+    try:
+        data = request.json
+        
+        # 获取当前配置
+        current_config = load_system_config()
+        
+        # 更新分类配置
+        if 'category' in data:
+            current_config['category'] = data['category']
+        
+        # 保存到文件
+        if save_system_config(current_config):
+            app.logger.info('二级分类策略配置已更新')
+            return jsonify({
+                'success': True,
+                'message': '分类策略保存成功'
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': '保存配置文件失败'
+            }), 500
+            
+    except Exception as e:
+        app.logger.error(f'保存分类策略失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/category-config/reset', methods=['POST'])
+@admin_required
+def reset_category_config_api():
+    """重置分类策略为默认值"""
+    try:
+        current_config = load_system_config()
+        current_config['category'] = {
+            'movie': DEFAULT_CATEGORY_CONFIG['movie'].copy(),
+            'tv': DEFAULT_CATEGORY_CONFIG['tv'].copy()
+        }
+        
+        if save_system_config(current_config):
+            app.logger.info('二级分类策略已重置为默认值')
+            return jsonify({
+                'success': True,
+                'message': '已恢复默认分类策略'
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': '保存配置文件失败'
+            }), 500
+            
+    except Exception as e:
+        app.logger.error(f'重置分类策略失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/test-emby', methods=['POST'])
+@admin_required
+def test_emby_connection():
+    """测试 Emby 连接"""
+    try:
+        data = request.json
+        url = data.get('url', '').strip().rstrip('/')
+        api_key = data.get('api_key', '').strip()
+        
+        if not url:
+            return jsonify({'success': False, 'error': 'Emby URL 不能为空'}), 400
+        
+        if not api_key:
+            return jsonify({'success': False, 'error': 'API Key 不能为空'}), 400
+        
+        # 测试连接 - 获取系统信息
+        test_url = f"{url}/System/Info?api_key={api_key}"
+        resp = requests.get(test_url, timeout=10)
+        
+        if resp.status_code == 200:
+            info = resp.json()
+            server_name = info.get('ServerName', '未知')
+            version = info.get('Version', '未知')
+            return jsonify({
+                'success': True,
+                'message': f'连接成功！服务器: {server_name}, 版本: {version}'
+            }), 200
+        elif resp.status_code == 401:
+            return jsonify({
+                'success': False,
+                'error': 'API Key 无效或权限不足'
+            }), 400
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'连接失败 (状态码: {resp.status_code})'
+            }), 400
+            
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': '连接超时，请检查地址'}), 400
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': '无法连接到服务器，请检查地址和网络'}), 400
+    except Exception as e:
+        app.logger.error(f'测试 Emby 连接失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/test-telegram', methods=['POST'])
+@admin_required
+def test_telegram_connection():
+    """测试 Telegram Bot 连接"""
+    try:
+        data = request.json
+        bot_token = data.get('bot_token', '').strip()
+        chat_id = data.get('chat_id', '').strip()
+        
+        app.logger.info(f'[测试连接] 开始测试 Telegram 连接 - chat_id={chat_id}')
+        
+        if not bot_token:
+            app.logger.warning('[测试连接] Bot Token 为空')
+            return jsonify({'success': False, 'error': 'Bot Token 不能为空'}), 400
+        
+        # 测试 Bot Token - 获取机器人信息
+        test_url = f"https://api.telegram.org/bot{bot_token}/getMe"
+        app.logger.info(f'[测试连接] 请求 getMe - URL: {test_url[:80]}..., 使用代理: {PROXY_SESSION.proxies if hasattr(PROXY_SESSION, "proxies") else "无"}')
+        
+        resp = PROXY_SESSION.get(test_url, timeout=10)
+        app.logger.info(f'[测试连接] getMe 响应 - 状态码: {resp.status_code}')
+        
+        if resp.status_code != 200:
+            app.logger.error(f'[测试连接] Bot Token 无效 - 状态码: {resp.status_code}')
+            return jsonify({
+                'success': False,
+                'error': 'Bot Token 无效'
+            }), 400
+        
+        bot_info = resp.json()
+        app.logger.info(f'[测试连接] Bot 信息: {json.dumps(bot_info, ensure_ascii=False)[:200]}')
+        
+        if not bot_info.get('ok'):
+            app.logger.error(f'[测试连接] Bot Token 验证失败: {bot_info.get("description")}')
+            return jsonify({
+                'success': False,
+                'error': bot_info.get('description', 'Bot Token 验证失败')
+            }), 400
+        
+        bot_name = bot_info.get('result', {}).get('username', '未知')
+        app.logger.info(f'[测试连接] Bot 验证成功: @{bot_name}')
+        
+        # 检查 Webhook 状态
+        webhook_url = f"https://api.telegram.org/bot{bot_token}/getWebhookInfo"
+        app.logger.info(f'[测试连接] 获取 Webhook 信息...')
+        
+        webhook_resp = PROXY_SESSION.get(webhook_url, timeout=10)
+        webhook_info = {}
+        if webhook_resp.status_code == 200:
+            webhook_data = webhook_resp.json()
+            if webhook_data.get('ok'):
+                webhook_info = webhook_data.get('result', {})
+                app.logger.info(f'[测试连接] Webhook 信息: URL={webhook_info.get("url", "未设置")}, pending_update_count={webhook_info.get("pending_update_count", 0)}, last_error={webhook_info.get("last_error_message", "无")}')
+        
+        # 如果提供了 chat_id，尝试发送测试消息
+        if chat_id:
+            send_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            app.logger.info(f'[测试连接] 发送测试消息到 chat_id={chat_id}')
+            
+            send_resp = PROXY_SESSION.post(send_url, json={
+                'chat_id': chat_id,
+                'text': '✅ 测试消息 - Emby管理系统连接成功！',
+                'parse_mode': 'HTML'
+            }, timeout=10)
+            
+            app.logger.info(f'[测试连接] 发送消息响应 - 状态码: {send_resp.status_code}')
+            
+            if send_resp.status_code == 200 and send_resp.json().get('ok'):
+                message = f'连接成功！Bot: @{bot_name}，已发送测试消息到群组'
+                
+                # 注册命令菜单
+                register_telegram_commands_with_token(bot_token)
+                
+                # 添加 Webhook 状态提示
+                if not webhook_info.get('url'):
+                    message += '\n\n⚠️ 提示：Webhook 未设置，Bot 命令功能将无法使用。请点击"设置 Webhook"按钮进行配置。'
+                    app.logger.warning('[测试连接] Webhook 未设置，Bot 命令将无法工作')
+                else:
+                    app.logger.info(f'[测试连接] Webhook 已设置: {webhook_info.get("url")}')
+                
+                app.logger.info('[测试连接] 测试完成 - 成功')
+                return jsonify({
+                    'success': True,
+                    'message': message,
+                    'webhook_info': webhook_info
+                }), 200
+            else:
+                error_desc = send_resp.json().get('description', '发送失败')
+                app.logger.error(f'[测试连接] 发送消息失败: {error_desc}')
+                return jsonify({
+                    'success': False,
+                    'error': f'Bot 有效但发送消息失败: {error_desc}'
+                }), 400
+        
+        message = f'Bot Token 有效！Bot: @{bot_name}'
+        if not webhook_info.get('url'):
+            message += '\n\n⚠️ 提示：Webhook 未设置，Bot 命令功能将无法使用'
+            app.logger.warning('[测试连接] Webhook 未设置')
+        
+        app.logger.info('[测试连接] 测试完成 - 成功（未测试消息发送）')
+        return jsonify({
+            'success': True,
+            'message': message,
+            'webhook_info': webhook_info
+        }), 200
+            
+    except requests.exceptions.Timeout:
+        app.logger.error('[测试连接] 连接超时')
+        return jsonify({'success': False, 'error': '连接超时，请检查网络和代理设置'}), 400
+    except requests.exceptions.ConnectionError as e:
+        app.logger.error(f'[测试连接] 无法连接到 Telegram 服务器: {e}')
+        return jsonify({'success': False, 'error': f'无法连接到 Telegram 服务器，请检查网络和代理设置: {str(e)}'}), 400
+    except Exception as e:
+        app.logger.error(f'[测试连接] 测试失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/register-telegram-commands', methods=['POST'])
+@admin_required
+def api_register_telegram_commands():
+    """手动注册 Telegram Bot 命令菜单"""
+    try:
+        data = request.json or {}
+        bot_token = data.get('bot_token', '').strip() or TELEGRAM_BOT_TOKEN
+        
+        if not bot_token:
+            return jsonify({
+                'success': False,
+                'error': '未配置 Telegram Bot Token'
+            }), 400
+        
+        app.logger.info('[命令注册API] 开始手动注册命令')
+        result = register_telegram_commands_with_token(bot_token)
+        
+        if result:
+            # 获取当前注册的命令列表
+            try:
+                verify_url = f"https://api.telegram.org/bot{bot_token}/getMyCommands"
+                verify_resp = PROXY_SESSION.get(verify_url, timeout=10)
+                verify_data = verify_resp.json()
+                commands = verify_data.get('result', []) if verify_data.get('ok') else []
+            except:
+                commands = []
+            
+            return jsonify({
+                'success': True,
+                'message': '命令菜单注册成功！请在 Telegram 中输入 / 查看命令列表',
+                'commands': commands
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': '命令注册失败，请查看服务器日志'
+            }), 500
+            
+    except Exception as e:
+        app.logger.error(f'[命令注册API] 失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== 套餐配置 API ====================
+@app.route('/api/admin/plans-config', methods=['GET'])
+@admin_required
+def get_plans_config():
+    """获取套餐配置（管理员）"""
+    plans = load_plans_config()
+    return jsonify({
+        'success': True,
+        'plans': plans
+    }), 200
+
+
+@app.route('/api/admin/plans-config', methods=['POST'])
+@admin_required
+def save_plans_config_api():
+    """保存套餐配置（管理员）"""
+    try:
+        data = request.json
+        plans = data.get('plans', [])
+        
+        # 验证套餐数据
+        validated_plans = []
+        for plan in plans:
+            # 确保必填字段
+            if not plan.get('id') or not plan.get('name'):
+                continue
+                
+            validated_plan = {
+                'id': str(plan.get('id', '')).strip(),
+                'type': str(plan.get('type', 'basic')).strip(),
+                'name': str(plan.get('name', '')).strip(),
+                'icon': str(plan.get('icon', '')).strip() if plan.get('icon') else None,
+                'description': str(plan.get('description', '')).strip() if plan.get('description') else None,
+                'duration': int(plan.get('duration', 1)),
+                'price': float(plan.get('price', 0)),
+                'original_price': float(plan.get('original_price')) if plan.get('original_price') else None,
+                'features': plan.get('features', []) if isinstance(plan.get('features'), list) else [],
+                'popular': bool(plan.get('popular', False)),
+                # 多周期价格
+                'price_1m': float(plan.get('price_1m', 0)) if plan.get('price_1m') else None,
+                'price_3m': float(plan.get('price_3m', 0)) if plan.get('price_3m') else None,
+                'price_6m': float(plan.get('price_6m', 0)) if plan.get('price_6m') else None,
+                'price_12m': float(plan.get('price_12m', 0)) if plan.get('price_12m') else None,
+            }
+            validated_plans.append(validated_plan)
+        
+        if not validated_plans:
+            return jsonify({
+                'success': False,
+                'error': '请至少配置一个有效套餐'
+            }), 400
+        
+        # 保存配置
+        if save_plans_config(validated_plans):
+            app.logger.info(f'套餐配置已更新，共 {len(validated_plans)} 个套餐')
+            
+            return jsonify({
+                'success': True,
+                'message': f'配置保存成功，共 {len(validated_plans)} 个套餐'
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': '保存配置文件失败'
+            }), 500
+            
+    except Exception as e:
+        app.logger.error(f'保存套餐配置失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== 系统公告 API ====================
+@app.route('/api/announcements', methods=['GET'])
+@login_required
+def get_announcements():
+    """获取当前有效的公告（用户端）"""
+    try:
+        announcements = Announcement.get_active_announcements()
+        return jsonify({
+            'success': True,
+            'announcements': [a.to_dict() for a in announcements]
+        })
+    except Exception as e:
+        app.logger.error(f'获取公告失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/announcements', methods=['GET'])
+@admin_required
+def admin_get_announcements():
+    """获取所有公告（管理端）"""
+    try:
+        announcements = Announcement.query.order_by(Announcement.is_pinned.desc(), Announcement.created_at.desc()).all()
+        return jsonify({
+            'success': True,
+            'announcements': [a.to_dict() for a in announcements]
+        })
+    except Exception as e:
+        app.logger.error(f'获取公告列表失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/announcements', methods=['POST'])
+@admin_required
+def admin_create_announcement():
+    """创建新公告"""
+    try:
+        data = request.get_json()
+        
+        title = data.get('title', '').strip()
+        content = data.get('content', '').strip()
+        
+        if not title or not content:
+            return jsonify({'success': False, 'error': '标题和内容不能为空'}), 400
+        
+        announcement = Announcement(
+            title=title,
+            content=content,
+            type=data.get('type', 'info'),
+            is_active=data.get('is_active', True),
+            is_pinned=data.get('is_pinned', False),
+            start_time=datetime.fromisoformat(data['start_time'].replace('Z', '+00:00')).replace(tzinfo=None) if data.get('start_time') else None,
+            end_time=datetime.fromisoformat(data['end_time'].replace('Z', '+00:00')).replace(tzinfo=None) if data.get('end_time') else None
+        )
+        
+        db.session.add(announcement)
+        db.session.commit()
+        
+        app.logger.info(f'创建公告成功: {title}')
+        return jsonify({
+            'success': True,
+            'message': '公告创建成功',
+            'announcement': announcement.to_dict()
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'创建公告失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/announcements/<int:id>', methods=['PUT'])
+@admin_required
+def admin_update_announcement(id):
+    """更新公告"""
+    try:
+        announcement = db.session.get(Announcement, id)
+        if not announcement:
+            return jsonify({'success': False, 'error': '公告不存在'}), 404
+        
+        data = request.get_json()
+        
+        if 'title' in data:
+            announcement.title = data['title'].strip()
+        if 'content' in data:
+            announcement.content = data['content'].strip()
+        if 'type' in data:
+            announcement.type = data['type']
+        if 'is_active' in data:
+            announcement.is_active = data['is_active']
+        if 'is_pinned' in data:
+            announcement.is_pinned = data['is_pinned']
+        if 'start_time' in data:
+            announcement.start_time = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00')).replace(tzinfo=None) if data['start_time'] else None
+        if 'end_time' in data:
+            announcement.end_time = datetime.fromisoformat(data['end_time'].replace('Z', '+00:00')).replace(tzinfo=None) if data['end_time'] else None
+        
+        db.session.commit()
+        
+        app.logger.info(f'更新公告成功: {announcement.title}')
+        return jsonify({
+            'success': True,
+            'message': '公告更新成功',
+            'announcement': announcement.to_dict()
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'更新公告失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/announcements/<int:id>', methods=['DELETE'])
+@admin_required
+def admin_delete_announcement(id):
+    """删除公告"""
+    try:
+        announcement = db.session.get(Announcement, id)
+        if not announcement:
+            return jsonify({'success': False, 'error': '公告不存在'}), 404
+        
+        title = announcement.title
+        db.session.delete(announcement)
+        db.session.commit()
+        
+        app.logger.info(f'删除公告成功: {title}')
+        return jsonify({
+            'success': True,
+            'message': '公告删除成功'
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'删除公告失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/announcements/<int:id>/toggle', methods=['POST'])
+@admin_required
+def admin_toggle_announcement(id):
+    """切换公告启用状态"""
+    try:
+        announcement = db.session.get(Announcement, id)
+        if not announcement:
+            return jsonify({'success': False, 'error': '公告不存在'}), 404
+        
+        announcement.is_active = not announcement.is_active
+        db.session.commit()
+        
+        status = '启用' if announcement.is_active else '禁用'
+        app.logger.info(f'公告状态切换: {announcement.title} -> {status}')
+        return jsonify({
+            'success': True,
+            'message': f'公告已{status}',
+            'is_active': announcement.is_active
+        })
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'切换公告状态失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== 知识库/FAQ API ====================
+@app.route('/api/admin/knowledge', methods=['GET'])
+@admin_required
+def admin_get_knowledge():
+    """获取知识库列表（管理端）"""
+    try:
+        knowledge_list = get_db_config('knowledge_base', [])
+        return jsonify({
+            'success': True,
+            'items': knowledge_list
+        })
+    except Exception as e:
+        app.logger.error(f'获取知识库失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/knowledge', methods=['POST'])
+@admin_required
+def admin_save_knowledge():
+    """保存知识库（完整替换）"""
+    try:
+        data = request.get_json()
+        items = data.get('items', [])
+        
+        # 验证数据格式
+        for item in items:
+            if not item.get('question') or not item.get('answer'):
+                return jsonify({'success': False, 'error': '问题和答案不能为空'}), 400
+            if not item.get('category'):
+                item['category'] = 'other'
+            if 'id' not in item:
+                item['id'] = int(time.time() * 1000)
+        
+        set_db_config('knowledge_base', items, '知识库/FAQ配置')
+        
+        app.logger.info(f'保存知识库成功，共 {len(items)} 条')
+        return jsonify({
+            'success': True,
+            'message': f'知识库保存成功，共 {len(items)} 条'
+        })
+    except Exception as e:
+        app.logger.error(f'保存知识库失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/knowledge/item', methods=['POST'])
+@admin_required
+def admin_add_knowledge_item():
+    """添加单条知识库条目"""
+    try:
+        data = request.get_json()
+        
+        question = data.get('question', '').strip()
+        answer = data.get('answer', '').strip()
+        category = data.get('category', 'other').strip()
+        
+        if not question or not answer:
+            return jsonify({'success': False, 'error': '问题和答案不能为空'}), 400
+        
+        knowledge_list = get_db_config('knowledge_base', [])
+        
+        new_item = {
+            'id': int(time.time() * 1000),
+            'question': question,
+            'answer': answer,
+            'category': category,
+            'order': len(knowledge_list)
+        }
+        
+        knowledge_list.append(new_item)
+        set_db_config('knowledge_base', knowledge_list, '知识库/FAQ配置')
+        
+        app.logger.info(f'添加知识库条目成功: {question}')
+        return jsonify({
+            'success': True,
+            'message': '添加成功',
+            'item': new_item
+        })
+    except Exception as e:
+        app.logger.error(f'添加知识库条目失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/knowledge/item/<int:item_id>', methods=['PUT'])
+@admin_required
+def admin_update_knowledge_item(item_id):
+    """更新单条知识库条目"""
+    try:
+        data = request.get_json()
+        knowledge_list = get_db_config('knowledge_base', [])
+        
+        # 查找条目
+        item_index = None
+        for i, item in enumerate(knowledge_list):
+            if item.get('id') == item_id:
+                item_index = i
+                break
+        
+        if item_index is None:
+            return jsonify({'success': False, 'error': '条目不存在'}), 404
+        
+        # 更新字段
+        if 'question' in data:
+            knowledge_list[item_index]['question'] = data['question'].strip()
+        if 'answer' in data:
+            knowledge_list[item_index]['answer'] = data['answer'].strip()
+        if 'category' in data:
+            knowledge_list[item_index]['category'] = data['category'].strip()
+        if 'order' in data:
+            knowledge_list[item_index]['order'] = data['order']
+        
+        set_db_config('knowledge_base', knowledge_list, '知识库/FAQ配置')
+        
+        app.logger.info(f'更新知识库条目成功: ID={item_id}')
+        return jsonify({
+            'success': True,
+            'message': '更新成功',
+            'item': knowledge_list[item_index]
+        })
+    except Exception as e:
+        app.logger.error(f'更新知识库条目失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/knowledge/item/<int:item_id>', methods=['DELETE'])
+@admin_required
+def admin_delete_knowledge_item(item_id):
+    """删除单条知识库条目"""
+    try:
+        knowledge_list = get_db_config('knowledge_base', [])
+        
+        # 查找并删除条目
+        new_list = [item for item in knowledge_list if item.get('id') != item_id]
+        
+        if len(new_list) == len(knowledge_list):
+            return jsonify({'success': False, 'error': '条目不存在'}), 404
+        
+        set_db_config('knowledge_base', new_list, '知识库/FAQ配置')
+        
+        app.logger.info(f'删除知识库条目成功: ID={item_id}')
+        return jsonify({
+            'success': True,
+            'message': '删除成功'
+        })
+    except Exception as e:
+        app.logger.error(f'删除知识库条目失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/knowledge/categories', methods=['GET'])
+@admin_required  
+def admin_get_knowledge_categories():
+    """获取知识库分类"""
+    try:
+        categories = get_db_config('knowledge_categories', [
+            {'id': 'account', 'name': '账户相关'},
+            {'id': 'request', 'name': '求片相关'},
+            {'id': 'playback', 'name': '播放问题'},
+            {'id': 'payment', 'name': '支付问题'},
+            {'id': 'other', 'name': '其他'}
+        ])
+        return jsonify({
+            'success': True,
+            'categories': categories
+        })
+    except Exception as e:
+        app.logger.error(f'获取知识库分类失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/knowledge/categories', methods=['POST'])
+@admin_required
+def admin_save_knowledge_categories():
+    """保存知识库分类"""
+    try:
+        data = request.get_json()
+        categories = data.get('categories', [])
+        
+        set_db_config('knowledge_categories', categories, '知识库分类配置')
+        
+        app.logger.info(f'保存知识库分类成功，共 {len(categories)} 个分类')
+        return jsonify({
+            'success': True,
+            'message': '分类保存成功'
+        })
+    except Exception as e:
+        app.logger.error(f'保存知识库分类失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/knowledge', methods=['GET'])
+def get_knowledge():
+    """获取知识库列表（前端用户端）"""
+    try:
+        knowledge_list = get_db_config('knowledge_base', None)
+        categories = get_db_config('knowledge_categories', None)
+        
+        # 如果分类为空，初始化默认分类
+        if categories is None:
+            categories = [
+                {'id': 'account', 'name': '账户相关'},
+                {'id': 'request', 'name': '求片相关'},
+                {'id': 'playback', 'name': '播放问题'},
+                {'id': 'payment', 'name': '支付问题'},
+                {'id': 'other', 'name': '其他'}
+            ]
+            set_db_config('knowledge_categories', categories, '知识库分类配置')
+        
+        # 如果知识库为空，初始化默认FAQ数据并写入数据库
+        if knowledge_list is None or len(knowledge_list) == 0:
+            knowledge_list = [
+                {
+                    'id': 1,
+                    'category': 'account',
+                    'question': '如何注册账号？',
+                    'answer': '<p>目前系统采用 Telegram 绑定登录方式。您需要：</p><ol><li>添加我们的 Telegram Bot</li><li>发送 /start 命令开始绑定</li><li>按提示完成账号绑定</li></ol>',
+                    'order': 1
+                },
+                {
+                    'id': 2,
+                    'category': 'account',
+                    'question': '忘记密码怎么办？',
+                    'answer': '<p>请通过 Telegram Bot 发送 /resetpwd 命令重置密码，或联系管理员协助处理。</p>',
+                    'order': 2
+                },
+                {
+                    'id': 3,
+                    'category': 'request',
+                    'question': '每天可以求片几次？',
+                    'answer': '<p>求片次数根据会员等级有所不同：</p><ul><li>白名单用户：每日 3 次</li><li>注册用户：每日 1 次</li></ul><p>次数每天 0 点重置。</p>',
+                    'order': 3
+                },
+                {
+                    'id': 4,
+                    'category': 'request',
+                    'question': '求片后多久能看到？',
+                    'answer': '<p>处理时间取决于多个因素：</p><ul><li>资源可用性：热门资源通常较快</li><li>文件大小：4K 资源下载时间较长</li><li>网络状况：一般 1-24 小时内完成</li></ul><p>您可以在"求片管理"中查看处理进度。</p>',
+                    'order': 4
+                },
+                {
+                    'id': 5,
+                    'category': 'request',
+                    'question': '为什么搜不到想要的影片？',
+                    'answer': '<p>可能的原因：</p><ul><li>影片名称输入不准确，尝试使用官方译名</li><li>影片尚未在 TMDB 数据库收录</li><li>可以尝试搜索英文原名</li></ul><p>如仍无法找到，可联系管理员手动添加。</p>',
+                    'order': 5
+                },
+                {
+                    'id': 6,
+                    'category': 'playback',
+                    'question': '播放卡顿怎么办？',
+                    'answer': '<p>建议尝试：</p><ul><li>检查网络连接是否稳定</li><li>降低播放画质</li><li>清除客户端缓存</li><li>更换客户端尝试</li></ul>',
+                    'order': 6
+                },
+                {
+                    'id': 7,
+                    'category': 'playback',
+                    'question': '字幕不显示或乱码？',
+                    'answer': '<p>解决方法：</p><ul><li>在播放器设置中检查字幕选项</li><li>尝试切换字幕轨道</li><li>客户端设置中调整字幕编码为 UTF-8</li></ul>',
+                    'order': 7
+                },
+                {
+                    'id': 8,
+                    'category': 'payment',
+                    'question': '支持哪些支付方式？',
+                    'answer': '<p>目前支持：</p><ul><li>支付宝</li><li>微信支付</li></ul><p>更多支付方式陆续开放中。</p>',
+                    'order': 8
+                },
+                {
+                    'id': 9,
+                    'category': 'payment',
+                    'question': '支付成功但订阅未生效？',
+                    'answer': '<p>请稍等几分钟，系统可能正在处理中。如超过 30 分钟仍未生效，请：</p><ol><li>保存好支付凭证截图</li><li>前往"技术支持"提交工单</li><li>我们会在 24 小时内处理</li></ol>',
+                    'order': 9
+                }
+            ]
+            # 写入数据库
+            set_db_config('knowledge_base', knowledge_list, '知识库/FAQ配置')
+            app.logger.info('知识库初始化：已写入默认FAQ数据')
+        
+        # 按 order 排序
+        knowledge_list.sort(key=lambda x: x.get('order', 0))
+        
+        return jsonify({
+            'success': True,
+            'items': knowledge_list,
+            'categories': categories
+        })
+    except Exception as e:
+        app.logger.error(f'获取知识库失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== 邀请返利 API ====================
+@app.route('/api/invite/code', methods=['GET'])
+@login_required
+def get_invite_code():
+    """获取我的邀请码"""
+    try:
+        from sqlalchemy import func
+        user = db.session.get(User, session.get('user_id'))
+        
+        # 生成唯一邀请码（基于用户 TG ID）
+        invite_code = hashlib.md5(f'{user.tg}_invite'.encode()).hexdigest()[:8].upper()
+        
+        # 统计邀请数据
+        total_invites = InviteRecord.query.filter_by(inviter_tg=user.tg).count()
+        successful_invites = InviteRecord.query.filter_by(
+            inviter_tg=user.tg,
+            reward_claimed=True
+        ).count()
+        
+        # 计算总奖励
+        total_rewards = db.session.query(
+            func.sum(InviteRecord.reward_value)
+        ).filter(
+            InviteRecord.inviter_tg == user.tg,
+            InviteRecord.reward_claimed == True
+        ).scalar() or 0
+        
+        # 邀请链接指向注册页面
+        invite_url = f'{request.host_url}register?invite={invite_code}'
+        
+        return jsonify({
+            'success': True,
+            'invite_code': invite_code,
+            'invite_url': invite_url,
+            'total_invites': total_invites,
+            'successful_invites': successful_invites,
+            'total_rewards': total_rewards
+        }), 200
+        
+    except Exception as e:
+        app.logger.error(f'获取邀请码失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/invite/records', methods=['GET'])
+@login_required
+def get_invite_records():
+    """获取邀请记录"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        records = InviteRecord.query.filter_by(inviter_tg=user.tg).order_by(
+            InviteRecord.created_at.desc()
+        ).all()
+        
+        return jsonify({
+            'success': True,
+            'records': [record.to_dict() for record in records]
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取邀请记录失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== Telegram 绑定 API ====================
+# 存储临时绑定码 {bind_code: {'user_tg': xxx, 'created_at': datetime, 'expires_at': datetime}}
+TELEGRAM_BIND_CODES = {}
+
+# 存储签到验证码 {telegram_user_id: {'code': '1234', 'created_at': datetime, 'expires_at': datetime}}
+TELEGRAM_CHECKIN_CODES = {}
+
+# 存储忘记密码验证码 {username: {'code': '1234', 'telegram_id': xxx, 'created_at': datetime, 'expires_at': datetime}}
+PASSWORD_RESET_CODES = {}
+
+
+def cleanup_expired_bind_codes():
+    """清理过期的绑定码"""
+    now = datetime.now()
+    expired = [code for code, data in TELEGRAM_BIND_CODES.items() 
+               if data.get('expires_at') and data['expires_at'] < now]
+    for code in expired:
+        del TELEGRAM_BIND_CODES[code]
+
+
+@app.route('/api/user/telegram', methods=['GET'])
+@login_required
+def get_telegram_bindinfo():
+    """获取当前用户的 Telegram 绑定状态"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户未找到'}), 404
+        
+        return jsonify({
+            'success': True,
+            'telegram_id': user.telegram_id,
+            'is_bound': user.telegram_id is not None
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取 Telegram 绑定状态失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/user/telegram/bindcode', methods=['POST'])
+@login_required
+def generate_telegram_bind_code():
+    """生成 Telegram 绑定码（用户在网站点击绑定按钮后获取）"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户未找到'}), 404
+        
+        if user.telegram_id:
+            return jsonify({'success': False, 'error': '您已绑定 Telegram，请先解绑'}), 400
+        
+        # 获取是否强制重新生成参数
+        force_regenerate = request.json.get('force_regenerate', False) if request.json else False
+        
+        # 获取 Bot 用户名
+        bot_username = None
+        if TELEGRAM_BOT_TOKEN:
+            try:
+                url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getMe"
+                resp = PROXY_SESSION.get(url, timeout=10)
+                if resp.status_code == 200:
+                    bot_info = resp.json()
+                    if bot_info.get('ok'):
+                        bot_username = bot_info.get('result', {}).get('username')
+            except Exception as e:
+                app.logger.warning(f'获取 Bot 信息失败: {e}')
+        
+        # 清理过期的绑定码
+        cleanup_expired_bind_codes()
+        
+        # 如果不是强制重新生成，检查是否已有未过期的绑定码
+        if not force_regenerate:
+            for code, data in TELEGRAM_BIND_CODES.items():
+                if data.get('user_tg') == user.tg:
+                    # 返回现有的绑定码
+                    return jsonify({
+                        'success': True,
+                        'bind_code': code,
+                        'expires_in': 300,  # 5分钟
+                        'bot_username': bot_username
+                    }), 200
+        else:
+            # 强制重新生成：删除该用户的所有旧绑定码
+            codes_to_remove = [code for code, data in TELEGRAM_BIND_CODES.items() if data.get('user_tg') == user.tg]
+            for code in codes_to_remove:
+                del TELEGRAM_BIND_CODES[code]
+                app.logger.info(f'已删除用户 {user.name} 的旧绑定码: {code}')
+        
+        # 生成新的绑定码（6位数字+字母）
+        import random
+        import string
+        bind_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        
+        # 确保唯一
+        while bind_code in TELEGRAM_BIND_CODES:
+            bind_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        
+        # 存储绑定码，5分钟有效
+        TELEGRAM_BIND_CODES[bind_code] = {
+            'user_tg': user.tg,
+            'user_name': user.name,
+            'created_at': datetime.now(),
+            'expires_at': datetime.now() + timedelta(minutes=5)
+        }
+        
+        app.logger.info(f'用户 {user.name} 生成 Telegram 绑定码: {bind_code} (强制重新生成: {force_regenerate})')
+        
+        return jsonify({
+            'success': True,
+            'bind_code': bind_code,
+            'expires_in': 300,  # 5分钟
+            'bot_username': bot_username
+        }), 200
+        
+    except Exception as e:
+        app.logger.error(f'生成绑定码失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/user/telegram/bind', methods=['POST'])
+@login_required
+def bind_telegram_id():
+    """绑定 Telegram ID（保留旧接口兼容）"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户未找到'}), 404
+        
+        data = request.json or {}
+        telegram_id = data.get('telegram_id')
+        
+        if not telegram_id:
+            return jsonify({'success': False, 'error': '请输入 Telegram ID'}), 400
+        
+        # 验证 Telegram ID 格式（必须是数字）
+        try:
+            telegram_id = int(telegram_id)
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Telegram ID 必须是数字'}), 400
+        
+        # 检查是否已被其他用户绑定
+        existing = User.query.filter(
+            User.telegram_id == telegram_id,
+            User.tg != user.tg
+        ).first()
+        if existing:
+            return jsonify({'success': False, 'error': '该 Telegram ID 已被其他用户绑定'}), 400
+        
+        # 绑定 Telegram ID
+        user.telegram_id = telegram_id
+        db.session.commit()
+        
+        app.logger.info(f'用户 {user.name} 绑定 Telegram ID: {telegram_id}')
+        
+        return jsonify({
+            'success': True,
+            'message': 'Telegram 绑定成功',
+            'telegram_id': telegram_id
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'绑定 Telegram 失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/user/telegram/unbind', methods=['POST'])
+@login_required
+def unbind_telegram_id():
+    """解绑 Telegram ID"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户未找到'}), 404
+        
+        if not user.telegram_id:
+            return jsonify({'success': False, 'error': '您还没有绑定 Telegram'}), 400
+        
+        old_id = user.telegram_id
+        user.telegram_id = None
+        db.session.commit()
+        
+        app.logger.info(f'用户 {user.name} 解绑 Telegram ID: {old_id}')
+        
+        return jsonify({
+            'success': True,
+            'message': 'Telegram 解绑成功'
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'解绑 Telegram 失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== 用户活动日志 API ====================
+@app.route('/api/user/activity-logs', methods=['GET'])
+@login_required
+def get_my_activity_logs():
+    """获取当前用户的活动日志"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户未找到'}), 404
+        
+        app.logger.info(f'获取用户活动日志: user_id={session.get("user_id")}, user_tg={user.tg}, user_name={user.name}')
+        
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 20, type=int), 50)
+        action_type = request.args.get('action_type', '')
+        days = request.args.get('days', '', type=str)
+        
+        query = UserActivityLog.query.filter_by(user_tg=user.tg)
+        
+        # 按操作类型筛选
+        if action_type:
+            query = query.filter_by(action_type=action_type)
+        
+        # 按时间范围筛选
+        if days and days.isdigit():
+            days_int = int(days)
+            from datetime import datetime, timedelta
+            start_date = datetime.now() - timedelta(days=days_int)
+            query = query.filter(UserActivityLog.created_at >= start_date)
+        
+        # 先查询总数用于调试
+        total_count = query.count()
+        app.logger.info(f'用户活动日志查询: user_tg={user.tg}, total_count={total_count}, days={days}, action_type={action_type}')
+        
+        # 排序和分页
+        query = query.order_by(UserActivityLog.created_at.desc())
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+        
+        logs = []
+        for log in pagination.items:
+            # 解析 action_detail JSON 字符串
+            action_detail = {}
+            if log.action_detail:
+                try:
+                    import json
+                    action_detail = json.loads(log.action_detail)
+                except (json.JSONDecodeError, TypeError):
+                    action_detail = {'raw': log.action_detail}
+            
+            # 显示时间（数据库存储的是本地时间）
+            created_at_local = None
+            if log.created_at:
+                created_at_local = log.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            
+            log_dict = {
+                'id': log.id,
+                'action_type': log.action_type,
+                'action_detail': action_detail,
+                'ip_address': log.ip_address,
+                'status': log.status,
+                'created_at': created_at_local
+            }
+            logs.append(log_dict)
+        
+        return jsonify({
+            'success': True,
+            'logs': logs,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': pagination.total,
+                'pages': pagination.pages
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取用户活动日志失败: {e}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== 签到系统 API ====================
+@app.route('/api/user/checkin', methods=['POST'])
+@login_required
+def user_checkin():
+    """用户签到"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户未找到'}), 404
+        
+        # 获取签到配置
+        checkin_config = SystemConfig.get_config(SystemConfig.KEY_CHECKIN, {})
+        if not checkin_config.get('enabled', False):
+            return jsonify({'success': False, 'error': '签到功能未开启'}), 400
+        
+        # 检查今天是否已签到
+        today = datetime.now().date()
+        existing = CheckInRecord.query.filter_by(
+            user_tg=user.tg,
+            checkin_date=today
+        ).first()
+        
+        if existing:
+            return jsonify({
+                'success': False,
+                'error': '今天已经签到过了',
+                'coins_earned': existing.coins_earned,
+                'continuous_days': existing.continuous_days
+            }), 400
+        
+        # 计算连续签到天数
+        yesterday = today - timedelta(days=1)
+        yesterday_record = CheckInRecord.query.filter_by(
+            user_tg=user.tg,
+            checkin_date=yesterday
+        ).first()
+        
+        continuous_days = (yesterday_record.continuous_days + 1) if yesterday_record else 1
+        
+        # 随机生成签到积分
+        coin_min = checkin_config.get('coin_min', 1)
+        coin_max = checkin_config.get('coin_max', 10)
+        coins_earned = random.randint(coin_min, coin_max)
+        
+        # 创建签到记录
+        checkin_record = CheckInRecord(
+            user_tg=user.tg,
+            checkin_date=today,
+            coins_earned=coins_earned,
+            continuous_days=continuous_days
+        )
+        db.session.add(checkin_record)
+        
+        # 更新用户积分和签到时间
+        user.coins = (user.coins or 0) + coins_earned
+        user.ch = datetime.now()
+        
+        # 创建积分交易记录
+        coin_trans = CoinTransaction(
+            user_tg=user.tg,
+            amount=coins_earned,
+            balance_after=user.coins,
+            trans_type='checkin',
+            description=f'每日签到，连续{continuous_days}天',
+            related_id=checkin_record.id
+        )
+        db.session.add(coin_trans)
+        
+        db.session.commit()
+        
+        app.logger.info(f'用户签到成功: {user.name}, 获得积分: {coins_earned}, 连续{continuous_days}天')
+        
+        return jsonify({
+            'success': True,
+            'message': f'签到成功！获得 {coins_earned} {checkin_config.get("coin_name", "积分")}',
+            'coins_earned': coins_earned,
+            'continuous_days': continuous_days,
+            'total_coins': user.coins
+        }), 200
+    except Exception as e:
+        app.logger.error(f'签到失败: {e}')
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/user/checkin/status', methods=['GET'])
+@login_required
+def get_checkin_status():
+    """获取用户签到状态"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户未找到'}), 404
+        
+        # 获取签到配置
+        checkin_config = SystemConfig.get_config(SystemConfig.KEY_CHECKIN, {})
+        
+        # 获取套餐配置，用于修正旧的 exchange_plans 数据
+        plans_config = load_plans_config()
+        plans_dict = {p.get('id'): p for p in plans_config}
+        
+        # 处理兑换套餐，修正旧数据中的 days 字段
+        exchange_plans = checkin_config.get('exchange_plans', [])
+        fixed_exchange_plans = []
+        for ep in exchange_plans:
+            plan_id = ep.get('id')
+            days = ep.get('days', 0)
+            # 如果 days 很小（可能是旧的月数数据），尝试从套餐配置中获取正确的天数
+            if days <= 12 and plan_id in plans_dict:
+                plan = plans_dict[plan_id]
+                # 优先使用 duration_days，否则用 duration（月）* 30
+                correct_days = plan.get('duration_days') or (plan.get('duration', 1) * 30)
+                days = correct_days
+            fixed_exchange_plans.append({
+                'id': plan_id,
+                'name': ep.get('name', ''),
+                'days': days,
+                'coins': ep.get('coins', 0)
+            })
+        
+        # 构建配置响应 - 需要包含 enabled 字段供前端判断
+        config_response = {
+            'enabled': checkin_config.get('enabled', False),
+            'coin_name': checkin_config.get('coin_name', '积分'),
+            'coin_min': checkin_config.get('coin_min', 1),
+            'coin_max': checkin_config.get('coin_max', 10),
+            'exchange_plans': fixed_exchange_plans
+        }
+        
+        # 如果签到功能未开启，返回空状态
+        if not checkin_config.get('enabled', False):
+            return jsonify({
+                'success': True,
+                'config': config_response,
+                'status': {
+                    'coins': 0,
+                    'continuous_days': 0,
+                    'monthly_count': 0,
+                    'checked_today': False,
+                    'recent_7days': []
+                }
+            }), 200
+        
+        # 检查今天是否已签到
+        today = datetime.now().date()
+        today_record = CheckInRecord.query.filter_by(
+            user_tg=user.tg,
+            checkin_date=today
+        ).first()
+        
+        # 获取连续签到天数
+        continuous_days = 0
+        if today_record:
+            continuous_days = today_record.continuous_days
+        else:
+            yesterday = today - timedelta(days=1)
+            yesterday_record = CheckInRecord.query.filter_by(
+                user_tg=user.tg,
+                checkin_date=yesterday
+            ).first()
+            if yesterday_record:
+                continuous_days = yesterday_record.continuous_days
+        
+        # 获取本月签到次数
+        month_start = today.replace(day=1)
+        monthly_count = CheckInRecord.query.filter(
+            CheckInRecord.user_tg == user.tg,
+            CheckInRecord.checkin_date >= month_start
+        ).count()
+        
+        # 获取最近7天签到记录
+        week_ago = today - timedelta(days=6)
+        week_records = CheckInRecord.query.filter(
+            CheckInRecord.user_tg == user.tg,
+            CheckInRecord.checkin_date >= week_ago,
+            CheckInRecord.checkin_date <= today
+        ).all()
+        recent_7days = [r.checkin_date.isoformat() for r in week_records]
+        
+        return jsonify({
+            'success': True,
+            'config': config_response,
+            'status': {
+                'coins': user.coins or 0,
+                'continuous_days': continuous_days,
+                'monthly_count': monthly_count,
+                'checked_today': today_record is not None,
+                'recent_7days': recent_7days
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取签到状态失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/user/coins/transactions', methods=['GET'])
+@login_required
+def get_coin_transactions():
+    """获取积分交易记录"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户未找到'}), 404
+        
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 20, type=int), 50)
+        
+        pagination = CoinTransaction.query.filter_by(user_tg=user.tg)\
+            .order_by(CoinTransaction.created_at.desc())\
+            .paginate(page=page, per_page=per_page, error_out=False)
+        
+        transactions = [{
+            'id': t.id,
+            'amount': t.amount,
+            'balance_after': t.balance_after,
+            'trans_type': t.trans_type,
+            'description': t.description,
+            'created_at': t.created_at.isoformat() if t.created_at else None
+        } for t in pagination.items]
+        
+        return jsonify({
+            'success': True,
+            'transactions': transactions,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': pagination.total,
+                'pages': pagination.pages
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取积分记录失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/user/exchange', methods=['POST'])
+@login_required
+def exchange_plan():
+    """兑换套餐"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户未找到'}), 404
+        
+        data = request.json
+        plan_id = data.get('plan_id')
+        
+        if not plan_id:
+            return jsonify({'success': False, 'error': '请选择要兑换的套餐'}), 400
+        
+        # 获取签到配置和套餐配置
+        checkin_config = SystemConfig.get_config(SystemConfig.KEY_CHECKIN, {})
+        if not checkin_config.get('enabled', False):
+            return jsonify({'success': False, 'error': '签到功能未开启'}), 400
+        
+        exchange_plans = checkin_config.get('exchange_plans', [])
+        plan = next((p for p in exchange_plans if p.get('id') == plan_id), None)
+        
+        if not plan:
+            return jsonify({'success': False, 'error': '套餐不存在'}), 404
+        
+        coins_cost = plan.get('coins', 0)
+        duration_days = plan.get('days', 0)
+        plan_name = plan.get('name', '未知套餐')
+        
+        # 检查积分是否足够
+        user_coins = user.coins or 0
+        if user_coins < coins_cost:
+            return jsonify({
+                'success': False,
+                'error': f'积分不足，需要 {coins_cost} {checkin_config.get("coin_name", "积分")}，当前仅有 {user_coins}'
+            }), 400
+        
+        # 扣除积分
+        user.coins -= coins_cost
+        
+        # 延长订阅时间
+        now = datetime.now()
+        if user.ex and user.ex > now:
+            # 有未过期的订阅，延长时间
+            user.ex = user.ex + timedelta(days=duration_days)
+        else:
+            # 无订阅或已过期，从现在开始计算
+            user.ex = now + timedelta(days=duration_days)
+        
+        # 如果是无账号用户，升级为普通用户
+        if user.lv == 'd':
+            user.lv = 'b'
+        
+        # 创建兑换记录
+        exchange_record = ExchangeRecord(
+            user_tg=user.tg,
+            plan_id=plan_id,
+            plan_name=plan_name,
+            coins_cost=coins_cost,
+            duration_days=duration_days,
+            status='completed'
+        )
+        db.session.add(exchange_record)
+        
+        # 创建积分交易记录
+        coin_trans = CoinTransaction(
+            user_tg=user.tg,
+            amount=-coins_cost,
+            balance_after=user.coins,
+            trans_type='exchange',
+            description=f'兑换套餐: {plan_name} ({duration_days}天)',
+            related_id=exchange_record.id
+        )
+        db.session.add(coin_trans)
+        
+        db.session.commit()
+        
+        app.logger.info(f'用户兑换套餐成功: {user.name}, 套餐: {plan_name}, 花费: {coins_cost}积分')
+        
+        return jsonify({
+            'success': True,
+            'message': f'兑换成功！已延长 {duration_days} 天订阅',
+            'remaining_coins': user.coins,
+            'new_expiry': user.ex.isoformat() if user.ex else None
+        }), 200
+    except Exception as e:
+        app.logger.error(f'兑换套餐失败: {e}')
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/user/exchange/records', methods=['GET'])
+@login_required
+def get_exchange_records():
+    """获取兑换记录"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户未找到'}), 404
+        
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 20, type=int), 50)
+        
+        pagination = ExchangeRecord.query.filter_by(user_tg=user.tg)\
+            .order_by(ExchangeRecord.created_at.desc())\
+            .paginate(page=page, per_page=per_page, error_out=False)
+        
+        records = [{
+            'id': r.id,
+            'plan_name': r.plan_name,
+            'coins_cost': r.coins_cost,
+            'duration_days': r.duration_days,
+            'status': r.status,
+            'created_at': r.created_at.isoformat() if r.created_at else None
+        } for r in pagination.items]
+        
+        return jsonify({
+            'success': True,
+            'records': records,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': pagination.total,
+                'pages': pagination.pages
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取兑换记录失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== 技术支持 API ====================
+@app.route('/api/support/create', methods=['POST'])
+@login_required
+def create_support_ticket():
+    """创建支持工单"""
+    try:
+        data = request.json
+        user = db.session.get(User, session.get('user_id'))
+        
+        # 生成工单号
+        ticket_no = f'TK{int(time.time())}{user.tg % 1000}'
+        
+        ticket = SupportTicket(
+            ticket_no=ticket_no,
+            user_tg=user.tg,
+            category=data.get('category', 'other'),
+            subject=data.get('subject', ''),
+            description=data.get('description', ''),
+            priority=data.get('priority', 'normal')
+        )
+        
+        db.session.add(ticket)
+        db.session.commit()
+        
+        app.logger.info(f'创建工单: {ticket_no}, 用户: {user.name}, 主题: {ticket.subject}')
+        
+        # 发送 Telegram 通知给管理员
+        try:
+            category_names = {
+                'account': '账号问题',
+                'payment': '支付问题',
+                'technical': '技术问题',
+                'content': '内容问题',
+                'other': '其他'
+            }
+            priority_names = {
+                'low': '低',
+                'normal': '普通',
+                'high': '高',
+                'urgent': '🚨 紧急'
+            }
+            category_name = category_names.get(ticket.category, ticket.category)
+            priority_name = priority_names.get(ticket.priority, ticket.priority)
+            
+            message = f"""🎫 <b>新工单提醒</b>
+
+📋 <b>工单号：</b>{ticket_no}
+👤 <b>用户：</b>{user.name}
+📁 <b>分类：</b>{category_name}
+⚡ <b>优先级：</b>{priority_name}
+📌 <b>主题：</b>{ticket.subject}
+
+📝 <b>描述：</b>
+{ticket.description[:200]}{'...' if len(ticket.description) > 200 else ''}
+
+🔗 请登录后台处理工单"""
+            
+            send_admin_notification(message)
+        except Exception as e:
+            app.logger.error(f'发送工单通知失败: {e}')
+        
+        return jsonify({
+            'success': True,
+            'ticket': ticket.to_dict()
+        }), 200
+        
+    except Exception as e:
+        app.logger.error(f'创建工单失败: {e}')
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/support/my-tickets', methods=['GET'])
+@login_required
+def get_my_tickets():
+    """获取我的工单"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        tickets = SupportTicket.query.filter_by(user_tg=user.tg).order_by(
+            SupportTicket.created_at.desc()
+        ).all()
+        
+        return jsonify({
+            'success': True,
+            'tickets': [ticket.to_dict() for ticket in tickets]
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取工单失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/support/unread-count', methods=['GET'])
+@login_required
+def get_unread_ticket_count():
+    """获取用户未读的工单回复数量（管理员回复后用户未查看的）"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        # 查找用户的工单中，最后回复是管理员且状态未关闭的数量
+        unread_count = SupportTicket.query.filter(
+            SupportTicket.user_tg == user.tg,
+            SupportTicket.last_reply_by == 'admin',
+            SupportTicket.status != 'closed'
+        ).count()
+        
+        return jsonify({
+            'success': True,
+            'unread_count': unread_count
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取未读工单数失败: {e}')
+        return jsonify({'error': str(e), 'unread_count': 0}), 500
+
+
+@app.route('/api/support/tickets/<int:ticket_id>', methods=['GET'])
+@login_required
+def get_ticket_detail(ticket_id):
+    """获取工单详情（包含所有对话消息）"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        ticket = db.session.get(SupportTicket, ticket_id)
+        
+        if not ticket:
+            return jsonify({'success': False, 'error': '工单不存在'}), 404
+        
+        # 验证工单归属
+        if ticket.user_tg != user.tg:
+            return jsonify({'success': False, 'error': '无权限查看此工单'}), 403
+        
+        # 用户查看工单后，标记为已读（将last_reply_by改为user表示用户已查看）
+        if ticket.last_reply_by == 'admin':
+            ticket.last_reply_by = 'user'
+            db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'ticket': ticket.to_dict(include_messages=True)
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取工单详情失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/support/tickets/<int:ticket_id>/reply', methods=['POST'])
+@login_required
+def user_reply_ticket(ticket_id):
+    """用户回复工单"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        ticket = db.session.get(SupportTicket, ticket_id)
+        
+        if not ticket:
+            return jsonify({'success': False, 'error': '工单不存在'}), 404
+        
+        # 验证工单归属
+        if ticket.user_tg != user.tg:
+            return jsonify({'success': False, 'error': '无权限操作此工单'}), 403
+        
+        # 检查工单状态，已关闭的工单不能回复
+        if ticket.status == 'closed':
+            return jsonify({'success': False, 'error': '工单已关闭，无法回复'}), 400
+        
+        data = request.json
+        reply_content = data.get('reply', '').strip()
+        
+        if not reply_content:
+            return jsonify({'success': False, 'error': '回复内容不能为空'}), 400
+        
+        # 创建新的消息记录
+        message = TicketMessage(
+            ticket_id=ticket.id,
+            sender_type='user',
+            sender_id=user.tg,
+            sender_name=user.name,
+            content=reply_content
+        )
+        db.session.add(message)
+        
+        # 用户回复后，状态变为待处理（等待管理员回复）
+        ticket.status = 'open'
+        ticket.last_reply_by = 'user'
+        ticket.last_reply_at = datetime.now()
+        
+        db.session.commit()
+        
+        app.logger.info(f'用户 {user.name} 回复工单: {ticket.ticket_no}')
+        
+        return jsonify({
+            'success': True,
+            'message': '回复成功',
+            'ticket': ticket.to_dict()
+        }), 200
+    except Exception as e:
+        app.logger.error(f'用户回复工单失败: {e}')
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/tickets', methods=['GET'])
+@admin_required
+def admin_get_tickets():
+    """管理员获取所有工单"""
+    try:
+        status = request.args.get('status', 'all')
+        
+        query = SupportTicket.query
+        if status and status != 'all':
+            query = query.filter_by(status=status)
+        
+        tickets = query.order_by(SupportTicket.created_at.desc()).all()
+        
+        # 统计各状态工单数量
+        stats = {
+            'total': SupportTicket.query.count(),
+            'open': SupportTicket.query.filter_by(status='open').count(),
+            'in_progress': SupportTicket.query.filter_by(status='in_progress').count(),
+            'closed': SupportTicket.query.filter_by(status='closed').count()
+        }
+        
+        return jsonify({
+            'success': True,
+            'tickets': [ticket.to_dict() for ticket in tickets],
+            'stats': stats
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取工单失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/tickets/<int:ticket_id>', methods=['GET'])
+@admin_required
+def admin_get_ticket_detail(ticket_id):
+    """管理员获取工单详情（包含所有对话消息）"""
+    try:
+        ticket = db.session.get(SupportTicket, ticket_id)
+        
+        if not ticket:
+            return jsonify({'success': False, 'error': '工单不存在'}), 404
+        
+        return jsonify({
+            'success': True,
+            'ticket': ticket.to_dict(include_messages=True)
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取工单详情失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/tickets/<int:ticket_id>/reply', methods=['POST'])
+@admin_required
+def admin_reply_ticket(ticket_id):
+    """管理员回复工单"""
+    try:
+        data = request.json
+        ticket = db.session.get(SupportTicket, ticket_id)
+        
+        if not ticket:
+            return jsonify({'error': '工单不存在'}), 404
+        
+        # 检查工单状态，已关闭的工单不能回复
+        if ticket.status == 'closed':
+            return jsonify({'success': False, 'error': '工单已关闭，无法回复'}), 400
+        
+        reply_content = data.get('reply', '').strip()
+        if reply_content:
+            # 创建新的消息记录
+            admin_name = session.get('admin_username', '管理员')
+            message = TicketMessage(
+                ticket_id=ticket.id,
+                sender_type='admin',
+                sender_id=0,  # 管理员统一用0
+                sender_name=admin_name,
+                content=reply_content
+            )
+            db.session.add(message)
+            # 同时更新 admin_reply 字段以保持兼容
+            ticket.admin_reply = reply_content
+            # 记录管理员回复信息
+            ticket.last_reply_by = 'admin'
+            ticket.last_reply_at = datetime.now()
+        
+        # 如果指定了状态就用指定的，否则管理员回复后自动设置为处理中
+        new_status = data.get('status')
+        if new_status and new_status in ['open', 'in_progress', 'closed']:
+            ticket.status = new_status
+        elif reply_content and ticket.status == 'open':
+            # 管理员回复后状态变为处理中
+            ticket.status = 'in_progress'
+        
+        if ticket.status == 'closed':
+            ticket.resolved_at = datetime.now()
+        
+        db.session.commit()
+        
+        app.logger.info(f'管理员回复工单: {ticket.ticket_no}')
+        
+        return jsonify({
+            'success': True,
+            'ticket': ticket.to_dict(include_messages=True)
+        }), 200
+    except Exception as e:
+        app.logger.error(f'回复工单失败: {e}')
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/tickets/<int:ticket_id>/close', methods=['POST'])
+@admin_required
+def admin_close_ticket(ticket_id):
+    """管理员手动关闭工单"""
+    try:
+        ticket = db.session.get(SupportTicket, ticket_id)
+        
+        if not ticket:
+            return jsonify({'error': '工单不存在'}), 404
+        
+        ticket.status = 'closed'
+        ticket.resolved_at = datetime.now()
+        db.session.commit()
+        
+        app.logger.info(f'管理员手动关闭工单: {ticket.ticket_no}')
+        
+        return jsonify({
+            'success': True,
+            'message': '工单已关闭'
+        }), 200
+    except Exception as e:
+        app.logger.error(f'关闭工单失败: {e}')
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/tickets/<int:ticket_id>/status', methods=['PUT'])
+@admin_required
+def admin_update_ticket_status(ticket_id):
+    """管理员更新工单状态"""
+    try:
+        data = request.json
+        ticket = db.session.get(SupportTicket, ticket_id)
+        
+        if not ticket:
+            return jsonify({'error': '工单不存在'}), 404
+        
+        new_status = data.get('status')
+        if new_status not in ['open', 'in_progress', 'resolved', 'closed']:
+            return jsonify({'error': '无效的状态'}), 400
+        
+        ticket.status = new_status
+        if new_status == 'resolved':
+            ticket.resolved_at = datetime.now()
+        
+        db.session.commit()
+        
+        app.logger.info(f'管理员更新工单状态: {ticket.ticket_no} -> {new_status}')
+        
+        return jsonify({
+            'success': True,
+            'ticket': ticket.to_dict()
+        }), 200
+    except Exception as e:
+        app.logger.error(f'更新工单状态失败: {e}')
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== 兑换码管理 API ====================
+
+@app.route('/api/admin/redeem-codes', methods=['GET'])
+@admin_required
+def admin_get_redeem_codes():
+    """管理员获取兑换码列表"""
+    try:
+        code_type = request.args.get('type', '')
+        status = request.args.get('status', '')
+        
+        query = RedeemCode.query
+        
+        if code_type:
+            query = query.filter_by(code_type=code_type)
+        
+        if status == 'used':
+            query = query.filter_by(is_used=True)
+        elif status == 'unused':
+            query = query.filter_by(is_used=False)
+        
+        codes = query.order_by(RedeemCode.created_at.desc()).limit(200).all()
+        
+        # 统计
+        total = RedeemCode.query.count()
+        used = RedeemCode.query.filter_by(is_used=True).count()
+        unused = total - used
+        
+        return jsonify({
+            'success': True,
+            'codes': [code.to_dict() for code in codes],
+            'stats': {
+                'total': total,
+                'used': used,
+                'unused': unused
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取兑换码列表失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/redeem-codes/generate', methods=['POST'])
+@admin_required
+def admin_generate_redeem_code():
+    """生成兑换码"""
+    try:
+        data = request.json
+        code_type = data.get('code_type', 'new')  # new: 新订阅, renew: 续费
+        plan_type = data.get('plan_type', 'standard')
+        duration_days = int(data.get('duration_days', 30))
+        remark = data.get('remark', '')
+        expires_days = data.get('expires_days')  # 兑换码有效期（天）
+        
+        # 生成唯一兑换码
+        import string
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
+        
+        # 确保唯一性
+        while RedeemCode.query.filter_by(code=code).first():
+            code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
+        
+        expires_at = None
+        if expires_days:
+            expires_at = datetime.now() + timedelta(days=int(expires_days))
+        
+        redeem = RedeemCode(
+            code=code,
+            code_type=code_type,
+            plan_type=plan_type,
+            duration_days=duration_days,
+            expires_at=expires_at,
+            remark=remark
+        )
+        
+        db.session.add(redeem)
+        db.session.commit()
+        
+        app.logger.info(f'生成兑换码: {code}, 类型: {code_type}, 套餐: {plan_type}, 天数: {duration_days}')
+        
+        return jsonify({
+            'success': True,
+            'code': redeem.to_dict()
+        }), 200
+    except Exception as e:
+        app.logger.error(f'生成兑换码失败: {e}')
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/redeem-codes/batch-generate', methods=['POST'])
+@admin_required
+def admin_batch_generate_redeem_codes():
+    """批量生成兑换码"""
+    try:
+        data = request.json
+        code_type = data.get('code_type', 'new')
+        plan_type = data.get('plan_type', 'standard')
+        duration_days = int(data.get('duration_days', 30))
+        count = min(int(data.get('count', 10)), 100)  # 最多一次生成100个
+        remark = data.get('remark', '')
+        expires_days = data.get('expires_days')
+        
+        expires_at = None
+        if expires_days:
+            expires_at = datetime.now() + timedelta(days=int(expires_days))
+        
+        import string
+        generated_codes = []
+        
+        for _ in range(count):
+            code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
+            # 确保唯一性
+            while RedeemCode.query.filter_by(code=code).first() or code in [c['code'] for c in generated_codes]:
+                code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
+            
+            redeem = RedeemCode(
+                code=code,
+                code_type=code_type,
+                plan_type=plan_type,
+                duration_days=duration_days,
+                expires_at=expires_at,
+                remark=remark
+            )
+            db.session.add(redeem)
+            generated_codes.append(redeem.to_dict())
+        
+        db.session.commit()
+        
+        app.logger.info(f'批量生成兑换码: {count}个, 类型: {code_type}, 套餐: {plan_type}, 天数: {duration_days}')
+        
+        return jsonify({
+            'success': True,
+            'codes': generated_codes,
+            'count': len(generated_codes)
+        }), 200
+    except Exception as e:
+        app.logger.error(f'批量生成兑换码失败: {e}')
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/redeem-codes/<int:code_id>', methods=['DELETE'])
+@admin_required
+def admin_delete_redeem_code(code_id):
+    """删除兑换码"""
+    try:
+        redeem = db.session.get(RedeemCode, code_id)
+        
+        if not redeem:
+            return jsonify({'error': '兑换码不存在'}), 404
+        
+        if redeem.is_used:
+            return jsonify({'error': '已使用的兑换码无法删除'}), 400
+        
+        db.session.delete(redeem)
+        db.session.commit()
+        
+        app.logger.info(f'删除兑换码: {redeem.code}')
+        
+        return jsonify({
+            'success': True,
+            'message': '删除成功'
+        }), 200
+    except Exception as e:
+        app.logger.error(f'删除兑换码失败: {e}')
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/redeem-codes/<int:code_id>/toggle', methods=['POST'])
+@admin_required
+def admin_toggle_redeem_code(code_id):
+    """启用/禁用兑换码"""
+    try:
+        redeem = db.session.get(RedeemCode, code_id)
+        
+        if not redeem:
+            return jsonify({'error': '兑换码不存在'}), 404
+        
+        if redeem.is_used:
+            return jsonify({'error': '已使用的兑换码无法操作'}), 400
+        
+        redeem.is_active = not redeem.is_active
+        db.session.commit()
+        
+        status_text = '启用' if redeem.is_active else '禁用'
+        app.logger.info(f'{status_text}兑换码: {redeem.code}')
+        
+        return jsonify({
+            'success': True,
+            'message': f'兑换码已{status_text}'
+        }), 200
+    except Exception as e:
+        app.logger.error(f'切换兑换码状态失败: {e}')
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/orders', methods=['GET'])
+@admin_required  
+def admin_get_orders():
+    """管理员获取所有订单"""
+    try:
+        status = request.args.get('status', 'all')
+        app.logger.info(f'管理员查询订单, status={status}')
+        
+        from sqlalchemy import text
+        
+        # 直接使用SQL查询，避免ORM外键问题
+        if status and status != 'all':
+            sql = text("""
+                SELECT o.*, e.name as user_name 
+                FROM orders o 
+                LEFT JOIN emby e ON o.user_tg = e.tg 
+                WHERE o.payment_status = :status
+                ORDER BY o.created_at DESC 
+                LIMIT 100
+            """)
+            result = db.session.execute(sql, {'status': status})
+        else:
+            sql = text("""
+                SELECT o.*, e.name as user_name 
+                FROM orders o 
+                LEFT JOIN emby e ON o.user_tg = e.tg 
+                ORDER BY o.created_at DESC 
+                LIMIT 100
+            """)
+            result = db.session.execute(sql)
+        
+        orders = []
+        for row in result:
+            row_dict = row._asdict() if hasattr(row, '_asdict') else dict(row._mapping)
+            # 格式化时间
+            if row_dict.get('created_at'):
+                row_dict['created_at'] = row_dict['created_at'].isoformat() if hasattr(row_dict['created_at'], 'isoformat') else str(row_dict['created_at'])
+            if row_dict.get('payment_time'):
+                row_dict['payment_time'] = row_dict['payment_time'].isoformat() if hasattr(row_dict['payment_time'], 'isoformat') else str(row_dict['payment_time'])
+            if row_dict.get('updated_at'):
+                row_dict['updated_at'] = row_dict['updated_at'].isoformat() if hasattr(row_dict['updated_at'], 'isoformat') else str(row_dict['updated_at'])
+            row_dict['user_tg_id'] = row_dict.get('user_tg')
+            orders.append(row_dict)
+        
+        app.logger.info(f'SQL查询到 {len(orders)} 条订单')
+        
+        # 计算统计信息
+        stats_sql = text("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN payment_status = 'pending' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN payment_status = 'paid' THEN 1 ELSE 0 END) as paid,
+                COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN final_price ELSE 0 END), 0) as revenue
+            FROM orders
+        """)
+        stats_result = db.session.execute(stats_sql).fetchone()
+        stats_dict = stats_result._asdict() if hasattr(stats_result, '_asdict') else dict(stats_result._mapping)
+        
+        return jsonify({
+            'success': True,
+            'orders': orders,
+            'stats': {
+                'total': int(stats_dict.get('total') or 0),
+                'pending': int(stats_dict.get('pending') or 0),
+                'paid': int(stats_dict.get('paid') or 0),
+                'revenue': float(stats_dict.get('revenue') or 0)
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取订单失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/subscriptions', methods=['GET'])
+@admin_required
+def admin_get_subscriptions():
+    """管理员获取所有订阅用户（包括白名单和有效期内用户）"""
+    try:
+        status = request.args.get('status', '')
+        now = datetime.now()
+        
+        # 查询所有用户，根据状态筛选
+        if status == 'active':
+            # 生效中：白名单用户(lv='a') 或 有效期内的B级用户
+            users = User.query.filter(
+                db.or_(
+                    User.lv == 'a',
+                    db.and_(User.lv == 'b', User.ex > now)
+                )
+            ).order_by(User.cr.desc()).limit(100).all()
+        elif status == 'expired':
+            # 已过期：B级用户且过期时间已过
+            users = User.query.filter(
+                User.lv == 'b',
+                User.ex <= now
+            ).order_by(User.ex.desc()).limit(100).all()
+        elif status == 'cancelled':
+            # 已取消：C级或D级用户（已禁用或无账号）
+            users = User.query.filter(
+                User.lv.in_(['c', 'd'])
+            ).order_by(User.cr.desc()).limit(100).all()
+        else:
+            # 全部：所有A和B级用户
+            users = User.query.filter(
+                User.lv.in_(['a', 'b'])
+            ).order_by(User.cr.desc()).limit(100).all()
+        
+        # 转换为订阅格式
+        subscriptions = []
+        for user in users:
+            # 判断状态
+            if user.lv == 'a':
+                user_status = 'active'
+                plan_name = '白名单用户'
+                plan_type = 'whitelist'
+            elif user.lv == 'b':
+                if user.ex and user.ex > now:
+                    user_status = 'active'
+                    plan_name = '注册用户'
+                    plan_type = 'registered'
+                else:
+                    user_status = 'expired'
+                    plan_name = '注册用户'
+                    plan_type = 'registered'
+            else:
+                user_status = 'cancelled'
+                plan_name = '已禁用'
+                plan_type = 'disabled'
+            
+            subscriptions.append({
+                'id': user.tg,
+                'user_tg_id': user.tg,
+                'user_name': user.name or f'用户{user.tg}',
+                'plan_type': plan_type,
+                'plan_name': plan_name,
+                'duration_months': '-',
+                'start_date': user.cr.isoformat() if user.cr else None,
+                'end_date': user.ex.isoformat() if user.ex else None,
+                'status': user_status,
+                'days_remaining': (user.ex - now).days if user.ex and user.ex > now else ('永久' if user.lv == 'a' else 0)
+            })
+        
+        # 统计数据
+        total_ab = User.query.filter(User.lv.in_(['a', 'b'])).count()
+        active_count = User.query.filter(
+            db.or_(
+                User.lv == 'a',
+                db.and_(User.lv == 'b', User.ex > now)
+            )
+        ).count()
+        expired_count = User.query.filter(
+            User.lv == 'b',
+            User.ex <= now
+        ).count()
+        
+        return jsonify({
+            'success': True,
+            'subscriptions': subscriptions,
+            'stats': {
+                'total': total_ab,
+                'active': active_count,
+                'expired': expired_count
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取订阅失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/subscriptions/sync', methods=['POST'])
+@admin_required
+def admin_sync_subscriptions():
+    """管理员批量同步订阅记录 - 为有 user.ex 但没有 Subscription 记录的用户补充创建"""
+    try:
+        now = datetime.now()
+        synced_count = 0
+        skipped_count = 0
+        
+        # 查找所有有有效到期时间但没有订阅记录的非白名单用户
+        users_with_ex = User.query.filter(
+            User.lv == 'b',
+            User.ex > now
+        ).all()
+        
+        for user in users_with_ex:
+            # 检查是否已有订阅记录
+            existing_sub = Subscription.query.filter_by(user_tg=user.tg).first()
+            if existing_sub:
+                skipped_count += 1
+                continue
+            
+            # 尝试从订单表找到最近的已支付订单来确定套餐信息
+            recent_order = Order.query.filter_by(
+                user_tg=user.tg,
+                payment_status='paid'
+            ).order_by(Order.payment_time.desc()).first()
+            
+            if recent_order:
+                # 根据订单创建订阅记录
+                subscription = Subscription(
+                    user_tg=user.tg,
+                    plan_type=recent_order.plan_type,
+                    plan_name=recent_order.plan_name,
+                    duration_months=recent_order.duration_months,
+                    price=recent_order.final_price,
+                    start_date=recent_order.payment_time or datetime.now(),
+                    end_date=user.ex,
+                    status='active',
+                    source='purchase'
+                )
+            else:
+                # 没有订单记录，创建一个通用记录
+                subscription = Subscription(
+                    user_tg=user.tg,
+                    plan_type='manual',
+                    plan_name='订阅会员',
+                    duration_months=max(1, (user.ex - now).days // 30),
+                    price=0,
+                    start_date=user.cr or datetime.now(),
+                    end_date=user.ex,
+                    status='active',
+                    source='manual'
+                )
+            
+            db.session.add(subscription)
+            synced_count += 1
+        
+        db.session.commit()
+        app.logger.info(f'批量同步订阅记录: 同步={synced_count}, 跳过(已有记录)={skipped_count}')
+        
+        return jsonify({
+            'success': True,
+            'message': f'同步完成：新增 {synced_count} 条订阅记录，跳过 {skipped_count} 条(已有记录)'
+        }), 200
+    except Exception as e:
+        app.logger.error(f'批量同步订阅记录失败: {e}')
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== 线路管理 API ====================
+
+@app.route('/api/admin/lines', methods=['GET'])
+@admin_required
+def admin_get_lines():
+    """管理员获取所有线路"""
+    try:
+        lines = ServerLine.query.order_by(ServerLine.sort_order.asc(), ServerLine.id.asc()).all()
+        return jsonify({
+            'success': True,
+            'lines': [line.to_dict(include_sensitive=True) for line in lines]
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取线路列表失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/lines', methods=['POST'])
+@admin_required
+def admin_add_line():
+    """管理员添加线路"""
+    try:
+        data = request.get_json()
+        
+        name = data.get('name', '').strip()
+        server_url = data.get('server_url', '').strip()
+        port = data.get('port', 8096)
+        is_https = data.get('is_https', False)
+        description = data.get('description', '').strip()
+        access_level = data.get('access_level', 'whitelist')
+        sort_order = data.get('sort_order', 0)
+        
+        if not name:
+            return jsonify({'success': False, 'error': '线路名称不能为空'}), 400
+        if not server_url:
+            return jsonify({'success': False, 'error': '服务器地址不能为空'}), 400
+        
+        # 验证访问级别
+        if access_level not in ['whitelist', 'subscriber', 'all']:
+            access_level = 'whitelist'
+        
+        line = ServerLine(
+            name=name,
+            server_url=server_url,
+            port=port,
+            is_https=is_https,
+            description=description,
+            access_level=access_level,
+            sort_order=sort_order,
+            is_active=True
+        )
+        
+        db.session.add(line)
+        db.session.commit()
+        
+        app.logger.info(f'管理员添加线路: {name}')
+        
+        return jsonify({
+            'success': True,
+            'message': '线路添加成功',
+            'line': line.to_dict(include_sensitive=True)
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'添加线路失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/lines/<int:line_id>', methods=['PUT'])
+@admin_required
+def admin_update_line(line_id):
+    """管理员更新线路"""
+    try:
+        line = db.session.get(ServerLine, line_id)
+        if not line:
+            return jsonify({'success': False, 'error': '线路不存在'}), 404
+        
+        data = request.get_json()
+        
+        if 'name' in data:
+            line.name = data['name'].strip()
+        if 'server_url' in data:
+            line.server_url = data['server_url'].strip()
+        if 'port' in data:
+            line.port = data['port']
+        if 'is_https' in data:
+            line.is_https = data['is_https']
+        if 'description' in data:
+            line.description = data['description'].strip()
+        if 'access_level' in data:
+            if data['access_level'] in ['whitelist', 'subscriber', 'all']:
+                line.access_level = data['access_level']
+        if 'sort_order' in data:
+            line.sort_order = data['sort_order']
+        if 'is_active' in data:
+            line.is_active = data['is_active']
+        
+        db.session.commit()
+        
+        app.logger.info(f'管理员更新线路: {line.name}')
+        
+        return jsonify({
+            'success': True,
+            'message': '线路更新成功',
+            'line': line.to_dict(include_sensitive=True)
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'更新线路失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/lines/<int:line_id>', methods=['DELETE'])
+@admin_required
+def admin_delete_line(line_id):
+    """管理员删除线路"""
+    try:
+        line = db.session.get(ServerLine, line_id)
+        if not line:
+            return jsonify({'success': False, 'error': '线路不存在'}), 404
+        
+        line_name = line.name
+        db.session.delete(line)
+        db.session.commit()
+        
+        app.logger.info(f'管理员删除线路: {line_name}')
+        
+        return jsonify({
+            'success': True,
+            'message': '线路删除成功'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'删除线路失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/lines', methods=['GET'])
+@login_required
+def get_user_lines():
+    """用户获取可访问的线路信息（根据用户等级返回不同内容）"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'error': '用户不存在'}), 404
+        
+        # 获取用户的Emby账号密码（pwd2 存储 Emby 密码）
+        emby_username = user.name  # Emby用户名
+        emby_password = user.pwd2  # Emby密码（独立于网站密码）
+        
+        # 判断用户权限级别
+        now = datetime.now()
+        is_whitelist = user.lv == 'a'  # 白名单用户
+        is_subscriber = user.lv == 'b' and user.ex and user.ex > now  # 有效订阅用户
+        
+        # 无权限用户（未订阅或已过期）
+        if not is_whitelist and not is_subscriber:
+            return jsonify({
+                'success': True,
+                'has_access': False,
+                'message': '您暂无有效订阅，无法查看线路信息',
+                'lines': [],
+                'account': None
+            }), 200
+        
+        # 获取所有启用的线路
+        lines = ServerLine.query.filter_by(is_active=True).order_by(
+            ServerLine.sort_order.asc(), 
+            ServerLine.id.asc()
+        ).all()
+        
+        accessible_lines = []
+        line_names = []  # 记录线路名称用于日志
+        for line in lines:
+            # 白名单用户可以看所有线路
+            if is_whitelist:
+                accessible_lines.append(line.to_dict(include_sensitive=True))
+                line_names.append(f"{line.name}({'白名单' if line.access_level == 'whitelist' else '普通'})")
+            # 订阅用户只能看subscriber级别及以下的线路
+            elif is_subscriber and line.access_level in ['subscriber', 'all']:
+                accessible_lines.append(line.to_dict(include_sensitive=True))
+                line_names.append(f"{line.name}(普通)")
+        
+        # 记录查看线路日志（只有有权限时记录）
+        user_type = '白名单用户' if is_whitelist else '订阅用户'
+        log_user_activity(UserActivityLog.ACTION_VIEW_LINES, user=user,
+                         detail={
+                             'user_type': user_type,
+                             'lines_count': len(accessible_lines), 
+                             'lines': line_names
+                         })
+        
+        return jsonify({
+            'success': True,
+            'has_access': True,
+            'is_whitelist': is_whitelist,
+            'is_subscriber': is_subscriber,
+            'lines': accessible_lines,
+            'account': {
+                'username': emby_username,
+                'password': emby_password
+            } if emby_username else None
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取线路信息失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/invite-stats', methods=['GET'])
+@admin_required
+def admin_get_invite_stats():
+    """管理员获取邀请统计"""
+    try:
+        from sqlalchemy import func
+        
+        # 总邀请数
+        total_invites = InviteRecord.query.count()
+        
+        # 成功邀请数（已领取奖励）
+        successful_invites = InviteRecord.query.filter_by(reward_claimed=True).count()
+        
+        # 总奖励金额
+        total_rewards = db.session.query(
+            func.sum(InviteRecord.reward_value)
+        ).filter(InviteRecord.reward_claimed == True).scalar() or 0
+        
+        # 邀请记录
+        records = InviteRecord.query.order_by(
+            InviteRecord.created_at.desc()
+        ).limit(100).all()
+        
+        # 邀请排行榜
+        rankings = db.session.query(
+            InviteRecord.inviter_tg,
+            func.count(InviteRecord.id).label('count')
+        ).group_by(InviteRecord.inviter_tg).order_by(
+            func.count(InviteRecord.id).desc()
+        ).limit(10).all()
+        
+        ranking_list = []
+        for inviter_tg, count in rankings:
+            user = User.query.filter_by(tg=inviter_tg).first()
+            ranking_list.append({
+                'tg_id': inviter_tg,
+                'name': user.name if user else f'用户{inviter_tg}',
+                'count': count
+            })
+        
+        # 近30天趋势
+        from datetime import datetime, timedelta
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        daily_stats = db.session.query(
+            func.date(InviteRecord.created_at).label('date'),
+            func.count(InviteRecord.id).label('count')
+        ).filter(
+            InviteRecord.created_at >= thirty_days_ago
+        ).group_by(
+            func.date(InviteRecord.created_at)
+        ).order_by('date').all()
+        
+        trend = [{'date': str(date), 'count': count} for date, count in daily_stats]
+        
+        return jsonify({
+            'success': True,
+            'stats': {
+                'total': total_invites,
+                'successful': successful_invites,
+                'total_rewards': float(total_rewards)
+            },
+            'records': [record.to_dict() for record in records],
+            'rankings': ranking_list,
+            'trend': trend
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取邀请统计失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users', methods=['GET'])
+@admin_required
+def admin_get_users():
+    """管理员获取用户列表（支持分页）"""
+    try:
+        from sqlalchemy import func, or_, cast, String
+        role = request.args.get('role', '')
+        search = request.args.get('search', '').strip()
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        
+        # 构建查询
+        query = User.query
+        
+        # 搜索过滤
+        if search:
+            query = query.filter(
+                or_(
+                    User.name.ilike(f'%{search}%'),
+                    cast(User.tg, String).ilike(f'%{search}%')
+                )
+            )
+        
+        # 统计数据（在筛选前）
+        total_users = User.query.count()
+        all_users_for_stats = User.query.all()
+        admin_users = len([u for u in all_users_for_stats if u.is_admin])
+        
+        # 获取订阅用户数
+        subscribed_users = db.session.query(
+            func.count(func.distinct(Subscription.user_tg))
+        ).filter(Subscription.status == 'active').scalar() or 0
+        
+        # 排序（MySQL 兼容：使用 CASE WHEN 处理 NULL 值排在最后）
+        query = query.order_by(
+            db.case((User.cr.is_(None), 1), else_=0),
+            User.cr.desc()
+        )
+        
+        # 获取所有数据用于角色筛选（因为 is_admin 是计算属性）
+        all_filtered_users = query.all()
+        
+        # 根据角色筛选
+        if role == 'admin':
+            all_filtered_users = [u for u in all_filtered_users if u.is_admin]
+        elif role == 'user':
+            all_filtered_users = [u for u in all_filtered_users if not u.is_admin]
+        
+        # 手动分页
+        total_filtered = len(all_filtered_users)
+        total_pages = (total_filtered + per_page - 1) // per_page
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        paginated_users = all_filtered_users[start_idx:end_idx]
+        
+        # 用户数据
+        user_list = []
+        now = datetime.now()  # 使用不带时区的时间，与数据库一致
+        for user in paginated_users:
+            # 获取该用户的求片数
+            request_count = MovieRequest.query.filter_by(user_tg=user.tg).count()
+            
+            # 订阅状态逻辑：
+            # 1. 白名单用户永远视为已订阅
+            # 2. 有有效到期时间的用户视为已订阅
+            # 3. 其他用户为未订阅
+            subscription_status = 'inactive'
+            subscription_end = None
+            
+            if user.lv == 'a':
+                subscription_status = 'active'
+                subscription_end = None  # 白名单永久有效
+            elif user.ex and user.ex > now:
+                subscription_status = 'active'
+                subscription_end = user.ex.isoformat()
+
+            user_list.append({
+                'id': user.tg,  # 使用 tg 作为用户 ID
+                'name': user.name,
+                'telegram_id': user.telegram_id,  # 只有绑定了才有值
+                'is_admin': user.is_admin,
+                'level': user.lv,
+                'subscription_status': subscription_status,
+                'subscription_end': subscription_end,
+                'request_count': request_count,
+                'created_at': user.cr.isoformat() if user.cr else None
+            })
+        
+        return jsonify({
+            'success': True,
+            'users': user_list,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total_filtered,
+                'total_pages': total_pages,
+                'has_prev': page > 1,
+                'has_next': page < total_pages
+            },
+            'stats': {
+                'total': total_users,
+                'admins': admin_users,
+                'subscribed': subscribed_users
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取用户列表失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/toggle-role', methods=['POST'])
+@admin_required
+def admin_toggle_user_role(user_id):
+    """设置用户等级（a=白名单, b=普通, c=禁用）
+    注意：管理员身份是通过环境变量 ADMIN_USERNAMES 配置的，无法通过 API 修改
+    此 API 只能设置用户等级
+    
+    当设置为 c（禁用）时，会自动：
+    1. 备份当前等级和过期时间
+    2. 禁用 Emby 账号
+    3. 暂停用户订阅
+    """
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        data = request.get_json() or {}
+        new_level = data.get('level')
+        
+        level_names = {'a': '白名单', 'b': '普通用户', 'c': '已禁用', 'd': '无账号'}
+        
+        # 如果指定了新等级，直接设置
+        if new_level and new_level in ['a', 'b', 'c', 'd']:
+            old_level = user.lv or 'd'
+            
+            emby_disabled = False
+            subscription_suspended = False
+            
+            # 如果是封禁操作（设置为 c），备份原状态并禁用 Emby
+            if new_level == 'c' and old_level != 'c':
+                # 备份封禁前的等级和过期时间
+                user.ban_prev_lv = old_level
+                user.ban_prev_ex = user.ex
+                user.ban_time = datetime.now()
+                user.ban_reason = data.get('reason', '管理员手动禁用')
+                
+                # 禁用 Emby 账号
+                if user.embyid and emby_client.is_enabled():
+                    emby_disabled = emby_client.disable_user(user.embyid)
+                
+                # 暂停用户的活跃订阅（设为 suspended 状态）
+                active_subscriptions = Subscription.query.filter_by(
+                    user_tg=user.tg, 
+                    status='active'
+                ).all()
+                for sub in active_subscriptions:
+                    sub.status = 'suspended'
+                    subscription_suspended = True
+            
+            user.lv = new_level
+            db.session.commit()
+            
+            message = f'用户等级已更新为 {level_names.get(user.lv, user.lv)}'
+            if emby_disabled:
+                message += '，Emby 账号已禁用'
+            if subscription_suspended:
+                message += '，订阅已暂停'
+            
+            app.logger.info(f'设置用户等级: {user.name}, {old_level} -> {new_level}, Emby禁用={emby_disabled}, 订阅暂停={subscription_suspended}')
+            
+            # 记录等级变更日志
+            if new_level == 'c':
+                log_user_activity(UserActivityLog.ACTION_ACCOUNT_BANNED, user=user,
+                                 detail={'reason': data.get('reason', '管理员手动禁用'), 'old_level': old_level,
+                                        'emby_disabled': emby_disabled, 'subscription_suspended': subscription_suspended})
+            else:
+                log_user_activity(UserActivityLog.ACTION_LEVEL_CHANGE, user=user,
+                                 detail={'old_level': old_level, 'new_level': new_level, 
+                                        'old_level_name': level_names.get(old_level), 'new_level_name': level_names.get(new_level)})
+            
+            return jsonify({
+                'success': True,
+                'message': message,
+                'old_level': old_level,
+                'new_level': new_level,
+                'emby_disabled': emby_disabled,
+                'subscription_suspended': subscription_suspended
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': '请指定有效的等级（a=白名单, b=普通, c=禁用）'
+            }), 400
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'设置用户等级失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/set-type', methods=['POST'])
+@admin_required
+def admin_set_user_type(user_id):
+    """设置用户类型：白名单用户 / 订阅用户 / 非订阅用户
+    
+    - whitelist: 设为白名单用户 (lv='a')
+    - subscribed: 设为订阅用户 (lv='b' + 赠送指定天数订阅)
+    - normal: 设为非订阅用户 (lv='b' + 清除订阅时间)
+    """
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        data = request.get_json() or {}
+        user_type = data.get('user_type')
+        subscription_days = data.get('subscription_days', 30)  # 默认30天
+        
+        if user_type not in ['whitelist', 'subscribed', 'normal']:
+            return jsonify({'success': False, 'error': '无效的用户类型'}), 400
+        
+        # 验证订阅天数
+        try:
+            subscription_days = int(subscription_days)
+            if subscription_days <= 0:
+                subscription_days = 30
+        except (ValueError, TypeError):
+            subscription_days = 30
+        
+        old_level = user.lv
+        old_ex = user.ex
+        message = ''
+        
+        if user_type == 'whitelist':
+            # 设为白名单用户
+            user.lv = 'a'
+            message = '已设为白名单用户'
+            
+        elif user_type == 'subscribed':
+            # 设为订阅用户：只切换等级，不自动延长时间
+            user.lv = 'b'
+            message = '已设为订阅用户'
+            
+            # 启用 Emby 账号（如果之前被禁用）
+            if user.embyid and emby_client.is_enabled():
+                emby_client.enable_user(user.embyid)
+                
+        elif user_type == 'normal':
+            # 设为非订阅用户：普通等级 + 清除订阅
+            user.lv = 'b'
+            user.ex = None
+            message = '已设为非订阅用户，订阅已清除'
+        
+        db.session.commit()
+        
+        # 记录日志
+        log_user_activity(UserActivityLog.ACTION_LEVEL_CHANGE, user=user,
+                         detail={'action': 'set_user_type', 'user_type': user_type,
+                                'old_level': old_level, 'new_level': user.lv,
+                                'old_ex': str(old_ex) if old_ex else None,
+                                'new_ex': str(user.ex) if user.ex else None,
+                                'subscription_days': subscription_days if user_type == 'subscribed' else None})
+        
+        app.logger.info(f'设置用户类型: {user.name}, type={user_type}, lv={old_level}->{user.lv}, ex={old_ex}->{user.ex}')
+        
+        return jsonify({
+            'success': True,
+            'message': message
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'设置用户类型失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/unban', methods=['POST'])
+@admin_required
+def admin_unban_user(user_id):
+    """解除用户禁用（恢复本地账号和 Emby 账号，恢复原先的等级和到期时间）
+    
+    实时生效：解封后用户立即可以登录和观看
+    """
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        data = request.get_json() or {}
+        restore_original = data.get('restore_original', True)  # 默认恢复原先状态
+        
+        old_level = user.lv
+        restored_info = {}
+        
+        if restore_original and user.ban_prev_lv:
+            # 恢复封禁前的等级
+            user.lv = user.ban_prev_lv
+            restored_info['level'] = user.ban_prev_lv
+            
+            # 恢复封禁前的到期时间（保持原样，不自动延长）
+            if user.ban_prev_ex:
+                user.ex = user.ban_prev_ex
+                restored_info['expires_at'] = user.ban_prev_ex.isoformat()
+            
+            # 清空封禁备份信息
+            user.ban_prev_lv = None
+            user.ban_prev_ex = None
+            user.ban_time = None
+            user.ban_reason = None
+        else:
+            # 没有备份信息，恢复为普通用户
+            new_level = data.get('level', 'b')
+            if new_level not in ['a', 'b']:
+                new_level = 'b'
+            user.lv = new_level
+            restored_info['level'] = new_level
+        
+        # 恢复 Emby 账号
+        emby_restored = False
+        emby_error = None
+        if user.embyid:
+            if emby_client.is_enabled():
+                emby_restored = emby_client.enable_user(user.embyid)
+                if not emby_restored:
+                    emby_error = 'Emby 账号启用失败，请在 Emby 后台手动启用'
+                    app.logger.warning(f'解封用户 {user.name}: Emby 账号启用失败, embyid={user.embyid}')
+            else:
+                emby_error = 'Emby 未配置，请手动启用 Emby 账号'
+                app.logger.warning(f'解封用户 {user.name}: Emby 未配置')
+        else:
+            app.logger.info(f'解封用户 {user.name}: 用户未绑定 Emby 账号')
+        
+        # 恢复用户的暂停订阅（suspended -> active）
+        subscription_restored = False
+        suspended_subscriptions = Subscription.query.filter_by(
+            user_tg=user.tg,
+            status='suspended'
+        ).all()
+        for sub in suspended_subscriptions:
+            sub.status = 'active'
+            subscription_restored = True
+        
+        # 解除该用户所有设备的黑名单状态
+        blocked_devices = UserDevice.query.filter_by(user_tg=user.tg, is_blocked=True).all()
+        unblocked_count = 0
+        for device in blocked_devices:
+            device.is_blocked = False
+            unblocked_count += 1
+        
+        db.session.commit()
+        
+        level_names = {'a': '白名单', 'b': '普通用户', 'c': '禁用', 'd': '无账号'}
+        new_level_name = level_names.get(user.lv, user.lv)
+        
+        app.logger.info(f'解除用户禁用: {user.name}, 等级 {old_level} -> {user.lv}, Emby恢复={emby_restored}, 订阅恢复={subscription_restored}, 解除设备={unblocked_count}')
+        
+        # 记录解封日志
+        log_user_activity(UserActivityLog.ACTION_ACCOUNT_UNBANNED, user=user,
+                         detail={'old_level': old_level, 'new_level': user.lv, 'emby_restored': emby_restored,
+                                'subscription_restored': subscription_restored, 'devices_unblocked': unblocked_count})
+        
+        message = f'用户已解除禁用，等级恢复为{new_level_name}'
+        if 'expires_at' in restored_info:
+            message += f'，到期时间已恢复'
+        if subscription_restored:
+            message += '，订阅已恢复'
+        if emby_error:
+            message += f'\n⚠️ {emby_error}'
+        
+        return jsonify({
+            'success': True,
+            'message': message,
+            'emby_restored': emby_restored,
+            'emby_error': emby_error,
+            'subscription_restored': subscription_restored,
+            'devices_unblocked': unblocked_count,
+            'restored': restored_info
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'解除用户禁用失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/reset-password', methods=['POST'])
+@admin_required
+def admin_reset_user_password(user_id):
+    """管理员重置用户密码"""
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        data = request.get_json() or {}
+        new_password = data.get('password', '')
+        
+        # 如果没有提供密码，生成随机密码
+        if not new_password:
+            import random
+            import string
+            new_password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+        
+        # 验证密码长度
+        if len(new_password) < 6 or len(new_password) > 32:
+            return jsonify({'success': False, 'error': '密码长度必须在6-32个字符之间'}), 400
+        
+        user.pwd = new_password
+        
+        # 更新session_token，使用户的所有会话失效
+        import secrets
+        user.session_token = secrets.token_hex(32)
+        
+        db.session.commit()
+        
+        app.logger.info(f'管理员重置用户密码: {user.name}，用户已被强制退出登录')
+        
+        # 记录操作日志
+        log_user_activity(UserActivityLog.ACTION_PASSWORD_CHANGE, user=user,
+                         detail={'admin_reset': True, 'admin': session.get('admin_username', 'unknown')})
+        
+        return jsonify({
+            'success': True,
+            'message': '密码重置成功',
+            'new_password': new_password  # 返回新密码供管理员告知用户
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'重置用户密码失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/delete', methods=['DELETE'])
+@admin_required
+def admin_delete_user(user_id):
+    """管理员删除用户账号"""
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        # 防止删除管理员账户
+        if user.is_admin:
+            return jsonify({'success': False, 'error': '不能删除管理员账户'}), 400
+        
+        user_name = user.name
+        user_tg = user.tg
+        emby_id = user.embyid
+        
+        # 先删除 Emby 账号（如果有）
+        emby_deleted = False
+        if emby_id and emby_client.is_enabled():
+            try:
+                emby_deleted = emby_client.delete_user(emby_id)
+            except Exception as e:
+                app.logger.warning(f'删除Emby账号失败: {e}')
+        
+        # 删除相关记录
+        # 先删除播放记录（有外键引用 user_devices 和 emby）
+        PlaybackRecord.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+        # 删除用户设备
+        UserDevice.query.filter_by(user_tg=user_tg).delete()
+        # 删除用户订阅
+        Subscription.query.filter_by(user_tg=user_tg).delete()
+        # 删除用户订单
+        Order.query.filter_by(user_tg=user_tg).delete()
+        # 删除下载任务（先删除，因为有外键引用 movie_requests）
+        request_ids = [r.id for r in MovieRequest.query.filter_by(user_tg=user_tg).all()]
+        if request_ids:
+            DownloadTask.query.filter(DownloadTask.request_id.in_(request_ids)).delete(synchronize_session=False)
+        # 删除用户求片记录
+        MovieRequest.query.filter_by(user_tg=user_tg).delete()
+        # 删除用户工单（先删除工单消息）
+        ticket_ids = [t.id for t in SupportTicket.query.filter_by(user_tg=user_tg).all()]
+        if ticket_ids:
+            TicketMessage.query.filter(TicketMessage.ticket_id.in_(ticket_ids)).delete(synchronize_session=False)
+        SupportTicket.query.filter_by(user_tg=user_tg).delete()
+        # 删除邀请记录（作为邀请人和被邀请人）
+        InviteRecord.query.filter((InviteRecord.inviter_tg == user_tg) | (InviteRecord.invitee_tg == user_tg)).delete(synchronize_session=False)
+        # 删除用户活动日志
+        UserActivityLog.query.filter_by(user_tg=user_tg).delete()
+        # 删除签到记录
+        CheckInRecord.query.filter_by(user_tg=user_tg).delete()
+        # 删除积分交易记录
+        CoinTransaction.query.filter_by(user_tg=user_tg).delete()
+        # 删除兑换记录
+        ExchangeRecord.query.filter_by(user_tg=user_tg).delete()
+        # 清除兑换码使用者引用（不删除兑换码本身）
+        RedeemCode.query.filter_by(used_by=user_tg).update({'used_by': None}, synchronize_session=False)
+        
+        # 最后删除用户
+        db.session.delete(user)
+        db.session.commit()
+        
+        app.logger.info(f'管理员删除用户账号: {user_name} (tg={user_tg}, emby_deleted={emby_deleted})')
+        
+        return jsonify({
+            'success': True,
+            'message': f'用户 {user_name} 已删除',
+            'emby_deleted': emby_deleted
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'删除用户账号失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/details', methods=['GET'])
+@admin_required
+def admin_get_user_details(user_id):
+    """管理员获取用户详细信息"""
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        # 获取用户订阅信息
+        subscriptions = Subscription.query.filter_by(user_tg=user.tg).order_by(
+            Subscription.created_at.desc()
+        ).limit(10).all()
+        
+        # 如果没有 Subscription 记录，但用户有有效的到期时间(user.ex)，补充创建一条记录
+        if not subscriptions and user.ex and user.ex > datetime.now():
+            # 尝试从订单表找到最近的已支付订单来确定套餐信息
+            recent_order = Order.query.filter_by(
+                user_tg=user.tg,
+                payment_status='paid'
+            ).order_by(Order.payment_time.desc()).first()
+            
+            if recent_order:
+                # 根据订单创建订阅记录
+                subscription = Subscription(
+                    user_tg=user.tg,
+                    plan_type=recent_order.plan_type,
+                    plan_name=recent_order.plan_name,
+                    duration_months=recent_order.duration_months,
+                    price=recent_order.final_price,
+                    start_date=recent_order.payment_time or datetime.now(),
+                    end_date=user.ex,
+                    status='active',
+                    source='purchase'
+                )
+                db.session.add(subscription)
+                db.session.commit()
+                app.logger.info(f'[管理后台] 自动补充创建订阅记录: 用户={user.name}, 套餐={recent_order.plan_name}')
+                subscriptions = [subscription]
+            elif user.lv != 'a':  # 非白名单用户才补充创建
+                # 没有订单记录，可能是管理员手动设置的，创建一个通用记录
+                subscription = Subscription(
+                    user_tg=user.tg,
+                    plan_type='manual',
+                    plan_name='订阅会员',
+                    duration_months=max(1, (user.ex - datetime.now()).days // 30),
+                    price=0,
+                    start_date=user.cr or datetime.now(),
+                    end_date=user.ex,
+                    status='active',
+                    source='manual'
+                )
+                db.session.add(subscription)
+                db.session.commit()
+                app.logger.info(f'[管理后台] 自动补充创建订阅记录(手动设置): 用户={user.name}')
+                subscriptions = [subscription]
+        
+        # 获取用户订单信息
+        orders = Order.query.filter_by(user_tg=user.tg).order_by(
+            Order.created_at.desc()
+        ).limit(10).all()
+        
+        # 获取用户求片记录
+        requests = MovieRequest.query.filter_by(user_tg=user.tg).order_by(
+            MovieRequest.created_at.desc()
+        ).limit(10).all()
+        
+        # 获取用户设备信息
+        devices = UserDevice.query.filter_by(user_tg=user.tg).order_by(
+            UserDevice.last_active.desc()
+        ).limit(10).all()
+        
+        # 获取邀请记录
+        invite_records = InviteRecord.query.filter_by(inviter_tg=user.tg).order_by(
+            InviteRecord.created_at.desc()
+        ).limit(10).all()
+        
+        # 判断用户等级名称（考虑订阅状态）
+        level_names = {'a': '白名单', 'b': '普通用户', 'c': '已禁用', 'd': '无账号'}
+        if user.lv == 'c':
+            level_name = '已禁用'
+        elif user.lv == 'a':
+            level_name = '白名单'
+        elif user.ex and user.ex > datetime.now():
+            level_name = '订阅用户'
+        else:
+            level_name = '普通用户'
+        
+        # 判断是否是 BOT 管理员
+        config = load_system_config()
+        bot_admins_str = config.get('telegram', {}).get('bot_admins', '')
+        bot_admin_ids = [x.strip() for x in bot_admins_str.split(',') if x.strip()]
+        is_bot_admin = str(user.telegram_id) in bot_admin_ids if user.telegram_id else False
+        
+        # 获取签到配置和积分信息
+        checkin_config = get_db_config('checkin', {})
+        coin_name = checkin_config.get('coin_name', '积分')
+        user_coins = user.coins if hasattr(user, 'coins') else 0
+        
+        return jsonify({
+            'success': True,
+            'coin_name': coin_name,  # 货币名称
+            'user': {
+                'id': user.tg,
+                'name': user.name,
+                'telegram_id': user.telegram_id,  # 只有绑定了才有值
+                'emby_id': user.embyid,
+                'emby_name': user.name if user.embyid else None,  # Emby 用户名
+                'level': user.lv,
+                'level_name': level_name,
+                'is_admin': user.is_admin,
+                'is_bot_admin': is_bot_admin,
+                'coins': user_coins,  # 用户积分
+                'expires_at': user.ex.isoformat() if user.ex else None,
+                'created_at': user.cr.isoformat() if user.cr else None,
+                'invite_count': user.iv or 0,
+                'ban_time': user.ban_time.isoformat() if user.ban_time else None,
+                'ban_reason': user.ban_reason,
+                'ban_prev_lv': user.ban_prev_lv,
+                'ban_prev_ex': user.ban_prev_ex.isoformat() if user.ban_prev_ex else None
+            },
+            'subscriptions': [s.to_dict() for s in subscriptions],
+            'orders': [o.to_dict() for o in orders],
+            'requests': [{
+                'id': r.id,
+                'title': r.title,
+                'year': r.year,
+                'status': r.status,
+                'media_type': r.media_type,
+                'created_at': r.created_at.isoformat() if r.created_at else None
+            } for r in requests],
+            'devices': [{
+                'id': d.id,
+                'device_name': d.device_name,
+                'client': d.client,
+                'last_ip': d.last_ip,
+                'is_blocked': d.is_blocked,
+                'last_active': d.last_active.isoformat() if d.last_active else None
+            } for d in devices],
+            'invites': [{
+                'id': i.id,
+                'invitee_tg': i.invitee_tg,
+                'reward_type': i.reward_type,
+                'reward_value': i.reward_value,
+                'created_at': i.created_at.isoformat() if i.created_at else None
+            } for i in invite_records]
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取用户详情失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/activity-logs', methods=['GET'])
+@admin_required
+def admin_get_user_activity_logs(user_id):
+    """管理员获取用户操作日志"""
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        # 分页参数
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        action_type = request.args.get('action_type', '')  # 可选的操作类型过滤
+        
+        # 查询日志
+        query = UserActivityLog.query.filter_by(user_tg=user.tg)
+        
+        if action_type:
+            query = query.filter_by(action_type=action_type)
+        
+        # 按时间倒序
+        query = query.order_by(UserActivityLog.created_at.desc())
+        
+        # 分页
+        total = query.count()
+        logs = query.offset((page - 1) * per_page).limit(per_page).all()
+        
+        return jsonify({
+            'success': True,
+            'user_name': user.name,
+            'logs': [log.to_dict() for log in logs],
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total,
+                'total_pages': (total + per_page - 1) // per_page
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取用户操作日志失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/activity-logs', methods=['GET'])
+@admin_required
+def admin_get_all_activity_logs():
+    """管理员获取所有操作日志（可筛选）"""
+    try:
+        # 分页参数
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        action_type = request.args.get('action_type', '')
+        user_name = request.args.get('user_name', '')
+        status = request.args.get('status', '')
+        
+        # 构建查询
+        query = UserActivityLog.query
+        
+        if action_type:
+            query = query.filter_by(action_type=action_type)
+        if user_name:
+            query = query.filter(UserActivityLog.user_name.ilike(f'%{user_name}%'))
+        if status:
+            query = query.filter_by(status=status)
+        
+        # 按时间倒序
+        query = query.order_by(UserActivityLog.created_at.desc())
+        
+        # 分页
+        total = query.count()
+        logs = query.offset((page - 1) * per_page).limit(per_page).all()
+        
+        # 可用的操作类型列表
+        action_types = [
+            {'value': 'login', 'label': '登录'},
+            {'value': 'logout', 'label': '登出'},
+            {'value': 'register', 'label': '注册'},
+            {'value': 'password_change', 'label': '修改密码'},
+            {'value': 'request_movie', 'label': '提交求片'},
+            {'value': 'redeem_code', 'label': '兑换码'},
+            {'value': 'create_order', 'label': '创建订单'},
+            {'value': 'payment_success', 'label': '支付成功'},
+            {'value': 'account_banned', 'label': '账号封禁'},
+            {'value': 'account_unbanned', 'label': '账号解封'},
+            {'value': 'level_change', 'label': '等级变更'},
+            {'value': 'view_lines', 'label': '查看线路'},
+        ]
+        
+        return jsonify({
+            'success': True,
+            'logs': [log.to_dict() for log in logs],
+            'action_types': action_types,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total,
+                'total_pages': (total + per_page - 1) // per_page
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取操作日志失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/orders/<order_no>/mark-paid', methods=['POST'])
+@admin_required
+def admin_mark_order_paid(order_no):
+    """管理员标记订单为已支付"""
+    try:
+        order = Order.query.filter_by(order_no=order_no).first()
+        if not order:
+            return jsonify({'success': False, 'error': '订单不存在'}), 404
+        
+        if order.payment_status == 'paid':
+            return jsonify({'success': False, 'error': '订单已经是已支付状态'}), 400
+        
+        # 更新订单状态
+        order.payment_status = 'paid'
+        order.paid_at = datetime.now()
+        order.payment_method = 'manual'  # 标记为人工处理
+        
+        # 创建或延长订阅
+        from datetime import timedelta
+        user_tg = order.user_tg
+        duration_months = order.duration_months or 1
+        
+        # 获取用户
+        user = db.session.get(User, user_tg)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        # 计算订阅结束时间
+        start_date = datetime.now()
+        end_date = start_date + timedelta(days=30 * duration_months)
+        
+        # 查找现有有效订阅
+        existing_sub = Subscription.query.filter_by(
+            user_tg=user_tg,
+            status='active'
+        ).first()
+        
+        if existing_sub:
+            # 延长现有订阅
+            existing_sub.end_date = existing_sub.end_date + timedelta(days=30 * duration_months)
+            existing_sub.duration_months = (existing_sub.duration_months or 0) + duration_months
+            end_date = existing_sub.end_date
+        else:
+            # 创建新订阅
+            new_sub = Subscription(
+                user_tg=user_tg,
+                plan_type=order.plan_type,
+                plan_name=order.plan_name,
+                duration_months=duration_months,
+                price=order.final_price,
+                start_date=start_date,
+                end_date=end_date,
+                status='active',
+                source='purchase'
+            )
+            db.session.add(new_sub)
+        
+        # 更新用户到期时间和等级 - 使用不带时区的时间，与数据库一致
+        now = datetime.now()
+        if user.ex and user.ex > now:
+            # 如果用户还有有效期，在原有基础上延长
+            user.ex = user.ex + timedelta(days=30 * duration_months)
+        else:
+            # 否则从现在开始计算
+            user.ex = now + timedelta(days=30 * duration_months)
+        
+        # 如果是访客等级，升级为注册用户
+        if user.lv == 'a':
+            user.lv = 'b'
+        
+        # 邀请返利：检查是否有邀请人，给邀请人返利购买金额10%的天数
+        invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first()
+        if invite_record and not invite_record.reward_claimed:
+            inviter = db.session.get(User, invite_record.inviter_tg)
+            if inviter:
+                # 计算返利天数：购买天数的10%
+                purchased_days = duration_months * 30
+                reward_days = max(1, int(purchased_days * 0.1))  # 至少1天
+                
+                # 给邀请人增加天数
+                if inviter.ex and inviter.ex > datetime.now():
+                    inviter.ex = inviter.ex + timedelta(days=reward_days)
+                else:
+                    inviter.ex = datetime.now() + timedelta(days=reward_days)
+                
+                # 更新邀请记录
+                invite_record.reward_type = 'days'
+                invite_record.reward_value = (invite_record.reward_value or 0) + reward_days
+                invite_record.reward_claimed = True
+                
+                app.logger.info(f'手工标记付款-邀请返利: 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}')
+        
+        db.session.commit()
+        
+        app.logger.info(f'管理员手动标记订单 {order_no} 为已支付，用户 {user.name} 订阅已生效，到期时间: {user.ex}')
+        
+        return jsonify({
+            'success': True,
+            'message': '订单已标记为已支付，订阅已生效'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'标记订单已支付失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/orders/<order_no>/cancel', methods=['POST'])
+@admin_required
+def admin_cancel_order(order_no):
+    """管理员取消订单"""
+    try:
+        from sqlalchemy import text
+        
+        # 使用SQL查询订单
+        result = db.session.execute(
+            text("SELECT * FROM orders WHERE order_no = :order_no"),
+            {'order_no': order_no}
+        ).fetchone()
+        
+        if not result:
+            return jsonify({'success': False, 'error': '订单不存在'}), 404
+        
+        row = result._asdict() if hasattr(result, '_asdict') else dict(result._mapping)
+        
+        if row.get('payment_status') == 'paid':
+            return jsonify({'success': False, 'error': '已支付订单无法取消'}), 400
+        
+        if row.get('payment_status') == 'cancelled':
+            return jsonify({'success': False, 'error': '订单已经是取消状态'}), 400
+        
+        # 更新订单状态为取消
+        db.session.execute(
+            text("UPDATE orders SET payment_status = 'cancelled', updated_at = NOW() WHERE order_no = :order_no"),
+            {'order_no': order_no}
+        )
+        db.session.commit()
+        
+        app.logger.info(f'管理员取消订单 {order_no}')
+        
+        return jsonify({
+            'success': True,
+            'message': '订单已取消'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'取消订单失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/gift-subscription', methods=['POST'])
+@admin_required
+def admin_gift_subscription(user_id):
+    """管理员赠送订阅"""
+    try:
+        data = request.get_json()
+        plan_type = data.get('plan_type', 'basic')
+        duration_days = data.get('duration_days')  # 优先使用天数
+        duration_months = data.get('duration_months', 1)
+        
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        from datetime import timedelta
+        
+        # 计算赠送天数（优先使用传入的天数，否则按月计算）
+        if duration_days and int(duration_days) > 0:
+            gift_days = int(duration_days)
+        else:
+            gift_days = 30 * duration_months
+        now = datetime.now()  # 使用 timezone-naive datetime 以保持一致
+        
+        plan_names = {
+            'basic': '基础版',
+            'standard': '标准版',
+            'premium': '高级版'
+        }
+        
+        # 立即生效，在现有到期时间基础上叠加
+        start_date = now
+        if user.ex and user.ex > now:
+            # 用户有未过期的到期时间，在此基础上叠加
+            end_date = user.ex + timedelta(days=gift_days)
+        else:
+            # 用户没有有效期或已过期，从今天开始
+            end_date = now + timedelta(days=gift_days)
+        
+        # 创建订阅记录
+        gift_record = Subscription(
+            user_tg=user.tg,
+            plan_type=plan_type,
+            plan_name=plan_names.get(plan_type, '基础版'),
+            duration_months=duration_months,
+            price=0,  # 赠送的免费
+            start_date=start_date,
+            end_date=end_date,
+            status='active',
+            source='gift'  # 标记为管理员赠送
+        )
+        db.session.add(gift_record)
+        
+        # 更新用户的到期时间
+        user.ex = end_date
+        
+        # 确保用户等级为B（普通用户），但不降级白名单用户
+        if user.lv not in ['a']:
+            user.lv = 'b'
+        
+        db.session.commit()
+        
+        # 恢复Emby账号（如果之前因过期被禁用）
+        if user.embyid and emby_client.is_enabled():
+            if emby_client.enable_user(user.embyid):
+                app.logger.info(f'用户 {user.name} 获赠订阅，已恢复Emby账号')
+        
+        app.logger.info(f'管理员赠送订阅: 用户={user.name}, 套餐={plan_type}, 天数={gift_days}, 新到期时间={user.ex}')
+        
+        # 记录操作日志
+        log_user_activity(UserActivityLog.ACTION_SUBSCRIPTION_GIFT, user=user,
+                         detail={'action': 'gift_subscription', 'plan_type': plan_type,
+                                'gift_days': gift_days, 'new_ex': str(user.ex)})
+        
+        return jsonify({
+            'success': True,
+            'message': f'已为用户赠送 {gift_days} 天订阅，到期时间：{user.ex.strftime("%Y-%m-%d %H:%M")}'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'赠送订阅失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/reduce-subscription', methods=['POST'])
+@admin_required
+def admin_reduce_subscription(user_id):
+    """管理员减少订阅时间"""
+    try:
+        data = request.get_json()
+        duration_days = data.get('duration_days', 0)
+        
+        if not duration_days or int(duration_days) <= 0:
+            return jsonify({'success': False, 'error': '请输入有效的天数'}), 400
+        
+        reduce_days = int(duration_days)
+        
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        from datetime import timedelta
+        now = datetime.now()
+        
+        # 检查用户是否有有效订阅
+        if not user.ex or user.ex <= now:
+            return jsonify({'success': False, 'error': '用户当前没有有效订阅'}), 400
+        
+        # 计算减少后的到期时间
+        new_ex = user.ex - timedelta(days=reduce_days)
+        
+        # 如果减少后的时间早于当前时间，则设为当前时间（立即过期）
+        if new_ex <= now:
+            new_ex = now
+            message = f'已减少 {reduce_days} 天订阅，用户订阅已过期'
+        else:
+            remaining_days = (new_ex - now).days
+            message = f'已减少 {reduce_days} 天订阅，剩余 {remaining_days} 天，到期时间：{new_ex.strftime("%Y-%m-%d %H:%M")}'
+        
+        user.ex = new_ex
+        db.session.commit()
+        
+        # 如果订阅已过期，禁用Emby账号
+        if new_ex <= now and user.embyid and emby_client.is_enabled():
+            emby_client.disable_user(user.embyid)
+            emby_client.kill_user_sessions(user.embyid)
+            app.logger.info(f'用户 {user.name} 订阅过期，已禁用Emby账号')
+        
+        app.logger.info(f'管理员减少订阅: 用户={user.name}, 减少天数={reduce_days}, 新到期时间={user.ex}')
+        
+        # 记录操作日志
+        log_user_activity(UserActivityLog.ACTION_SUBSCRIPTION_REDUCE, user=user,
+                         detail={'action': 'reduce_subscription', 'reduce_days': reduce_days,
+                                'new_ex': str(user.ex), 'expired': new_ex <= now})
+        
+        return jsonify({
+            'success': True,
+            'message': message
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'减少订阅失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/adjust-coins', methods=['POST'])
+@admin_required
+def admin_adjust_coins(user_id):
+    """管理员调整用户积分"""
+    try:
+        data = request.get_json()
+        adjust_type = data.get('action')  # 'add' or 'reduce'
+        amount = data.get('amount', 0)
+        reason = data.get('reason', '')
+        
+        if adjust_type not in ['add', 'reduce']:
+            return jsonify({'success': False, 'error': '无效的操作类型'}), 400
+        
+        if not amount or int(amount) <= 0:
+            return jsonify({'success': False, 'error': '请输入有效的数量'}), 400
+        
+        amount = int(amount)
+        
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        # 获取积分名称
+        config = load_system_config()
+        checkin_config = config.get('checkin', {})
+        coin_name = checkin_config.get('coin_name', '积分')
+        
+        old_coins = user.coins or 0
+        
+        if adjust_type == 'add':
+            user.coins = old_coins + amount
+            action_name = '增加'
+        else:
+            if old_coins < amount:
+                return jsonify({'success': False, 'error': f'用户{coin_name}不足，当前仅有 {old_coins}'}), 400
+            user.coins = old_coins - amount
+            action_name = '减少'
+        
+        # 构建描述信息
+        description = f'管理员{action_name}{amount}{coin_name}'
+        if reason:
+            description += f' - {reason}'
+        
+        # 记录积分交易
+        transaction = CoinTransaction(
+            user_tg=user.tg,
+            amount=amount if adjust_type == 'add' else -amount,
+            trans_type='admin_adjust',
+            description=description,
+            balance_after=user.coins
+        )
+        db.session.add(transaction)
+        db.session.commit()
+        
+        app.logger.info(f'管理员调整{coin_name}: 用户={user.name}, 操作={action_name}, 数量={amount}, 原余额={old_coins}, 新余额={user.coins}')
+        
+        # 记录操作日志
+        log_user_activity(UserActivityLog.ACTION_COIN_CHANGE, user=user,
+                         detail={'action': 'admin_adjust', 'type': adjust_type,
+                                'amount': amount, 'old_coins': old_coins,
+                                'new_coins': user.coins, 'reason': reason,
+                                'coin_name': coin_name})
+        
+        return jsonify({
+            'success': True,
+            'message': f'已{action_name} {amount} {coin_name}，当前余额：{user.coins}',
+            'new_balance': user.coins
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'调整积分失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# 配置检查
+def check_config():
+    """检查关键配置项"""
+    issues = []
+    
+    # 从数据库加载配置检查
+    config = load_system_config()
+    admin_config = config.get('admin', {})
+    telegram_config = config.get('telegram', {})
+    tmdb_config = config.get('tmdb', {})
+    
+    if not tmdb_config.get('api_key') and not TMDB_API_KEY:
+        issues.append('TMDB_API_KEY 未配置，影片搜索功能将不可用')
+    
+    if not admin_config.get('username') or not admin_config.get('password'):
+        issues.append('管理员账号密码未配置，请在后台设置或 .env 文件中配置')
+    
+    if not admin_config.get('secret_path') or admin_config.get('secret_path') == 'admin-secret-path':
+        issues.append('管理后台安全入口未配置，请在后台设置或 .env 文件中配置')
+    
+    if not telegram_config.get('bot_token') and not TELEGRAM_BOT_TOKEN:
+        issues.append('Telegram 通知未配置，求片通知将不会发送')
+    
+    if issues:
+        app.logger.warning('配置检查发现以下问题:')
+        for issue in issues:
+            app.logger.warning(f'  - {issue}')
+    else:
+        app.logger.info('所有关键配置项检查通过 ✓')
+
+
+# 数据库迁移：添加缺失的列
+def migrate_database():
+    """检查并添加数据库中缺失的列"""
+    
+    # 检测数据库类型
+    is_mysql = 'mysql' in str(db.engine.url).lower()
+    
+    # 辅助函数：检查表是否存在
+    def table_exists(table_name):
+        try:
+            if is_mysql:
+                result = db.session.execute(db.text(f"""
+                    SELECT COUNT(*) FROM information_schema.tables 
+                    WHERE table_schema = DATABASE() AND table_name = '{table_name}'
+                """)).fetchone()
+                return result[0] > 0
+            else:
+                result = db.session.execute(db.text(f"""
+                    SELECT COUNT(*) FROM sqlite_master 
+                    WHERE type='table' AND name='{table_name}'
+                """)).fetchone()
+                return result[0] > 0
+        except:
+            return False
+    
+    # 辅助函数：检查列是否存在（使用直接查询方式）
+    def column_exists(table_name, column_name):
+        try:
+            if is_mysql:
+                # 方法1：使用 information_schema
+                result = db.session.execute(db.text(f"""
+                    SELECT COUNT(*) FROM information_schema.columns 
+                    WHERE table_schema = DATABASE() 
+                    AND table_name = '{table_name}' 
+                    AND column_name = '{column_name}'
+                """)).fetchone()
+                if result[0] > 0:
+                    return True
+                # 方法2：尝试直接 SELECT 该列（作为备用检测）
+                try:
+                    db.session.execute(db.text(f"SELECT `{column_name}` FROM `{table_name}` LIMIT 0"))
+                    return True
+                except:
+                    return False
+            else:
+                result = db.session.execute(db.text(f"PRAGMA table_info({table_name})")).fetchall()
+                return any(row[1] == column_name for row in result)
+        except Exception as e:
+            app.logger.warning(f'检查列存在性失败 ({table_name}.{column_name}): {e}')
+            return False
+    
+    migrations = [
+        # (表名, 列名, 列定义 for MySQL, 列定义 for SQLite)
+        ('emby', 'telegram_id', 'BIGINT NULL UNIQUE'),
+        ('emby', 'is_banned', 'TINYINT(1) DEFAULT 0'),
+        ('emby', 'ban_reason', 'VARCHAR(500) NULL'),
+        ('emby', 'invited_by', 'INTEGER NULL'),
+        ('emby', 'invite_count', 'INTEGER DEFAULT 0'),
+        ('emby', 'invite_reward_days', 'INTEGER DEFAULT 0'),
+        ('emby', 'session_token', 'VARCHAR(64) NULL'),  # 用于强制用户退出登录
+        # 工单表新字段
+        ('support_tickets', 'last_reply_by', "VARCHAR(20) DEFAULT 'user'"),
+        ('support_tickets', 'last_reply_at', 'DATETIME NULL'),
+        # 订阅表来源字段
+        ('subscriptions', 'source', "VARCHAR(20) DEFAULT 'purchase'"),
+    ]
+    
+    app.logger.info('开始检查数据库迁移...')
+    app.logger.info(f'数据库类型: {"MySQL" if is_mysql else "SQLite"}')
+    
+    for table, column, definition in migrations:
+        try:
+            # 先检查表是否存在
+            if not table_exists(table):
+                app.logger.info(f'数据库迁移: 表 {table} 不存在，跳过列 {column}')
+                continue
+            
+            # 检查列是否已存在
+            exists = column_exists(table, column)
+            app.logger.info(f'数据库迁移: 检查列 {table}.{column} 是否存在: {exists}')
+            if exists:
+                continue
+            
+            # 添加列
+            try:
+                sql = f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+                app.logger.info(f'数据库迁移: 执行SQL: {sql}')
+                db.session.execute(db.text(sql))
+                db.session.commit()
+                app.logger.info(f'数据库迁移: 成功添加列 {table}.{column}')
+            except Exception as add_err:
+                db.session.rollback()
+                err_str = str(add_err).lower()
+                # 如果是因为列已存在，忽略错误
+                if 'duplicate' in err_str or 'already exists' in err_str or 'duplicate column' in err_str:
+                    app.logger.info(f'数据库迁移: 列 {table}.{column} 已存在（通过异常检测）')
+                else:
+                    app.logger.error(f'数据库迁移失败 ({table}.{column}): {add_err}')
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f'数据库迁移异常 ({table}.{column}): {e}')
+    
+    # 签到系统表迁移
+    _migrate_checkin_system()
+    
+    app.logger.info('数据库迁移检查完成')
+
+
+def _migrate_checkin_system():
+    """签到系统数据库迁移"""
+    try:
+        app.logger.info('开始签到系统迁移...')
+        
+        # 检测数据库类型
+        is_mysql = 'mysql' in str(db.engine.url).lower()
+        auto_increment = 'AUTO_INCREMENT' if is_mysql else 'AUTOINCREMENT'
+        
+        # 辅助函数：检查表是否存在
+        def table_exists(table_name):
+            try:
+                if is_mysql:
+                    result = db.session.execute(db.text(f"""
+                        SELECT COUNT(*) FROM information_schema.tables 
+                        WHERE table_schema = DATABASE() AND table_name = '{table_name}'
+                    """)).fetchone()
+                    return result[0] > 0
+                else:
+                    result = db.session.execute(db.text(f"""
+                        SELECT COUNT(*) FROM sqlite_master 
+                        WHERE type='table' AND name='{table_name}'
+                    """)).fetchone()
+                    return result[0] > 0
+            except:
+                return False
+        
+        # 辅助函数：检查列是否存在
+        def column_exists(table_name, column_name):
+            try:
+                if is_mysql:
+                    result = db.session.execute(db.text(f"""
+                        SELECT COUNT(*) FROM information_schema.columns 
+                        WHERE table_schema = DATABASE() 
+                        AND table_name = '{table_name}' 
+                        AND column_name = '{column_name}'
+                    """)).fetchone()
+                    return result[0] > 0
+                else:
+                    result = db.session.execute(db.text(f"PRAGMA table_info({table_name})")).fetchall()
+                    return any(row[1] == column_name for row in result)
+            except:
+                return False
+        
+        # 1. 给 emby 表添加 coins 字段
+        if not column_exists('emby', 'coins'):
+            try:
+                db.session.execute(
+                    db.text("ALTER TABLE emby ADD COLUMN coins INTEGER DEFAULT 0")
+                )
+                db.session.commit()
+                app.logger.info('签到系统迁移: 成功添加 emby.coins 字段')
+            except Exception as e:
+                db.session.rollback()
+                if 'duplicate' not in str(e).lower() and 'already exists' not in str(e).lower():
+                    app.logger.warning(f'添加 coins 字段警告: {e}')
+        
+        # 2. 创建签到记录表
+        if not table_exists('checkin_records'):
+            try:
+                db.session.execute(db.text(f"""
+                    CREATE TABLE IF NOT EXISTS checkin_records (
+                        id INTEGER PRIMARY KEY {auto_increment},
+                        user_tg BIGINT NOT NULL,
+                        checkin_date DATE NOT NULL,
+                        coins_earned INTEGER NOT NULL,
+                        continuous_days INTEGER DEFAULT 1,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_tg, checkin_date),
+                        FOREIGN KEY (user_tg) REFERENCES emby (tg) ON DELETE CASCADE
+                    )
+                """))
+                db.session.commit()
+                app.logger.info('签到系统迁移: 成功创建 checkin_records 表')
+            except Exception as e:
+                db.session.rollback()
+                if 'already exists' not in str(e).lower():
+                    app.logger.warning(f'创建 checkin_records 表警告: {e}')
+        
+        # 3. 创建积分交易记录表
+        if not table_exists('coin_transactions'):
+            try:
+                db.session.execute(db.text(f"""
+                    CREATE TABLE IF NOT EXISTS coin_transactions (
+                        id INTEGER PRIMARY KEY {auto_increment},
+                        user_tg BIGINT NOT NULL,
+                        amount INTEGER NOT NULL,
+                        balance_after INTEGER NOT NULL,
+                        trans_type VARCHAR(50) NOT NULL,
+                        description TEXT,
+                        related_id INTEGER,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_tg) REFERENCES emby (tg) ON DELETE CASCADE
+                    )
+                """))
+                db.session.commit()
+                app.logger.info('签到系统迁移: 成功创建 coin_transactions 表')
+            except Exception as e:
+                db.session.rollback()
+                if 'already exists' not in str(e).lower():
+                    app.logger.warning(f'创建 coin_transactions 表警告: {e}')
+        
+        # 4. 创建兑换记录表
+        if not table_exists('exchange_records'):
+            try:
+                db.session.execute(db.text(f"""
+                    CREATE TABLE IF NOT EXISTS exchange_records (
+                        id INTEGER PRIMARY KEY {auto_increment},
+                        user_tg BIGINT NOT NULL,
+                        plan_id VARCHAR(50) NOT NULL,
+                        plan_name VARCHAR(100) NOT NULL,
+                        coins_cost INTEGER NOT NULL,
+                        duration_days INTEGER NOT NULL,
+                        status VARCHAR(20) DEFAULT 'completed',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_tg) REFERENCES emby (tg) ON DELETE CASCADE
+                    )
+                """))
+                db.session.commit()
+                app.logger.info('签到系统迁移: 成功创建 exchange_records 表')
+            except Exception as e:
+                db.session.rollback()
+                if 'already exists' not in str(e).lower():
+                    app.logger.warning(f'创建 exchange_records 表警告: {e}')
+        
+        # 5. 创建索引
+        # MySQL 不支持 IF NOT EXISTS，需要分别处理
+        if is_mysql:
+            indexes = [
+                ("idx_checkin_user_date", "checkin_records", "(user_tg, checkin_date)"),
+                ("idx_checkin_date", "checkin_records", "(checkin_date)"),
+                ("idx_transaction_user", "coin_transactions", "(user_tg, created_at)"),
+                ("idx_transaction_type", "coin_transactions", "(trans_type)"),
+                ("idx_exchange_user", "exchange_records", "(user_tg, created_at)")
+            ]
+            
+            for index_name, table_name, columns in indexes:
+                try:
+                    # MySQL: 先检查索引是否存在
+                    result = db.session.execute(db.text(f"""
+                        SELECT COUNT(*) as cnt 
+                        FROM information_schema.statistics 
+                        WHERE table_schema = DATABASE() 
+                        AND table_name = '{table_name}' 
+                        AND index_name = '{index_name}'
+                    """)).fetchone()
+                    
+                    if result[0] == 0:  # 索引不存在
+                        db.session.execute(db.text(f"CREATE INDEX {index_name} ON {table_name}{columns}"))
+                        db.session.commit()
+                except Exception as e:
+                    db.session.rollback()
+                    if 'duplicate' not in str(e).lower() and 'already exists' not in str(e).lower():
+                        app.logger.warning(f'创建索引 {index_name} 警告: {e}')
+        else:
+            # SQLite 支持 IF NOT EXISTS
+            indexes = [
+                "CREATE INDEX IF NOT EXISTS idx_checkin_user_date ON checkin_records(user_tg, checkin_date)",
+                "CREATE INDEX IF NOT EXISTS idx_checkin_date ON checkin_records(checkin_date)",
+                "CREATE INDEX IF NOT EXISTS idx_transaction_user ON coin_transactions(user_tg, created_at)",
+                "CREATE INDEX IF NOT EXISTS idx_transaction_type ON coin_transactions(trans_type)",
+                "CREATE INDEX IF NOT EXISTS idx_exchange_user ON exchange_records(user_tg, created_at)"
+            ]
+            
+            for index_sql in indexes:
+                try:
+                    db.session.execute(db.text(index_sql))
+                    db.session.commit()
+                except Exception as e:
+                    db.session.rollback()
+                    if 'already exists' not in str(e).lower():
+                        app.logger.warning(f'创建索引警告: {e}')
+        
+        app.logger.info('签到系统迁移完成 ✓')
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'签到系统迁移失败: {e}', exc_info=True)
+
+
+# 初始化数据库
+def init_db():
+    global db_initialized
+    if db_initialized:
+        return
+    with app.app_context():
+        try:
+            # 只创建movie_requests表，emby表已经存在
+            db.create_all()
+            app.logger.info('数据库初始化成功')
+            
+            # 执行数据库迁移（添加缺失的列）
+            migrate_database()
+            
+            # 初始化管理员配置
+            admin_config = init_admin_config()
+            secret_path = admin_config.get('admin', {}).get('secret_path')
+            if secret_path:
+                app.logger.info(f"管理后台入口: /{secret_path}")
+            
+            # 重新从数据库加载配置到全局变量（确保数据库中的配置生效）
+            update_global_system_config()
+            app.logger.info('系统配置已从数据库加载')
+            
+            # 检查配置
+            check_config()
+            db_initialized = True
+        except Exception as e:
+            app.logger.error(f'数据库初始化失败: {e}', exc_info=True)
+            raise
+
+
+download_monitor = DownloadMonitor(app, DOWNLOAD_POLL_INTERVAL)
+
+
+def auto_close_inactive_tickets():
+    """自动关闭3天内管理员回复后用户未回复的工单"""
+    try:
+        with app.app_context():
+            three_days_ago = datetime.now() - timedelta(days=3)
+            
+            # 查找处理中状态且管理员回复后3天用户未回复的工单
+            tickets_to_close = SupportTicket.query.filter(
+                SupportTicket.status == 'in_progress',
+                SupportTicket.last_reply_by == 'admin',
+                SupportTicket.last_reply_at < three_days_ago
+            ).all()
+            
+            closed_count = 0
+            for ticket in tickets_to_close:
+                ticket.status = 'closed'
+                ticket.resolved_at = datetime.now()
+                closed_count += 1
+                app.logger.info(f'自动关闭工单: {ticket.ticket_no} (3天未回复)')
+            
+            if closed_count > 0:
+                db.session.commit()
+                app.logger.info(f'自动关闭了 {closed_count} 个超时工单')
+    except Exception as e:
+        app.logger.error(f'自动关闭工单失败: {e}', exc_info=True)
+
+
+# 工单自动关闭检查的时间戳
+last_ticket_check_time = None
+
+
+def bootstrap_background_tasks():
+    """初始化数据库并启动下载监控"""
+    global download_monitor_started, last_ticket_check_time
+    if download_monitor_started:
+        return
+
+    try:
+        init_db()
+    except Exception:
+        pass
+
+    should_start = True
+    if app.debug:
+        should_start = os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
+    if should_start:
+        download_monitor.start()
+        download_monitor_started = True
+
+
+download_monitor_started = False
+last_subscription_check_time = None
+
+
+def check_expired_subscriptions():
+    """检查订阅到期用户并禁用/删除其Emby账号"""
+    try:
+        with app.app_context():
+            now = datetime.now()
+            
+            # 获取订阅过期配置
+            config = load_system_config()
+            expire_config = config.get('subscription_expire', {})
+            auto_disable = expire_config.get('auto_disable', True)
+            delete_days = expire_config.get('delete_days', 0)
+            delete_web_account = expire_config.get('delete_web_account', False)
+            
+            # 查找需要禁用的用户：
+            # 1. 普通用户(lv='b') + 有Emby账号
+            # 2. 订阅已过期(ex < now) 或 从未订阅(ex=None)
+            from sqlalchemy import or_
+            expired_users = User.query.filter(
+                User.lv == 'b',  # 普通用户
+                User.embyid.isnot(None),  # 有Emby账号
+                or_(
+                    User.ex.is_(None),  # 从未订阅
+                    User.ex < now  # 已过期
+                )
+            ).all()
+            
+            if not expired_users:
+                return
+            
+            app.logger.info(f'[订阅检查] 发现 {len(expired_users)} 个无有效订阅用户')
+            
+            disabled_count = 0
+            emby_deleted_count = 0
+            web_deleted_count = 0
+            
+            for user in expired_users:
+                try:
+                    # 计算过期天数（如果 ex 为 None，视为刚刚过期）
+                    days_expired = (now - user.ex).days if user.ex else 0
+                    
+                    # 如果配置了删除天数，且过期超过该天数，则删除 Emby 账号
+                    if delete_days > 0 and user.ex and days_expired >= delete_days:
+                        user_name = user.name
+                        user_tg = user.tg
+                        emby_id = user.embyid
+                        
+                        # 删除 Emby 账号
+                        if emby_id and emby_client.is_enabled():
+                            try:
+                                emby_client.delete_user(emby_id)
+                                emby_deleted_count += 1
+                                app.logger.info(f'[订阅检查] 已删除Emby账号: {user_name}')
+                            except Exception as e:
+                                app.logger.warning(f'[订阅检查] 删除Emby账号失败: {e}')
+                        
+                        # 如果配置了同时删除网站账号
+                        if delete_web_account:
+                            # 删除相关记录
+                            # 先删除播放记录（有外键引用 user_devices 和 emby）
+                            PlaybackRecord.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+                            UserDevice.query.filter_by(user_tg=user_tg).delete()
+                            Subscription.query.filter_by(user_tg=user_tg).delete()
+                            Order.query.filter_by(user_tg=user_tg).delete()
+                            # 删除下载任务（先删除，因为有外键引用 movie_requests）
+                            request_ids = [r.id for r in MovieRequest.query.filter_by(user_tg=user_tg).all()]
+                            if request_ids:
+                                DownloadTask.query.filter(DownloadTask.request_id.in_(request_ids)).delete(synchronize_session=False)
+                            MovieRequest.query.filter_by(user_tg=user_tg).delete()
+                            # 删除工单（先删除工单消息）
+                            ticket_ids = [t.id for t in SupportTicket.query.filter_by(user_tg=user_tg).all()]
+                            if ticket_ids:
+                                TicketMessage.query.filter(TicketMessage.ticket_id.in_(ticket_ids)).delete(synchronize_session=False)
+                            SupportTicket.query.filter_by(user_tg=user_tg).delete()
+                            InviteRecord.query.filter((InviteRecord.inviter_tg == user_tg) | (InviteRecord.invitee_tg == user_tg)).delete(synchronize_session=False)
+                            UserActivityLog.query.filter_by(user_tg=user_tg).delete()
+                            # 删除签到记录
+                            CheckInRecord.query.filter_by(user_tg=user_tg).delete()
+                            # 删除积分交易记录
+                            CoinTransaction.query.filter_by(user_tg=user_tg).delete()
+                            # 删除兑换记录
+                            ExchangeRecord.query.filter_by(user_tg=user_tg).delete()
+                            # 清除兑换码使用者引用
+                            RedeemCode.query.filter_by(used_by=user_tg).update({'used_by': None}, synchronize_session=False)
+                            
+                            # 删除用户
+                            db.session.delete(user)
+                            web_deleted_count += 1
+                            app.logger.info(f'[订阅检查] 已删除网站账号: {user_name} (过期{days_expired}天)')
+                        else:
+                            # 只清除 Emby 绑定信息，保留网站账号
+                            user.embyid = None
+                            user.name = None
+                            user.pwd2 = None
+                            app.logger.info(f'[订阅检查] 已解绑Emby账号: {user_name} (过期{days_expired}天)，网站账号保留')
+                        
+                        db.session.commit()
+                    
+                    # 否则只禁用账号（如果启用了自动禁用）
+                    elif auto_disable:
+                        if emby_client.is_enabled() and emby_client.disable_user(user.embyid):
+                            # 同时踢出该用户的所有播放会话
+                            emby_client.kill_user_sessions(user.embyid)
+                            disabled_count += 1
+                            app.logger.info(f'[订阅检查] 已禁用过期用户Emby账号: {user.name} (过期时间: {user.ex})')
+                            
+                except Exception as e:
+                    app.logger.error(f'[订阅检查] 处理用户 {user.name} 失败: {e}')
+            
+            if disabled_count > 0:
+                app.logger.info(f'[订阅检查] 本次共禁用 {disabled_count} 个过期用户的Emby账号')
+            if emby_deleted_count > 0:
+                app.logger.info(f'[订阅检查] 本次共删除 {emby_deleted_count} 个Emby账号')
+            if web_deleted_count > 0:
+                app.logger.info(f'[订阅检查] 本次共删除 {web_deleted_count} 个网站账号')
+                
+    except Exception as e:
+        app.logger.error(f'[订阅检查] 检查过期订阅失败: {e}')
+
+
+@app.before_request
+def ensure_background_tasks():
+    global last_ticket_check_time, last_subscription_check_time
+    bootstrap_background_tasks()
+    
+    now = datetime.now()
+    
+    # 每小时检查一次工单自动关闭（避免频繁检查）
+    if last_ticket_check_time is None or (now - last_ticket_check_time).total_seconds() > 3600:
+        last_ticket_check_time = now
+        # 在后台线程中执行，避免阻塞请求
+        from threading import Thread
+        Thread(target=auto_close_inactive_tickets, daemon=True).start()
+    
+    # 每6小时检查一次订阅过期（禁用Emby账号）
+    if last_subscription_check_time is None or (now - last_subscription_check_time).total_seconds() > 21600:
+        last_subscription_check_time = now
+        from threading import Thread
+        Thread(target=check_expired_subscriptions, daemon=True).start()
+
+
+# ==================== 设备黑名单管理 API ====================
+@app.route('/api/admin/device-blacklist', methods=['GET'])
+@admin_required
+def get_device_blacklist():
+    """获取所有黑名单规则"""
+    try:
+        rules = DeviceBlacklist.query.order_by(DeviceBlacklist.created_at.desc()).all()
+        return jsonify({
+            'success': True,
+            'rules': [rule.to_dict() for rule in rules]
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取黑名单规则失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/device-blacklist', methods=['POST'])
+@admin_required
+def create_blacklist_rule():
+    """创建黑名单规则"""
+    try:
+        data = request.json
+        
+        rule = DeviceBlacklist(
+            rule_name=data.get('rule_name', ''),
+            client_pattern=data.get('client_pattern', ''),
+            device_name_pattern=data.get('device_name_pattern', ''),
+            action=data.get('action', 'stop_only'),
+            is_enabled=data.get('is_enabled', True),
+            description=data.get('description', '')
+        )
+        
+        db.session.add(rule)
+        db.session.commit()
+        
+        app.logger.info(f'创建黑名单规则: {rule.rule_name}')
+        
+        return jsonify({
+            'success': True,
+            'rule': rule.to_dict()
+        }), 200
+    except Exception as e:
+        app.logger.error(f'创建黑名单规则失败: {e}')
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/device-blacklist/<int:rule_id>', methods=['PUT'])
+@admin_required
+def update_blacklist_rule(rule_id):
+    """更新黑名单规则"""
+    try:
+        rule = db.session.get(DeviceBlacklist, rule_id)
+        if not rule:
+            return jsonify({'success': False, 'error': '规则不存在'}), 404
+        
+        data = request.json
+        rule.rule_name = data.get('rule_name', rule.rule_name)
+        rule.client_pattern = data.get('client_pattern', rule.client_pattern)
+        rule.device_name_pattern = data.get('device_name_pattern', rule.device_name_pattern)
+        rule.action = data.get('action', rule.action)
+        rule.is_enabled = data.get('is_enabled', rule.is_enabled)
+        rule.description = data.get('description', rule.description)
+        
+        db.session.commit()
+        
+        app.logger.info(f'更新黑名单规则: {rule.rule_name}')
+        
+        return jsonify({
+            'success': True,
+            'rule': rule.to_dict()
+        }), 200
+    except Exception as e:
+        app.logger.error(f'更新黑名单规则失败: {e}')
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/device-blacklist/<int:rule_id>', methods=['DELETE'])
+@admin_required
+def delete_blacklist_rule(rule_id):
+    """删除黑名单规则"""
+    try:
+        rule = db.session.get(DeviceBlacklist, rule_id)
+        if not rule:
+            return jsonify({'success': False, 'error': '规则不存在'}), 404
+        
+        rule_name = rule.rule_name
+        db.session.delete(rule)
+        db.session.commit()
+        
+        app.logger.info(f'删除黑名单规则: {rule_name}')
+        
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        app.logger.error(f'删除黑名单规则失败: {e}')
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+if __name__ == '__main__':
+    init_db()
+    
+    # 初始化管理员配置（首次启动会生成默认配置）
+    admin_config = init_admin_config()
+    secret_path = admin_config.get('admin', {}).get('secret_path')
+    if secret_path:
+        print(f"[INFO] 管理后台入口: /{secret_path}")
+    
+    bootstrap_background_tasks()
+    # 从环境变量读取运行配置
+    debug_mode = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
+    host = os.getenv('FLASK_HOST', '0.0.0.0')
+    port = int(os.getenv('FLASK_PORT', 5000))
+    
+    app.logger.info(f'启动服务器: {host}:{port} (Debug={debug_mode})')
+    app.run(debug=debug_mode, host=host, port=port)

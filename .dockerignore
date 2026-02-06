@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+
+# 环境配置（不要打包进镜像）
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 部署文件
+deploy/
+
+# 日志和实例数据（运行时挂载）
+logs/
+instance/
+
+# 文档
+*.md
+!README.md
+
+# 测试
+tests/
+test_*.py
+
+# 构建脚本
+build*.py
+setup.py
