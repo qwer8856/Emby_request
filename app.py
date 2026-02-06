@@ -426,6 +426,122 @@ EMBY_URL = os.getenv('EMBY_URL', '').rstrip('/')
 EMBY_API_KEY = os.getenv('EMBY_API_KEY', '')
 EMBY_WEBHOOK_SECRET = os.getenv('EMBY_WEBHOOK_SECRET', '')  # 可选的 Webhook 密钥验证
 
+# ==================== 剧集入库通知聚合 ====================
+# 同一部剧的多集入库会聚合为一条通知，等待 AGGREGATE_DELAY 秒无新集后统一发送
+AGGREGATE_DELAY = int(os.getenv('LIBRARY_NOTIFY_DELAY', '300'))  # 默认5分钟(300秒)
+_library_notify_pending = {}   # key: series_key → {timer, data}
+_library_notify_lock = threading.Lock()
+
+
+def _flush_aggregated_notification(series_key):
+    """定时器触发：发送聚合后的剧集入库通知"""
+    with _library_notify_lock:
+        pending = _library_notify_pending.pop(series_key, None)
+    if not pending:
+        return
+    try:
+        info = pending['data']
+        episodes = sorted(info['episodes'])  # [(season, episode), ...]
+
+        # 按季分组
+        from collections import defaultdict
+        seasons = defaultdict(list)
+        for s, e in episodes:
+            seasons[s].append(e)
+
+        # 构建季集描述
+        parts = []
+        for s_num in sorted(seasons.keys()):
+            eps = seasons[s_num]
+            if len(eps) == 1:
+                parts.append(f"S{s_num:02d}E{eps[0]:02d}")
+            else:
+                eps_sorted = sorted(eps)
+                # 检查是否连续
+                if eps_sorted[-1] - eps_sorted[0] == len(eps_sorted) - 1:
+                    parts.append(f"S{s_num:02d}E{eps_sorted[0]:02d}-E{eps_sorted[-1]:02d}")
+                else:
+                    ep_str = '、'.join(str(e) for e in eps_sorted)
+                    parts.append(f"S{s_num:02d} 第{ep_str}集")
+
+        season_episode = ' '.join(parts)
+        file_count = len(episodes)
+
+        with app.app_context():
+            app.logger.info(f'发送聚合入库通知: {info["title"]} {season_episode} ({file_count}集)')
+            send_general_library_notification(
+                title=info['title'],
+                year=info.get('year'),
+                season_episode=season_episode,
+                vote_average=info.get('vote_average'),
+                category=info.get('category'),
+                resource_quality=info.get('resource_quality'),
+                file_count=file_count,
+                total_size=info.get('total_size'),
+                tmdb_id=info.get('tmdb_id'),
+                release_group=None,
+                time_usage=None,
+                overview=info.get('overview'),
+                poster_path=info.get('poster_path')
+            )
+    except Exception as e:
+        try:
+            with app.app_context():
+                app.logger.error(f'聚合入库通知发送失败: {e}')
+        except:
+            pass
+
+
+def _queue_episode_notification(series_key, title, year, season_num, episode_num,
+                                 vote_average, category, resource_quality,
+                                 total_size, tmdb_id, overview, poster_path):
+    """将单集入库事件加入聚合队列，重置定时器"""
+    with _library_notify_lock:
+        if series_key in _library_notify_pending:
+            entry = _library_notify_pending[series_key]
+            # 取消旧定时器
+            entry['timer'].cancel()
+            # 追加集数
+            entry['data']['episodes'].append((season_num or 0, episode_num or 0))
+            # 累加文件大小
+            if total_size and entry['data'].get('total_size'):
+                try:
+                    # 尝试把字符串大小转为数值累加
+                    pass  # 大小格式复杂，保留最新值即可
+                except:
+                    pass
+            if total_size:
+                entry['data']['total_size'] = total_size
+            # 更新画质（取最高）
+            if resource_quality:
+                entry['data']['resource_quality'] = resource_quality
+        else:
+            entry = {
+                'data': {
+                    'title': title,
+                    'year': year,
+                    'episodes': [(season_num or 0, episode_num or 0)],
+                    'vote_average': vote_average,
+                    'category': category,
+                    'resource_quality': resource_quality,
+                    'total_size': total_size,
+                    'tmdb_id': tmdb_id,
+                    'overview': overview,
+                    'poster_path': poster_path,
+                }
+            }
+            _library_notify_pending[series_key] = entry
+
+        # 创建新定时器
+        timer = threading.Timer(AGGREGATE_DELAY, _flush_aggregated_notification, args=[series_key])
+        timer.daemon = True
+        entry['timer'] = timer
+        timer.start()
+
+    app.logger.info(f'剧集入库已加入聚合队列: {title} S{season_num or 0:02d}E{episode_num or 0:02d}, '
+                    f'当前累计 {len(entry["data"]["episodes"])} 集, {AGGREGATE_DELAY}秒后发送')
+
+
 # ==================== 代理配置 ====================
 # 支持 HTTP/HTTPS 和 SOCKS5 代理，用于中国大陆服务器访问外网
 HTTP_PROXY = os.getenv('HTTP_PROXY', '') or os.getenv('http_proxy', '')
@@ -5367,10 +5483,13 @@ def _build_default_notification_full(vars):
             pass
     
     if vars.get('tmdb_id'):
-        info_lines.append(f"🎬 <b>TMDB ID：</b>{vars['tmdb_id']}")
+        info_lines.append(f"🎬 <b>TMDB ID：</b><code>{vars['tmdb_id']}</code>")
     
     if vars.get('resource_quality'):
         info_lines.append(f"📽 <b>画质：</b>{vars['resource_quality']}")
+    
+    if vars.get('file_count') and vars['file_count'] > 1:
+        info_lines.append(f"📁 <b>集数：</b>{vars['file_count']} 集")
     
     if vars.get('total_size'):
         # total_size 可能是数字（字节）或字符串（如 "2.35GB"）
@@ -8455,23 +8574,34 @@ def emby_webhook():
         # 获取简介
         overview = item.get('Overview', '')
         
-        # 获取海报路径
+        # 获取图片路径（优先横向背景图 16:9）
         poster_path = None
-        if matched_request and matched_request.poster_path:
-            # 如果有匹配的求片，使用求片中存储的海报
-            poster_path = matched_request.poster_path
-            app.logger.info(f'使用求片记录中的海报: {poster_path}')
+        if matched_request and matched_request.tmdb_id:
+            # 有匹配的求片且有 TMDB ID，获取横向背景图
+            try:
+                req_media_type = 'tv' if matched_request.media_type == 'tv' else 'movie'
+                details = get_tmdb_details(matched_request.tmdb_id, req_media_type)
+                if details:
+                    poster_path = details.get('backdrop_path') or details.get('poster_path')
+                    app.logger.info(f'从求片TMDB ID获取横向图片: {poster_path}')
+            except Exception:
+                pass
+            # 回退到求片记录中的海报
+            if not poster_path and matched_request.poster_path:
+                poster_path = matched_request.poster_path
+                app.logger.info(f'回退使用求片记录中的海报: {poster_path}')
         elif item_type == 'Episode' and series_tmdb_id:
             # Episode 类型：使用 Series 的 TMDB ID 获取剧集海报
             try:
                 details = get_tmdb_details(series_tmdb_id, 'tv')
                 if details:
-                    poster_path = details.get('poster_path')
+                    # 优先使用横向背景图(16:9)，回退到竖向海报
+                    poster_path = details.get('backdrop_path') or details.get('poster_path')
                     if not overview and details.get('overview'):
                         overview = details.get('overview')
                     if not item_rating and details.get('vote_average'):
                         item_rating = details.get('vote_average')
-                    app.logger.info(f'从 TMDB 获取剧集信息 (SeriesTmdbId={series_tmdb_id}): poster={poster_path}')
+                    app.logger.info(f'从 TMDB 获取剧集信息 (SeriesTmdbId={series_tmdb_id}): image={poster_path}')
                 else:
                     app.logger.warning(f'Series TMDB ID {series_tmdb_id} 获取详情失败')
             except Exception as e:
@@ -8482,14 +8612,15 @@ def emby_webhook():
                 media_type = 'movie' if item_type == 'Movie' else 'tv'
                 details = get_tmdb_details(tmdb_id, media_type)
                 if details:
-                    poster_path = details.get('poster_path')
+                    # 优先使用横向背景图(16:9)，回退到竖向海报
+                    poster_path = details.get('backdrop_path') or details.get('poster_path')
                     # 如果没有 overview，也从 TMDB 获取
                     if not overview and details.get('overview'):
                         overview = details.get('overview')
                     # 如果没有评分，也从 TMDB 获取
                     if not item_rating and details.get('vote_average'):
                         item_rating = details.get('vote_average')
-                    app.logger.info(f'从 TMDB 获取信息: poster={poster_path}, rating={item_rating}')
+                    app.logger.info(f'从 TMDB 获取信息: image={poster_path}, rating={item_rating}')
                 else:
                     app.logger.warning(f'TMDB ID {tmdb_id} 获取详情失败，返回 None')
             except Exception as e:
@@ -8538,22 +8669,24 @@ def emby_webhook():
                 
                 if results:
                     best_match = results[0]
-                    poster_path = best_match.get('poster_path')
+                    # 优先使用横向背景图(16:9)，回退到竖向海报
+                    poster_path = best_match.get('backdrop_path') or best_match.get('poster_path')
                     if not overview:
                         overview = best_match.get('overview', '')
                     if not item_rating:
                         item_rating = best_match.get('vote_average')
                     if not tmdb_id:
                         tmdb_id = best_match.get('id')
-                    app.logger.info(f'通过搜索获取 TMDB 信息 (搜索词={search_name}): poster={poster_path}, tmdb_id={tmdb_id}')
+                    app.logger.info(f'通过搜索获取 TMDB 信息 (搜索词={search_name}): image={poster_path}, tmdb_id={tmdb_id}')
                 else:
                     app.logger.warning(f'TMDB 搜索无结果: {search_name} ({item_year})')
             except Exception as e:
                 app.logger.warning(f'搜索 TMDB 失败: {e}')
         
-        # 如果还是没有海报，尝试使用 Emby 自己的图片
+        # 如果还是没有海报，尝试使用 Emby 自己的图片（优先横向背景图）
         if not poster_path:
             emby_image_tags = item.get('ImageTags', {})
+            emby_backdrop_tags = item.get('BackdropImageTags', [])
             emby_item_id = item.get('Id')
             # 对于 Episode，也可以尝试获取 Series 的图片
             series_id = item.get('SeriesId') if item_type == 'Episode' else None
@@ -8563,14 +8696,18 @@ def emby_webhook():
             emby_url = config.get('emby', {}).get('url', '').rstrip('/')
             emby_api_key = config.get('emby', {}).get('api_key', '')
             
-            if emby_image_tags.get('Primary') and emby_item_id and emby_url and emby_api_key:
-                # 使用项目自己的图片
+            if emby_backdrop_tags and emby_item_id and emby_url and emby_api_key:
+                # 优先使用横向背景图(16:9)
+                poster_path = f"{emby_url}/Items/{emby_item_id}/Images/Backdrop?api_key={emby_api_key}"
+                app.logger.info(f'使用 Emby Backdrop 图片: {poster_path[:50]}...')
+            elif emby_image_tags.get('Primary') and emby_item_id and emby_url and emby_api_key:
+                # 回退到竖向封面图
                 poster_path = f"{emby_url}/Items/{emby_item_id}/Images/Primary?api_key={emby_api_key}"
-                app.logger.info(f'使用 Emby 自带图片: {poster_path[:50]}...')
+                app.logger.info(f'使用 Emby Primary 图片: {poster_path[:50]}...')
             elif series_id and emby_url and emby_api_key:
-                # Episode 没有自己的图片，尝试使用 Series 的图片
-                poster_path = f"{emby_url}/Items/{series_id}/Images/Primary?api_key={emby_api_key}"
-                app.logger.info(f'使用 Emby Series 图片: {poster_path[:50]}...')
+                # Episode 没有自己的图片，尝试使用 Series 的背景图或封面
+                poster_path = f"{emby_url}/Items/{series_id}/Images/Backdrop?api_key={emby_api_key}"
+                app.logger.info(f'使用 Emby Series Backdrop 图片: {poster_path[:50]}...')
         
         if not poster_path:
             app.logger.warning(f'无法获取海报: {item_name} - 无 TMDB ID，搜索失败，Emby 也无图片')
@@ -8580,23 +8717,46 @@ def emby_webhook():
         if item_type == 'Episode' and series_name:
             notification_title = series_name
         
-        # 发送通用入库通知
-        app.logger.info(f'发送通用入库通知: {notification_title}, poster={poster_path}, rating={item_rating}, quality={video_quality}')
-        send_general_library_notification(
-            title=notification_title,
-            year=item_year,
-            season_episode=season_episode,
-            vote_average=item_rating,
-            category=media_category,
-            resource_quality=video_quality,
-            file_count=1,  # Emby webhook 单次事件通常是一个文件
-            total_size=file_size,
-            tmdb_id=tmdb_id,
-            release_group=None,  # Emby 不提供制作组信息
-            time_usage=None,  # Emby 不提供入库耗时
-            overview=overview,
-            poster_path=poster_path
-        )
+        # 发送入库通知（剧集聚合，电影直接发）
+        if item_type == 'Episode':
+            # 剧集：加入聚合队列，等待同一部剧的其他集一起通知
+            season_num = item.get('ParentIndexNumber') or 0
+            episode_num = item.get('IndexNumber') or 0
+            # 聚合 key：剧名+年份（同一部剧归到一起）
+            agg_key = f"{notification_title}|{item_year or ''}"
+            app.logger.info(f'剧集入库加入聚合: {notification_title} S{season_num:02d}E{episode_num:02d}')
+            _queue_episode_notification(
+                series_key=agg_key,
+                title=notification_title,
+                year=item_year,
+                season_num=season_num,
+                episode_num=episode_num,
+                vote_average=item_rating,
+                category=media_category,
+                resource_quality=video_quality,
+                total_size=file_size,
+                tmdb_id=tmdb_id,
+                overview=overview,
+                poster_path=poster_path
+            )
+        else:
+            # 电影：直接发送通知
+            app.logger.info(f'发送入库通知: {notification_title}, poster={poster_path}, rating={item_rating}, quality={video_quality}')
+            send_general_library_notification(
+                title=notification_title,
+                year=item_year,
+                season_episode=season_episode,
+                vote_average=item_rating,
+                category=media_category,
+                resource_quality=video_quality,
+                file_count=1,
+                total_size=file_size,
+                tmdb_id=tmdb_id,
+                release_group=None,
+                time_usage=None,
+                overview=overview,
+                poster_path=poster_path
+            )
     except Exception as e:
         app.logger.error(f'发送通用入库通知失败: {e}')
     
