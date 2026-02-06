@@ -1671,64 +1671,15 @@ body.page-admin {
 
 @media (max-width: 768px) {
     .stats {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(2, 1fr);
         gap: 6px;
-    }
-    
-    .stat-card {
-        padding: 10px 8px;
-        min-height: 80px;
-        border-radius: 12px;
-    }
-    
-    .stat-icon {
-        width: 32px;
-        height: 32px;
-        font-size: 16px;
-        margin-bottom: 6px;
-    }
-    
-    .stat-content h3 {
-        font-size: 18px;
-        margin-bottom: 2px;
-    }
-    
-    .stat-content p {
-        font-size: 11px;
     }
 }
 
 @media (max-width: 480px) {
     .stats {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(2, 1fr);
         gap: 4px;
-    }
-    
-    .stat-card {
-        padding: 8px 6px;
-        min-height: 70px;
-        border-radius: 10px;
-    }
-    
-    .stat-icon {
-        width: 28px;
-        height: 28px;
-        font-size: 14px;
-        margin-bottom: 4px;
-    }
-    
-    .stat-content h3 {
-        font-size: 16px;
-        margin-bottom: 1px;
-    }
-    
-    .stat-content p {
-        font-size: 10px;
-    }
-    
-    .stat-card::after {
-        font-size: 9px;
-        bottom: 4px;
     }
 }
 
@@ -9733,7 +9684,7 @@ select.custom-select:focus,
         min-width: 0 !important;
         margin-bottom: 0 !important;
         min-height: 55px !important;
-        /* Reduce min-height requirement */
+        overflow: visible !important;
 
         /* Flex row layout */
         display: flex !important;
@@ -9744,6 +9695,11 @@ select.custom-select:focus,
         gap: 10px !important;
         text-align: left !important;
         border-radius: 12px !important;
+    }
+    
+    /* 隐藏“点击查看”伪元素 */
+    .stats .stat-card::after {
+        display: none !important;
     }
 
     /* 3. 图标样式统一 */
