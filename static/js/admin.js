@@ -1517,19 +1517,22 @@ function switchAdminSection(section, event, updateHash = true) {
 function toggleSidebar() {
     const sidebar = document.querySelector('.admin-sidebar');
     const overlay = document.getElementById('sidebarOverlay');
-    sidebar.classList.toggle('open');
-    if (sidebar.classList.contains('open')) {
+    sidebar.classList.toggle('show');
+    if (sidebar.classList.contains('show')) {
         overlay.classList.add('show');
+        document.body.style.overflow = 'hidden';
     } else {
         overlay.classList.remove('show');
+        document.body.style.overflow = '';
     }
 }
 
 function closeSidebar() {
     const sidebar = document.querySelector('.admin-sidebar');
     const overlay = document.getElementById('sidebarOverlay');
-    sidebar.classList.remove('open');
+    sidebar.classList.remove('show');
     overlay.classList.remove('show');
+    document.body.style.overflow = '';
 }
 
 // ==================== 订阅管理 ====================
