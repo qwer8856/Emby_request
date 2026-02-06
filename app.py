@@ -10532,8 +10532,14 @@ def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
             start_date = datetime.now()
             
             if was_banned:
-                # 被禁用用户：从领取时间开始往后推算，不看封禁前的到期时间
-                existing_user.ex = start_date + timedelta(days=days)
+                # 被禁用用户：基于封禁前的到期时间判断
+                prev_ex = existing_user.ban_prev_ex
+                if prev_ex and prev_ex > start_date:
+                    # 封禁前订阅还没过期，在原到期时间上叠加
+                    existing_user.ex = prev_ex + timedelta(days=days)
+                else:
+                    # 封禁前订阅已过期，从领取时间开始推算
+                    existing_user.ex = start_date + timedelta(days=days)
             else:
                 # 普通用户：如果还有剩余订阅就在此基础上叠加
                 if existing_user.ex and existing_user.ex > start_date:
