@@ -3245,21 +3245,39 @@ emby_client = EmbyClient(EMBY_URL, EMBY_API_KEY)
 if not os.path.exists('logs'):
     os.mkdir('logs')
 
-# 配置文件日志处理器
-file_handler = RotatingFileHandler('logs/app.log', maxBytes=10485760, backupCount=10)
-file_handler.setFormatter(logging.Formatter(
+# 使用线程安全的日志方案：QueueHandler + QueueListener
+# 解决多线程并发写 RotatingFileHandler 导致的 "reentrant call" 错误
+import queue
+from logging.handlers import QueueHandler, QueueListener
+
+_log_queue = queue.Queue(-1)  # 无限队列
+
+# 实际写文件的 handler（由 QueueListener 在单独线程中调用，无并发问题）
+_file_handler = RotatingFileHandler('logs/app.log', maxBytes=10485760, backupCount=10)
+_file_handler.setFormatter(logging.Formatter(
     '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
 ))
-file_handler.setLevel(logging.INFO)
-app.logger.addHandler(file_handler)
+_file_handler.setLevel(logging.INFO)
 
-# 配置控制台日志处理器
+# 控制台 handler
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(logging.Formatter(
     '%(asctime)s %(levelname)s: %(message)s'
 ))
 console_handler.setLevel(logging.INFO)
+
+# QueueHandler：所有线程把日志写入队列（线程安全）
+_queue_handler = QueueHandler(_log_queue)
+app.logger.addHandler(_queue_handler)
 app.logger.addHandler(console_handler)
+
+# QueueListener：单独线程从队列取日志写入文件（避免多线程竞争）
+_log_listener = QueueListener(_log_queue, _file_handler, respect_handler_level=True)
+_log_listener.start()
+
+# 注册退出时停止 listener
+import atexit
+atexit.register(_log_listener.stop)
 
 app.logger.setLevel(logging.INFO)
 
