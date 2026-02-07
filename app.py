@@ -3378,7 +3378,8 @@ class User(db.Model):
     tg = db.Column(db.BigInteger, primary_key=True, autoincrement=False)  # 用户ID（主键，系统生成）
     telegram_id = db.Column(db.BigInteger, nullable=True, unique=True, index=True)  # Telegram ID（通过 /bind 命令绑定）
     embyid = db.Column(db.String(255), nullable=True)  # Emby用户ID
-    name = db.Column(db.String(255), nullable=True)  # 用户名
+    name = db.Column(db.String(255), nullable=True)  # 网站用户名（登录用）
+    emby_name = db.Column(db.String(255), nullable=True)  # Emby用户名（独立于网站用户名）
     pwd = db.Column(db.String(255), nullable=True)  # 密码
     pwd2 = db.Column(db.String(255), nullable=True)  # 备用密码
     lv = db.Column(db.String(1), default='d')  # 用户等级: a=白名单, b=普通, c=禁用, d=无账号
@@ -3426,8 +3427,13 @@ class User(db.Model):
     
     @property
     def username(self):
-        """返回用户名"""
+        """返回网站用户名"""
         return self.name
+    
+    @property
+    def display_name(self):
+        """返回显示名称（优先Emby用户名，其次网站用户名）"""
+        return self.emby_name or self.name
     
     def get_daily_limit(self):
         """根据用户类型返回每日求片限制
@@ -3587,7 +3593,7 @@ class Subscription(db.Model):
         
         # 获取用户信息
         user = User.query.filter_by(tg=self.user_tg).first()
-        user_name = user.name if user else f'用户{self.user_tg}'
+        user_name = (user.emby_name or user.name) if user else f'用户{self.user_tg}'
         
         # 判断来源 - 兼容旧数据
         price = float(self.price) if self.price else 0
@@ -3772,8 +3778,7 @@ class SupportTicket(db.Model):
             'id': self.id,
             'ticket_no': self.ticket_no,
             'user_tg': self.user_tg,
-            'user_name': user.name if user else str(self.user_tg),
-            'category': self.category,
+            'user_name': (user.emby_name or user.name) if user else str(self.user_tg),
             'subject': self.subject,
             'description': self.description,
             'status': self.status,
@@ -4063,7 +4068,7 @@ class UserDevice(db.Model):
         return {
             'id': self.id,
             'user_tg': self.user_tg,
-            'user_name': user.name if user else str(self.user_tg),
+            'user_name': (user.emby_name or user.name) if user else str(self.user_tg),
             'device_id': self.device_id,
             'device_name': self.device_name,
             'client': self.client,
@@ -4159,7 +4164,7 @@ class PlaybackRecord(db.Model):
         return {
             'id': self.id,
             'user_tg': self.user_tg,
-            'user_name': user.name if user else str(self.user_tg),
+            'user_name': (user.emby_name or user.name) if user else str(self.user_tg),
             'device_id': self.device_id,
             'device_name': device.device_name if device else '未知设备',
             'client': device.client if device else None,
@@ -5064,7 +5069,7 @@ def send_admin_review_notification(movie_request, user):
     # 构建通知消息
     media_type_cn = '🎬 电影' if movie_request.media_type == 'movie' else '📺 剧集'
     scope_info = movie_request.get_request_scope() if movie_request.media_type == 'tv' else ''
-    user_display = user.name or str(user.tg)
+    user_display = user.emby_name or user.name or str(user.tg)
     
     # 尝试通过 Telegram API 获取用户的 TG 显示名称
     tg_id = user.telegram_id or user.tg
@@ -5956,6 +5961,7 @@ def logout():
     # 只清除用户相关的session，保留管理员session
     session.pop('user_id', None)
     session.pop('username', None)
+    session.pop('emby_username', None)
     session.pop('user_logged_in', None)
     session.pop('session_token', None)
     return redirect(url_for('login'))
@@ -6239,7 +6245,7 @@ def check_emby_bindable():
             return jsonify({'success': False, 'error': '用户不存在'}), 404
         
         # 检查是否已有 Emby 账号
-        has_emby = bool(user.embyid and user.name)
+        has_emby = bool(user.embyid and user.emby_name)
         
         # 检查是否有有效订阅（白名单或订阅未过期）
         is_whitelist = user.lv == 'a'
@@ -6252,7 +6258,7 @@ def check_emby_bindable():
         return jsonify({
             'success': True,
             'has_emby_account': has_emby,
-            'emby_username': user.name if has_emby else None,
+            'emby_username': user.emby_name if has_emby else None,
             'emby_id': user.embyid if has_emby else None,
             'user_level': user.lv,
             'is_active': user.is_active,
@@ -6284,7 +6290,7 @@ def check_emby_username():
         current_user_id = session.get('user_id')
         
         # 检查本地数据库是否已使用（排除当前用户自己）
-        existing = User.query.filter_by(name=username).first()
+        existing = User.query.filter_by(emby_name=username).first()
         if existing and existing.tg != current_user_id:
             return jsonify({
                 'success': True,
@@ -6363,7 +6369,7 @@ def bind_emby_account():
         existing_emby_user = User.query.filter(
             User.tg != user.tg,  # 排除当前用户自己
             db.or_(
-                User.name == username,
+                User.emby_name == username,
                 User.embyid == emby_id
             )
         ).first()
@@ -6373,9 +6379,9 @@ def bind_emby_account():
             app.logger.info(f'找到旧记录: tg={existing_emby_user.tg}, lv={existing_emby_user.lv}, '
                           f'ex={existing_emby_user.ex}, coins={existing_emby_user.coins}')
         
-        # 绑定账号（网站密码 pwd 保持不变，Emby 密码存入 pwd2）
+        # 绑定账号（网站用户名 name 保持不变，Emby用户名存入 emby_name）
         user.embyid = emby_id
-        user.name = emby_name
+        user.emby_name = emby_name
         user.pwd2 = password  # 保存 Emby 密码到 pwd2 字段
         
         # 如果找到了旧记录，完整继承所有数据
@@ -6451,8 +6457,8 @@ def bind_emby_account():
             except Exception as e:
                 app.logger.warning(f'绑定时启用Emby账号失败（不影响绑定）: {e}')
         
-        # 更新 session
-        session['username'] = emby_name
+        # 更新 session（保留网站用户名，添加 Emby 用户名）
+        session['emby_username'] = emby_name
         
         # 返回等级信息
         level_names = {'a': '白名单用户', 'b': '普通用户', 'c': '已禁用', 'd': '无账号'}
@@ -6501,17 +6507,17 @@ def unbind_emby_account():
         if user.pwd != password:
             return jsonify({'success': False, 'error': '密码错误'}), 401
         
-        old_emby_name = user.name
+        old_emby_name = user.emby_name
         old_emby_id = user.embyid
         
-        # 解除绑定（保留 Emby 账号，仅清除本地关联）
+        # 解除绑定（保留 Emby 账号，仅清除本地关联；网站用户名 name 保持不变）
         user.embyid = None
-        user.name = None
+        user.emby_name = None
         
         db.session.commit()
         
-        # 更新 session
-        session.pop('username', None)
+        # 更新 session（只清除Emby用户名，保留网站用户名）
+        session.pop('emby_username', None)
         
         app.logger.info(f'用户 {user.tg} 解绑 Emby 账号成功: {old_emby_name} (ID: {old_emby_id})')
         
@@ -6568,8 +6574,8 @@ def create_emby_account():
         if not emby_client.is_enabled():
             return jsonify({'success': False, 'error': 'Emby 服务器未配置'}), 500
         
-        # 检查本地数据库用户名
-        existing = User.query.filter(User.name == username, User.tg != user.tg).first()
+        # 检查本地数据库Emby用户名是否已使用
+        existing = User.query.filter(User.emby_name == username, User.tg != user.tg).first()
         if existing:
             return jsonify({'success': False, 'error': '该用户名已被使用'}), 400
         
@@ -6585,15 +6591,15 @@ def create_emby_account():
         emby_id = create_result.get('id')
         emby_name = create_result.get('name')
         
-        # 更新本地用户信息
+        # 更新本地用户信息（网站用户名 name 保持不变，Emby用户名存入 emby_name）
         user.embyid = emby_id
-        user.name = emby_name
+        user.emby_name = emby_name
         user.pwd2 = password  # 保存 Emby 密码到 pwd2 字段（网站密码保持不变）
         
         db.session.commit()
         
-        # 更新 session
-        session['username'] = emby_name
+        # 更新 session（保留网站用户名，添加 Emby 用户名）
+        session['emby_username'] = emby_name
         
         app.logger.info(f'用户 {user.tg} 创建 Emby 账号成功: {emby_name} (ID: {emby_id})')
         
@@ -7339,7 +7345,7 @@ def admin_get_all_sessions():
         if not emby_user:
             user_name = s.get('user_name')
             if user_name:
-                emby_user = User.query.filter_by(name=user_name).first()
+                emby_user = User.query.filter_by(emby_name=user_name).first()
         
         if not emby_user or not device_id:
             continue
@@ -9117,7 +9123,7 @@ def emby_playback_webhook():
     if emby_user_id:
         emby_user = User.query.filter_by(embyid=emby_user_id).first()
     if not emby_user and emby_user_name:
-        emby_user = User.query.filter_by(name=emby_user_name).first()
+        emby_user = User.query.filter_by(emby_name=emby_user_name).first()
     
     if not emby_user:
         app.logger.warning(f'播放检测: 未找到用户 {emby_user_name}')
@@ -10065,8 +10071,8 @@ def telegram_webhook():
             send_telegram_reply(chat_id, "❌ 用户名只能包含字母、数字、下划线和中文")
             return jsonify({'ok': True})
         
-        # 检查是否有同名账号
-        name_conflict = User.query.filter_by(name=custom_username).first()
+        # 检查是否有同名Emby账号
+        name_conflict = User.query.filter_by(emby_name=custom_username).first()
         if name_conflict:
             send_telegram_reply(chat_id, f"❌ 用户名 <b>{custom_username}</b> 已被占用，请换一个")
             return jsonify({'ok': True})
@@ -10245,7 +10251,7 @@ def telegram_webhook():
                 expire_time = "已过期"
             
             # 账号名称（Emby 账号）
-            account_name = html_escape(existing_user.name) if existing_user.name else "无账户信息"
+            account_name = html_escape(existing_user.emby_name) if existing_user.emby_name else "无账户信息"
             
             user_info = f"""· 🍉 TG&名称 | {tg_name_link}
 · 🍒 识别のID | {target_user_id}
@@ -10756,8 +10762,8 @@ def handle_registration_input(chat_id, telegram_user_id, text):
 请重新输入：[用户名][空格][密码]""")
         return jsonify({'ok': True})
     
-    # 检查用户名是否已存在
-    existing_user = User.query.filter_by(name=username).first()
+    # 检查Emby用户名是否已存在
+    existing_user = User.query.filter_by(emby_name=username).first()
     if existing_user:
         send_telegram_reply(chat_id, f"""❌ 用户名 "{username}" 已被占用
 
@@ -11189,7 +11195,7 @@ def handle_kk_kick(callback_id, chat_id, message_id, target_user_id, target_user
         if existing_user.embyid and emby_client.is_enabled():
             emby_client.disable_user(existing_user.embyid)
         db.session.commit()
-        app.logger.info(f'[/kk kick] 已封禁用户 {existing_user.name} (tg_id={target_user_id})')
+        app.logger.info(f'[/kk kick] 已封禁用户 {existing_user.emby_name or existing_user.name} (tg_id={target_user_id})')
     
     # 2. 从群组踢出用户
     kick_result = kick_chat_member(TELEGRAM_CHAT_ID, target_user_id)
@@ -11351,7 +11357,7 @@ def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
 您是白名单用户，已拥有永久订阅！
 感谢 {inviter_text} 的赠送 🎉
 
-👤 账号: <b>{existing_user.name}</b>""")
+👤 账号: <b>{existing_user.emby_name or existing_user.name}</b>""")
         else:
             # 普通用户 / 被禁用用户 / 无账号用户，先赠送天数
             if existing_user.lv == 'd':
@@ -11399,25 +11405,25 @@ def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
                 # 恢复Emby账号
                 if existing_user.embyid and emby_client.is_enabled():
                     emby_client.enable_user(existing_user.embyid)
-                app.logger.info(f'[Gift] 被禁用用户 {existing_user.name} (tg={existing_user.tg}) 领取赠送后自动解禁')
+                app.logger.info(f'[Gift] 被禁用用户 {existing_user.emby_name or existing_user.name} (tg={existing_user.tg}) 领取赠送后自动解禁')
             else:
                 # 非禁用用户领取赠送后，也需要恢复Emby账号
                 # （用户可能之前因过期被自动禁用了Emby，但账号等级仍是'b'）
                 if existing_user.embyid and emby_client.is_enabled():
                     if emby_client.enable_user(existing_user.embyid):
-                        app.logger.info(f'[Gift] 用户 {existing_user.name} 领取赠送后恢复Emby账号')
+                        app.logger.info(f'[Gift] 用户 {existing_user.emby_name or existing_user.name} 领取赠送后恢复Emby账号')
             
             db.session.commit()
             
             ban_note = '\n🔓 您的账号已自动解除禁用！' if was_banned else ''
-            app.logger.info(f'[Gift] 为已有用户 {existing_user.name} (tg={existing_user.tg}) 创建赠送订阅记录: {days}天{" (原被禁用)" if was_banned else ""}')
+            app.logger.info(f'[Gift] 为已有用户 {existing_user.emby_name or existing_user.name} (tg={existing_user.tg}) 创建赠送订阅记录: {days}天{" (原被禁用)" if was_banned else ""}')
             
             send_telegram_reply(chat_id, f"""✅ <b>领取成功！</b>
 
 已为您的账号增加 <b>{days}</b> 天订阅！
 感谢 {inviter_text} 的赠送 🎉
 
-👤 账号: <b>{existing_user.name}</b>
+👤 账号: <b>{existing_user.emby_name or existing_user.name}</b>
 📅 新到期时间: <b>{existing_user.ex.strftime('%Y-%m-%d %H:%M')}</b>{ban_note}""")
         
         # 标记赠送码为已使用
@@ -13777,7 +13783,7 @@ def use_redeem_code():
         # 恢复Emby账号（如果之前因过期被禁用）
         if user.embyid and emby_client.is_enabled():
             if emby_client.enable_user(user.embyid):
-                app.logger.info(f'用户 {user.name} 兑换成功，已恢复Emby账号')
+                app.logger.info(f'用户 {user.name} 兑换成功，已恢复Emby账号 {user.emby_name}')
         
         # 记录兑换码使用日志
         log_user_activity(UserActivityLog.ACTION_REDEEM_CODE, user=user,
@@ -17324,7 +17330,7 @@ def admin_get_subscriptions():
             subscriptions.append({
                 'id': user.tg,
                 'user_tg_id': user.tg,
-                'user_name': user.name or f'用户{user.tg}',
+                'user_name': (user.emby_name or user.name) or f'用户{user.tg}',
                 'plan_type': plan_type,
                 'plan_name': plan_name,
                 'duration_months': '-',
@@ -17676,7 +17682,7 @@ def admin_get_invite_stats():
             user = User.query.filter_by(tg=inviter_tg).first()
             ranking_list.append({
                 'tg_id': inviter_tg,
-                'name': user.name if user else f'用户{inviter_tg}',
+                'name': (user.emby_name or user.name) if user else f'用户{inviter_tg}',
                 'count': count
             })
         
@@ -17729,6 +17735,7 @@ def admin_get_users():
             query = query.filter(
                 or_(
                     User.name.ilike(f'%{search}%'),
+                    User.emby_name.ilike(f'%{search}%'),
                     cast(User.tg, String).ilike(f'%{search}%'),
                     cast(User.telegram_id, String).ilike(f'%{search}%')
                 )
@@ -17801,6 +17808,7 @@ def admin_get_users():
             user_list.append({
                 'id': user.tg,  # 使用 tg 作为用户 ID
                 'name': user.name,
+                'emby_name': user.emby_name,  # Emby用户名（独立于网站用户名）
                 'telegram_id': user.telegram_id,  # 只有绑定了才有值
                 'is_admin': user.is_admin,
                 'level': user.lv,
@@ -18335,7 +18343,7 @@ def admin_get_user_details(user_id):
                 'name': user.name,
                 'telegram_id': user.telegram_id,  # 只有绑定了才有值
                 'emby_id': user.embyid,
-                'emby_name': user.name if user.embyid else None,  # Emby 用户名
+                'emby_name': user.emby_name,  # Emby 用户名（独立字段）
                 'level': user.lv,
                 'level_name': level_name,
                 'is_admin': user.is_admin,
@@ -18952,6 +18960,8 @@ def migrate_database():
         ('support_tickets', 'last_reply_at', 'DATETIME NULL'),
         # 订阅表来源字段
         ('subscriptions', 'source', "VARCHAR(20) DEFAULT 'purchase'"),
+        # Emby用户名独立字段（与网站用户名分离）
+        ('emby', 'emby_name', 'VARCHAR(255) NULL'),
     ]
     
     app.logger.info('开始检查数据库迁移...')
@@ -18988,6 +18998,23 @@ def migrate_database():
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'数据库迁移异常 ({table}.{column}): {e}')
+    
+    # 数据迁移：将已有 embyid 用户的 name 复制到 emby_name（仅首次迁移时执行）
+    try:
+        if column_exists('emby', 'emby_name'):
+            # 检查是否有 embyid 非空但 emby_name 为空的记录（需要迁移）
+            result = db.session.execute(db.text(
+                "SELECT COUNT(*) FROM emby WHERE embyid IS NOT NULL AND emby_name IS NULL AND name IS NOT NULL"
+            )).fetchone()
+            if result[0] > 0:
+                db.session.execute(db.text(
+                    "UPDATE emby SET emby_name = name WHERE embyid IS NOT NULL AND emby_name IS NULL AND name IS NOT NULL"
+                ))
+                db.session.commit()
+                app.logger.info(f'数据迁移: 已将 {result[0]} 个用户的 name 复制到 emby_name')
+    except Exception as e:
+        db.session.rollback()
+        app.logger.warning(f'数据迁移(emby_name)失败: {e}')
     
     # 签到系统表迁移
     _migrate_checkin_system()
@@ -19322,7 +19349,7 @@ def check_expired_subscriptions():
                     
                     # 如果配置了删除天数，且过期超过该天数，则删除 Emby 账号
                     if delete_days > 0 and user.ex and days_expired >= delete_days:
-                        user_name = user.name
+                        user_name = user.emby_name or user.name
                         user_tg = user.tg
                         emby_id = user.embyid
                         
@@ -19369,9 +19396,9 @@ def check_expired_subscriptions():
                             web_deleted_count += 1
                             app.logger.info(f'[订阅检查] 已删除网站账号: {user_name} (过期{days_expired}天)')
                         else:
-                            # 只清除 Emby 绑定信息，保留网站账号
+                            # 只清除 Emby 绑定信息，保留网站账号（网站用户名 name 保持不变）
                             user.embyid = None
-                            user.name = None
+                            user.emby_name = None
                             user.pwd2 = None
                             app.logger.info(f'[订阅检查] 已解绑Emby账号: {user_name} (过期{days_expired}天)，网站账号保留')
                         
@@ -19383,11 +19410,11 @@ def check_expired_subscriptions():
                             # 同时踢出该用户的所有播放会话
                             emby_client.kill_user_sessions(user.embyid)
                             disabled_count += 1
-                            app.logger.info(f'[订阅检查] 已禁用过期用户Emby账号: {user.name} (过期时间: {user.ex})')
+                            app.logger.info(f'[订阅检查] 已禁用过期用户Emby账号: {user.emby_name or user.name} (过期时间: {user.ex})')
                             
                 except Exception as e:
                     db.session.rollback()
-                    app.logger.error(f'[订阅检查] 处理用户 {user.name} 失败: {e}')
+                    app.logger.error(f'[订阅检查] 处理用户 {user.emby_name or user.name} 失败: {e}')
             
             if disabled_count > 0:
                 app.logger.info(f'[订阅检查] 本次共禁用 {disabled_count} 个过期用户的Emby账号')

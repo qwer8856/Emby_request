@@ -422,7 +422,7 @@
                                             </div>
                                         </div>
                                     </td>
-                                    <td data-label="用户">{{ req.user.name or '未知用户' }}</td>
+                                    <td data-label="用户">{{ req.user.emby_name or req.user.name or '未知用户' }}</td>
                                     <td data-label="类型">
                                         <div
                                             style="display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">

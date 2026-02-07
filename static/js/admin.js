@@ -2360,7 +2360,7 @@ function renderUsers(users) {
         <tr>
             <td data-label="选择"><input type="checkbox" class="user-checkbox" value="${user.id}" onchange="updateBatchUI('user')"></td>
             <td class="hide-mobile" data-label="ID">${user.id}</td>
-            <td data-label="用户名">${user.name || '-'}</td>
+            <td data-label="用户名">${user.name || '-'}${user.emby_name && user.emby_name !== user.name ? ' <small style="color:#999;">(' + escapeHtml(user.emby_name) + ')</small>' : ''}</td>
             <td class="hide-mobile" data-label="Telegram">${user.telegram_id ? user.telegram_id : '<span style="color:#999;">未绑定</span>'}</td>
             <td data-label="角色">
                 <span class="status-badge ${roleClass}">${roleDisplay}</span>
@@ -2473,8 +2473,8 @@ function openUserDetail(userId) {
     
     const levelNames = {'a': '白名单', 'b': '普通用户', 'c': '已禁用', 'd': '无账号'};
     
-    document.getElementById('userDetailAvatar').textContent = (user.name || '?')[0].toUpperCase();
-    document.getElementById('userDetailName').textContent = user.name || '-';
+    document.getElementById('userDetailAvatar').textContent = (user.emby_name || user.name || '?')[0].toUpperCase();
+    document.getElementById('userDetailName').textContent = (user.name || '-') + (user.emby_name && user.emby_name !== user.name ? ' (Emby: ' + user.emby_name + ')' : '');
     document.getElementById('userDetailTgId').textContent = user.telegram_id ? user.telegram_id : '未绑定';
     document.getElementById('userDetailRole').textContent = (user.is_admin ? '管理员 / ' : '') + (levelNames[user.level] || user.level);
     
