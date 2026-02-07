@@ -5028,6 +5028,105 @@ def send_user_telegram_notification(user_tg_id, title, status, admin_note=None, 
     """发送状态变更通知给用户（带图片和TMDB链接）"""
     if not user_tg_id or not TELEGRAM_BOT_TOKEN:
         return False
+
+
+def send_admin_review_notification(movie_request, user):
+    """求片后向所有 bot_admin 私聊发送审核通知（带确认/拒绝按钮）
+    
+    Args:
+        movie_request: MovieRequest 实例
+        user: User 实例（求片用户）
+    """
+    if not TELEGRAM_BOT_TOKEN:
+        return
+    
+    config = load_system_config()
+    bot_admins_str = config.get('telegram', {}).get('bot_admins', '')
+    bot_admin_ids = [x.strip() for x in bot_admins_str.split(',') if x.strip()]
+    
+    if not bot_admin_ids:
+        app.logger.info('[审核通知] 未配置 bot_admins，跳过管理员审核通知')
+        return
+    
+    # 构建通知消息
+    media_type_cn = '🎬 电影' if movie_request.media_type == 'movie' else '📺 剧集'
+    scope_info = movie_request.get_request_scope() if movie_request.media_type == 'tv' else ''
+    user_display = user.name or str(user.tg)
+    
+    # 用户 TG mention
+    tg_id = user.telegram_id or user.tg
+    user_mention = f'<a href="tg://user?id={tg_id}">{user_display}</a>'
+    
+    tmdb_url = f"https://www.themoviedb.org/{movie_request.media_type}/{movie_request.tmdb_id}"
+    now = datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
+    
+    message_lines = [
+        f"📋 <b>新求片待审核</b>",
+        f"━━━━━━━━━━━━━━━━━━",
+        f"👤 <b>用户：</b>{user_mention}",
+        f"🎞 <b>影片：</b><b>{movie_request.title}</b> ({movie_request.year or '未知'})",
+        f"📁 <b>类型：</b>{media_type_cn}",
+    ]
+    
+    if scope_info:
+        message_lines.append(f"📑 <b>范围：</b>{scope_info}")
+    
+    message_lines.append(f"🆔 <b>TMDB：</b><code>{movie_request.tmdb_id}</code>")
+    
+    if movie_request.user_note:
+        message_lines.append(f"💬 <b>用户备注：</b>{movie_request.user_note}")
+    
+    if movie_request.overview:
+        overview_text = movie_request.overview[:120] + '...' if len(movie_request.overview) > 120 else movie_request.overview
+        message_lines.append(f"📝 <b>简介：</b>{overview_text}")
+    
+    message_lines.extend([
+        f"━━━━━━━━━━━━━━━━━━",
+        f"🔗 <a href='{tmdb_url}'>查看 TMDB 详情</a>",
+        f"⏰ <b>求片时间：</b>{now}"
+    ])
+    
+    message = '\n'.join(message_lines)
+    req_id = movie_request.id
+    
+    # 构建审核按钮
+    reply_markup = {
+        'inline_keyboard': [[
+            {'text': '✅ 批准', 'callback_data': f'mreq_approve_{req_id}'},
+            {'text': '❌ 拒绝', 'callback_data': f'mreq_reject_{req_id}'}
+        ]]
+    }
+    
+    # 向每个管理员发送私聊通知
+    for admin_id in bot_admin_ids:
+        try:
+            if movie_request.poster_path:
+                poster_url = f"{TMDB_IMAGE_BASE_URL}{movie_request.poster_path}"
+                url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+                payload = {
+                    'chat_id': admin_id,
+                    'photo': poster_url,
+                    'caption': message,
+                    'parse_mode': 'HTML',
+                    'reply_markup': reply_markup
+                }
+            else:
+                url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                payload = {
+                    'chat_id': admin_id,
+                    'text': message,
+                    'parse_mode': 'HTML',
+                    'reply_markup': reply_markup
+                }
+            
+            resp = PROXY_SESSION.post(url, json=payload, timeout=10)
+            data = resp.json()
+            if data.get('ok'):
+                app.logger.info(f'[审核通知] 已发送给管理员 {admin_id}: {movie_request.title}')
+            else:
+                app.logger.warning(f'[审核通知] 发送给管理员 {admin_id} 失败: {data.get("description")}')
+        except Exception as e:
+            app.logger.error(f'[审核通知] 发送给管理员 {admin_id} 异常: {e}')
     
     status_emoji = {
         'approved': '✅',
@@ -7822,6 +7921,12 @@ def request_movie():
         # 即使 Telegram 发送失败也不影响用户体验
         app.logger.error(f'Telegram 通知异常: {e}')
     
+    # 向 bot_admin 管理员私聊发送审核通知（带批准/拒绝按钮）
+    try:
+        send_admin_review_notification(movie_request, user)
+    except Exception as e:
+        app.logger.error(f'管理员审核通知异常: {e}')
+    
     return jsonify({
         'success': True,
         'message': '求片成功！',
@@ -9466,13 +9571,39 @@ def telegram_webhook():
                 send_telegram_reply(chat_id, "❌ 验证码错误，请重新输入或发送 /checkin 获取新验证码")
                 return jsonify({'ok': True})
         
+        # 检查是否在等待输入拒绝原因（管理员求片审核）
+        reject_state_key = f'mreq_reject_{telegram_user_id}'
+        if get_db_config(reject_state_key, None):
+            if handle_reject_reason_input(chat_id, telegram_user_id, text):
+                return jsonify({'ok': True})
+        
         # 再检查注册状态
         reg_result = handle_registration_input(chat_id, telegram_user_id, text)
         if reg_result:
             return reg_result
     
-    # 处理 /cancel 命令（取消注册状态）
+    # 处理 /cancel 命令（取消注册状态 或 取消拒绝原因输入）
     if text.startswith('/cancel') and chat_type == 'private':
+        # 检查是否在等待拒绝原因
+        reject_state_key = f'mreq_reject_{telegram_user_id}'
+        reject_state = get_db_config(reject_state_key, None)
+        if reject_state:
+            delete_db_config(reject_state_key)
+            # 恢复审核消息的按钮
+            req = MovieRequest.query.get(reject_state.get('request_id'))
+            if req and req.status == 'pending':
+                reply_markup = {
+                    'inline_keyboard': [[
+                        {'text': '✅ 批准', 'callback_data': f'mreq_approve_{req.id}'},
+                        {'text': '❌ 拒绝', 'callback_data': f'mreq_reject_{req.id}'}
+                    ]]
+                }
+                # 恢复原始审核消息
+                _update_review_message_with_buttons(
+                    reject_state.get('chat_id'), reject_state.get('message_id'), req, reply_markup)
+            send_telegram_reply(chat_id, "✅ 已取消拒绝操作")
+            return jsonify({'ok': True})
+        
         reg_state_key = f'reg_state_{telegram_user_id}'
         reg_state = get_db_config(reg_state_key, None)
         if reg_state:
@@ -10183,6 +10314,10 @@ def handle_callback_query(callback_query):
         if callback_data.startswith('cmd_'):
             return handle_start_panel_callback(callback_id, callback_data, chat_id, message_id, user_id, username)
         
+        # 处理求片审核回调 (mreq_approve_ID / mreq_reject_ID)
+        if callback_data.startswith('mreq_'):
+            return handle_movie_request_review(callback_id, callback_data, chat_id, message_id, user_id, user_first_name or user_username)
+        
         # 应答回调（防止按钮一直转圈）
         answer_callback_query(callback_id)
         return jsonify({'ok': True})
@@ -10702,6 +10837,261 @@ def handle_kk_gift(callback_id, chat_id, message_id, target_user_id, target_user
     app.logger.info(f'[/kk gift] 管理员 {operator_log_name} 赠送 {target_log_name} {gift_days} 天订阅，码: {gift_code}')
     
     return jsonify({'ok': True})
+
+
+    answer_callback_query(callback_id, f"✅ 已发送赠送链接 ({gift_days}天)")
+    app.logger.info(f'[/kk gift] 管理员 {operator_log_name} 赠送 {target_log_name} {gift_days} 天订阅，码: {gift_code}')
+    
+    return jsonify({'ok': True})
+
+
+def handle_movie_request_review(callback_id, callback_data, chat_id, message_id, admin_id, admin_name):
+    """处理求片审核回调（管理员私聊中的批准/拒绝按钮）"""
+    
+    # 检查是否是 BOT 管理员
+    config = load_system_config()
+    bot_admins_str = config.get('telegram', {}).get('bot_admins', '')
+    bot_admin_ids = [x.strip() for x in bot_admins_str.split(',') if x.strip()]
+    
+    if str(admin_id) not in bot_admin_ids:
+        answer_callback_query(callback_id, "❌ 无权操作", show_alert=True)
+        return jsonify({'ok': True})
+    
+    # 解析 callback_data: mreq_approve_123 / mreq_reject_123
+    parts = callback_data.split('_', 2)  # ['mreq', 'approve', '123']
+    if len(parts) < 3:
+        answer_callback_query(callback_id, "❌ 参数错误", show_alert=True)
+        return jsonify({'ok': True})
+    
+    action = parts[1]  # approve / reject
+    try:
+        request_id = int(parts[2])
+    except ValueError:
+        answer_callback_query(callback_id, "❌ 无效的求片ID", show_alert=True)
+        return jsonify({'ok': True})
+    
+    # 查询求片记录
+    movie_request = MovieRequest.query.get(request_id)
+    if not movie_request:
+        answer_callback_query(callback_id, "❌ 求片记录不存在", show_alert=True)
+        return jsonify({'ok': True})
+    
+    if movie_request.status != 'pending':
+        status_text = {'approved': '已批准', 'rejected': '已拒绝', 'completed': '已入库',
+                       'downloading': '下载中', 'processing': '处理中'}.get(movie_request.status, movie_request.status)
+        answer_callback_query(callback_id, f"⚠️ 该求片已经是「{status_text}」状态", show_alert=True)
+        return jsonify({'ok': True})
+    
+    if action == 'approve':
+        # ===== 批准求片 =====
+        movie_request.status = 'approved'
+        movie_request.admin_note = f'由管理员 {admin_name} 通过Bot批准'
+        db.session.commit()
+        
+        # 通知用户
+        user = movie_request.user
+        if user and user.tg:
+            send_user_telegram_notification(
+                user.telegram_id or user.tg,
+                movie_request.title,
+                'approved',
+                '您的求片已被批准，正在处理中，请耐心等待 🎬',
+                movie_request.media_type,
+                movie_request.tmdb_id,
+                movie_request.poster_path
+            )
+        
+        # 更新管理员消息（移除按钮，显示结果）
+        from html import escape as html_escape
+        safe_admin = html_escape(str(admin_name))
+        now_str = datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
+        
+        # 由于原消息可能是带图片的，使用 editMessageCaption 或 editMessageText
+        _update_review_message(chat_id, message_id, movie_request,
+                               f"\n\n✅ <b>已批准</b> — {safe_admin} · {now_str}")
+        
+        answer_callback_query(callback_id, f"✅ 已批准「{movie_request.title}」")
+        app.logger.info(f'[Bot审核] 管理员 {admin_id}({admin_name}) 批准求片: ID={request_id}, {movie_request.title}')
+        
+    elif action == 'reject':
+        # ===== 拒绝求片 - 进入等待输入拒绝原因状态 =====
+        reject_state_key = f'mreq_reject_{admin_id}'
+        set_db_config(reject_state_key, {
+            'request_id': request_id,
+            'chat_id': chat_id,
+            'message_id': message_id,
+            'admin_name': admin_name,
+            'created_at': datetime.now().isoformat()
+        })
+        
+        # 更新消息提示输入原因
+        _update_review_message(chat_id, message_id, movie_request,
+                               f"\n\n⏳ <b>请输入拒绝原因</b>（直接回复文字即可，发送 /cancel 取消）")
+        
+        answer_callback_query(callback_id, "请输入拒绝原因")
+        app.logger.info(f'[Bot审核] 管理员 {admin_id}({admin_name}) 准备拒绝求片: ID={request_id}, 等待输入原因')
+    
+    return jsonify({'ok': True})
+
+
+def _update_review_message(chat_id, message_id, movie_request, append_text):
+    """更新审核通知消息（同时兼容图片消息和文本消息）"""
+    if not TELEGRAM_BOT_TOKEN:
+        return
+    
+    # 重建消息内容
+    media_type_cn = '🎬 电影' if movie_request.media_type == 'movie' else '📺 剧集'
+    scope_info = movie_request.get_request_scope() if movie_request.media_type == 'tv' else ''
+    user = movie_request.user
+    user_display = user.name if user else '未知'
+    tg_id = user.telegram_id or user.tg if user else ''
+    user_mention = f'<a href="tg://user?id={tg_id}">{user_display}</a>' if tg_id else f'<b>{user_display}</b>'
+    tmdb_url = f"https://www.themoviedb.org/{movie_request.media_type}/{movie_request.tmdb_id}"
+    
+    message_lines = [
+        f"📋 <b>求片审核</b>",
+        f"━━━━━━━━━━━━━━━━━━",
+        f"👤 <b>用户：</b>{user_mention}",
+        f"🎞 <b>影片：</b><b>{movie_request.title}</b> ({movie_request.year or '未知'})",
+        f"📁 <b>类型：</b>{media_type_cn}",
+    ]
+    if scope_info:
+        message_lines.append(f"📑 <b>范围：</b>{scope_info}")
+    message_lines.append(f"🔗 <a href='{tmdb_url}'>TMDB</a>")
+    
+    new_text = '\n'.join(message_lines) + append_text
+    
+    try:
+        # 先尝试 editMessageCaption（图片消息）
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageCaption"
+        payload = {
+            'chat_id': chat_id,
+            'message_id': message_id,
+            'caption': new_text,
+            'parse_mode': 'HTML'
+        }
+        resp = PROXY_SESSION.post(url, json=payload, timeout=10)
+        data = resp.json()
+        
+        if not data.get('ok'):
+            # 可能是文本消息，用 editMessageText
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
+            payload = {
+                'chat_id': chat_id,
+                'message_id': message_id,
+                'text': new_text,
+                'parse_mode': 'HTML'
+            }
+            PROXY_SESSION.post(url, json=payload, timeout=10)
+    except Exception as e:
+        app.logger.warning(f'[Bot审核] 更新审核消息失败: {e}')
+
+
+def _update_review_message_with_buttons(chat_id, message_id, movie_request, reply_markup):
+    """更新审核消息并恢复按钮（用于取消拒绝时恢复原始状态）"""
+    if not TELEGRAM_BOT_TOKEN:
+        return
+    
+    media_type_cn = '🎬 电影' if movie_request.media_type == 'movie' else '📺 剧集'
+    scope_info = movie_request.get_request_scope() if movie_request.media_type == 'tv' else ''
+    user = movie_request.user
+    user_display = user.name if user else '未知'
+    tg_id = user.telegram_id or user.tg if user else ''
+    user_mention = f'<a href="tg://user?id={tg_id}">{user_display}</a>' if tg_id else f'<b>{user_display}</b>'
+    tmdb_url = f"https://www.themoviedb.org/{movie_request.media_type}/{movie_request.tmdb_id}"
+    
+    message_lines = [
+        f"📋 <b>新求片待审核</b>",
+        f"━━━━━━━━━━━━━━━━━━",
+        f"👤 <b>用户：</b>{user_mention}",
+        f"🎞 <b>影片：</b><b>{movie_request.title}</b> ({movie_request.year or '未知'})",
+        f"📁 <b>类型：</b>{media_type_cn}",
+    ]
+    if scope_info:
+        message_lines.append(f"📑 <b>范围：</b>{scope_info}")
+    message_lines.append(f"🔗 <a href='{tmdb_url}'>TMDB</a>")
+    new_text = '\n'.join(message_lines)
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageCaption"
+        payload = {
+            'chat_id': chat_id, 'message_id': message_id,
+            'caption': new_text, 'parse_mode': 'HTML', 'reply_markup': reply_markup
+        }
+        resp = PROXY_SESSION.post(url, json=payload, timeout=10)
+        if not resp.json().get('ok'):
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
+            payload = {
+                'chat_id': chat_id, 'message_id': message_id,
+                'text': new_text, 'parse_mode': 'HTML', 'reply_markup': reply_markup
+            }
+            PROXY_SESSION.post(url, json=payload, timeout=10)
+    except Exception as e:
+        app.logger.warning(f'[Bot审核] 恢复审核消息失败: {e}')
+
+
+def handle_reject_reason_input(chat_id, admin_id, text):
+    """处理管理员输入的拒绝原因
+    
+    Returns:
+        True if handled (consumed the message), False otherwise
+    """
+    reject_state_key = f'mreq_reject_{admin_id}'
+    reject_state = get_db_config(reject_state_key, None)
+    
+    if not reject_state:
+        return False
+    
+    request_id = reject_state.get('request_id')
+    original_chat_id = reject_state.get('chat_id')
+    original_message_id = reject_state.get('message_id')
+    admin_name = reject_state.get('admin_name', '管理员')
+    
+    # 清除等待状态
+    delete_db_config(reject_state_key)
+    
+    # 查询求片记录
+    movie_request = MovieRequest.query.get(request_id)
+    if not movie_request:
+        send_telegram_reply(chat_id, "❌ 求片记录不存在，可能已被删除")
+        return True
+    
+    if movie_request.status != 'pending':
+        send_telegram_reply(chat_id, f"⚠️ 该求片状态已变更为「{movie_request.status}」，无法拒绝")
+        return True
+    
+    # 执行拒绝
+    reject_reason = text.strip()
+    movie_request.status = 'rejected'
+    movie_request.admin_note = reject_reason
+    db.session.commit()
+    
+    # 通知用户
+    user = movie_request.user
+    if user and user.tg:
+        send_user_telegram_notification(
+            user.telegram_id or user.tg,
+            movie_request.title,
+            'rejected',
+            reject_reason,
+            movie_request.media_type,
+            movie_request.tmdb_id,
+            movie_request.poster_path
+        )
+    
+    # 更新管理员的审核消息
+    from html import escape as html_escape
+    safe_admin = html_escape(str(admin_name))
+    safe_reason = html_escape(reject_reason)
+    now_str = datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
+    
+    _update_review_message(original_chat_id, original_message_id, movie_request,
+                           f"\n\n❌ <b>已拒绝</b> — {safe_admin} · {now_str}\n💬 原因：{safe_reason}")
+    
+    send_telegram_reply(chat_id, f"✅ 已拒绝「{movie_request.title}」\n💬 原因：{reject_reason}")
+    app.logger.info(f'[Bot审核] 管理员 {admin_id}({admin_name}) 拒绝求片: ID={request_id}, {movie_request.title}, 原因: {reject_reason}')
+    
+    return True
 
 
 def handle_kk_kick(callback_id, chat_id, message_id, target_user_id, target_username, operator_name):
