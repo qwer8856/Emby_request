@@ -11586,11 +11586,11 @@ def _update_gift_message_claimed(gift_data, claimed_user_id, claimed_username, i
     claim_type = '续期' if is_renew else '注册'
     
     claimed_message = (
-        f"🎟️ <b>赠送码{claim_type}</b> - "
+        f"· 🎟️ <b>赠送码{claim_type}</b> - "
         f"{claimed_display} "
         f"[<code>{claimed_user_id}</code>] "
         f"已领取 {operator_display} 赠送的资格\n"
-        f"📦 {claim_type}: {days}天 | 📅 领取时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        f"· 📅 领取时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     )
     
     # 编辑群组消息为已领取状态（移除领取按钮）
@@ -14102,11 +14102,11 @@ def use_redeem_code():
             display_name = user.emby_name or user.name or str(user.tg)
             
             notify_msg = (
-                f"🎟️ <b>{code_type_name}使用</b> - "
+                f"· 🎟️ <b>{code_type_name}使用</b> - "
                 f"<a href=\"tg://user?id={user.tg}\">{display_name}</a> "
                 f"[<code>{user.tg}</code>] "
                 f"使用了 <code>{masked_code}</code>\n"
-                f"📦 套餐: {plan_name} | ⏱ {redeem.duration_days}天 | 📅 到期: {end_date.strftime('%Y-%m-%d')}"
+                f"· 📅 到期: {end_date.strftime('%Y-%m-%d')}"
             )
             send_admin_notification(notify_msg)
         except Exception as e:
