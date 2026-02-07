@@ -17591,7 +17591,7 @@ def get_user_lines():
             return jsonify({'error': '用户不存在'}), 404
         
         # 获取用户的Emby账号密码（pwd2 存储 Emby 密码）
-        emby_username = user.name  # Emby用户名
+        emby_username = user.emby_name or user.name  # Emby用户名（优先用emby_name）
         emby_password = user.pwd2  # Emby密码（独立于网站密码）
         
         # 判断用户权限级别

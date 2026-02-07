@@ -3476,11 +3476,13 @@ async function unbindTelegramId() {
                 data.lines.forEach((line, index) => {
                     const isVisible = lineVisibility[index] || false;
                     const displayUrl = isVisible ? line.full_url : '••••••••••••••••••••';
+                    const safeFullUrl = line.full_url.replace(/'/g, "\\'");
+                    const safeName = line.name.replace(/'/g, "\\'").replace(/</g, '&lt;');
                     html += `
                         <div class="server-line-compact">
                             <div class="line-info-compact">
                                 <span class="line-icon">${line.access_level === 'whitelist' ? '👑' : '🔗'}</span>
-                                <span class="line-name-new">${line.name}</span>
+                                <span class="line-name-new">${safeName}</span>
                                 <span class="line-url-new ${!isVisible ? 'line-hidden' : ''}">${displayUrl}</span>
                                 <span class="line-badge-compact ${line.access_level}">${accessLevelNames[line.access_level]}</span>
                             </div>
@@ -3488,13 +3490,25 @@ async function unbindTelegramId() {
                                 <button class="line-toggle-btn" onclick="toggleSingleLineVisibility(${index})" title="${isVisible ? '隐藏' : '显示'}">
                                     ${isVisible ? '🙈' : '👁️'}
                                 </button>
-                                <button class="line-copy-btn" onclick="copyToClipboard('${line.full_url}')">复制</button>
+                                <button class="line-copy-btn" onclick="copyToClipboard('${safeFullUrl}')">复制</button>
                             </div>
                         </div>
                     `;
                 });
                 
                 html += '</div>';
+                
+                // 一键导入按钮（仅绑定账号且有线路时显示）
+                if (data.account && data.account.username) {
+                    html += `
+                        <div class="import-all-bar">
+                            <button class="import-all-btn" onclick="showImportAllDialog()">
+                                <span class="import-all-icon">📲</span>
+                                <span>一键导入播放器</span>
+                            </button>
+                        </div>
+                    `;
+                }
             } else {
                 html += `
                     <div class="server-lines-no-access" style="padding: 20px;">
@@ -3548,6 +3562,139 @@ async function unbindTelegramId() {
                 document.body.removeChild(textarea);
                 showMessage('已复制到剪贴板', 'success');
             });
+        }
+
+        // ==================== 一键导入播放器功能 ====================
+        
+        // 解析 full_url 为 scheme/host/port
+        function parseLineUrl(fullUrl) {
+            try {
+                const url = new URL(fullUrl);
+                return {
+                    scheme: url.protocol.replace(':', ''),
+                    host: url.hostname,
+                    port: url.port || (url.protocol === 'https:' ? '443' : '80')
+                };
+            } catch(e) {
+                return { scheme: 'http', host: fullUrl, port: '8096' };
+            }
+        }
+        
+        function showImportAllDialog() {
+            if (!serverLinesData || !serverLinesData.account) {
+                showMessage('请先绑定Emby账号', 'error');
+                return;
+            }
+            if (!serverLinesData.lines || serverLinesData.lines.length === 0) {
+                showMessage('暂无可用线路', 'error');
+                return;
+            }
+            
+            const account = serverLinesData.account;
+            const username = account.username || '';
+            const password = account.password || '';
+            const lines = serverLinesData.lines;
+            const encodedUser = encodeURIComponent(username);
+            const encodedPwd = encodeURIComponent(password);
+            
+            // ========== SenPlayer（支持多线路一次性导入） ==========
+            // senplayer://importserver?type=emby&name=服名&address=主线路:端口&username=xx&password=xx&address1name=线路2名&address1=线路2地址
+            const firstLine = lines[0];
+            let senParams = `type=emby&name=${encodeURIComponent(firstLine.name)}&address=${encodeURIComponent(firstLine.full_url)}&username=${encodedUser}&password=${encodedPwd}`;
+            lines.slice(1).forEach((line, i) => {
+                senParams += `&address${i + 1}name=${encodeURIComponent(line.name)}&address${i + 1}=${encodeURIComponent(line.full_url)}`;
+            });
+            const senplayerUrl = `https://gocy.pages.dev/#senplayer://importserver?${senParams}`;
+            
+            // ========== Forward（支持多线路一次性导入） ==========
+            // forward://import?type=emby&scheme=xx&host=xx&port=xx&title=主线路名&username=xx&password=xx&line1=地址&line1title=线路名
+            const firstParsed = parseLineUrl(firstLine.full_url);
+            let fwdParams = `type=emby&scheme=${firstParsed.scheme}&host=${encodeURIComponent(firstParsed.host)}&port=${firstParsed.port}&title=${encodeURIComponent(firstLine.name)}&username=${encodedUser}&password=${encodedPwd}`;
+            lines.slice(1).forEach((line, i) => {
+                const p = parseLineUrl(line.full_url);
+                fwdParams += `&line${i + 1}=${encodeURIComponent(p.scheme + '://' + p.host + ':' + p.port)}&line${i + 1}title=${encodeURIComponent(line.name)}`;
+            });
+            const forwardUrl = `https://gocy.pages.dev/#forward://import?${fwdParams}`;
+            
+            // ========== Hills（单线路，逐条导入） ==========
+            let hillsLinesHtml = '';
+            lines.forEach((line) => {
+                const p = parseLineUrl(line.full_url);
+                const safeName = line.name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const levelIcon = line.access_level === 'whitelist' ? '👑' : '🔗';
+                const hillsParams = `type=emby&scheme=${p.scheme}&host=${encodeURIComponent(p.host)}&port=${p.port}&username=${encodedUser}&password=${encodedPwd}`;
+                const hillsLineUrl = `https://gocy.pages.dev/#hills://import?${hillsParams}`;
+                hillsLinesHtml += `<a href="${hillsLineUrl}" target="_blank" class="import-sub-line">${levelIcon} ${safeName}</a>`;
+            });
+            
+            // 构建复制信息
+            let copyText = `账号: ${username}\n密码: ${password}\n\n`;
+            lines.forEach((line) => { copyText += `${line.name}: ${line.full_url}\n`; });
+            
+            const safeUser = username.replace(/</g, '&lt;');
+            const lineCount = lines.length;
+            
+            // 创建弹窗
+            const overlay = document.createElement('div');
+            overlay.className = 'import-dialog-overlay';
+            overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+            
+            overlay.innerHTML = `
+                <div class="import-dialog">
+                    <div class="import-dialog-header">
+                        <h3>📲 一键导入播放器</h3>
+                        <button class="import-dialog-close" onclick="this.closest('.import-dialog-overlay').remove()">✕</button>
+                    </div>
+                    <div class="import-dialog-account">
+                        <div class="import-account-info">
+                            <span>👤 <strong>${safeUser}</strong></span>
+                            <span class="import-line-count">共 ${lineCount} 条线路</span>
+                        </div>
+                    </div>
+                    <p class="import-dialog-tip">点击播放器按钮，自动导入服务器地址和账号密码。需先安装对应 App。</p>
+                    <div class="import-dialog-buttons">
+                        <a href="${senplayerUrl}" target="_blank" class="import-player-btn senplayer">
+                            <span class="import-player-icon">🎬</span>
+                            <div class="import-player-info">
+                                <span class="import-player-name">SenPlayer</span>
+                                <span class="import-player-desc">iOS / macOS · 一次导入全部 ${lineCount} 条线路</span>
+                            </div>
+                            <span class="import-arrow">→</span>
+                        </a>
+                        <a href="${forwardUrl}" target="_blank" class="import-player-btn forward">
+                            <span class="import-player-icon">▶️</span>
+                            <div class="import-player-info">
+                                <span class="import-player-name">Forward</span>
+                                <span class="import-player-desc">iOS / iPadOS · 一次导入全部 ${lineCount} 条线路</span>
+                            </div>
+                            <span class="import-arrow">→</span>
+                        </a>
+                        <div class="import-player-expandable">
+                            <div class="import-player-btn hills-header" onclick="this.parentElement.classList.toggle('expanded')">
+                                <span class="import-player-icon">⛰️</span>
+                                <div class="import-player-info">
+                                    <span class="import-player-name">Hills</span>
+                                    <span class="import-player-desc">iOS / iPadOS · 选择线路逐条导入</span>
+                                </div>
+                                <span class="import-expand-arrow">▼</span>
+                            </div>
+                            <div class="import-sub-lines">${hillsLinesHtml}</div>
+                        </div>
+                    </div>
+                    <div class="import-dialog-footer">
+                        <button class="import-copy-all-btn" onclick="copyAllImportInfo()">📋 复制全部连接信息</button>
+                    </div>
+                </div>
+            `;
+            
+            window._importCopyText = copyText;
+            document.body.appendChild(overlay);
+        }
+        
+        function copyAllImportInfo() {
+            if (window._importCopyText) {
+                copyToClipboard(window._importCopyText);
+            }
         }
 
         // ==================== 购买套餐功能 ====================

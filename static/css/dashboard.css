@@ -11647,6 +11647,358 @@
     background: #e5e7eb;
 }
 
+/* ==================== 一键导入播放器 ==================== */
+
+/* 线路列表下方的导入栏 */
+.import-all-bar {
+    margin-top: 10px;
+    display: flex;
+    justify-content: center;
+}
+
+.import-all-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.import-all-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.import-all-btn:active {
+    transform: translateY(0);
+}
+
+.import-all-icon {
+    font-size: 15px;
+}
+
+/* 导入弹窗遮罩 */
+.import-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    padding: 20px;
+    animation: fadeIn 0.2s ease;
+}
+
+/* 导入弹窗主体 */
+.import-dialog {
+    background: #ffffff;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 440px;
+    max-height: 85vh;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.import-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 20px 14px;
+    border-bottom: 1px solid #f0f0f0;
+    flex-shrink: 0;
+}
+
+.import-dialog-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1a1a1a;
+}
+
+.import-dialog-close {
+    background: #f3f4f6;
+    border: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    color: #6b7280;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.import-dialog-close:hover {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+/* 弹窗账号信息栏 */
+.import-dialog-account {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: #f8fafc;
+    font-size: 12px;
+    color: #6b7280;
+    flex-shrink: 0;
+}
+
+.import-dialog-account strong {
+    color: #374151;
+}
+
+.import-line-count {
+    font-size: 11px;
+    background: #e0e7ff;
+    color: #4338ca;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+}
+
+/* 弹窗提示 */
+.import-dialog-tip {
+    padding: 10px 20px 8px;
+    margin: 0;
+    font-size: 12px;
+    color: #9ca3af;
+    line-height: 1.5;
+    flex-shrink: 0;
+}
+
+/* 播放器按钮列表 */
+.import-dialog-buttons {
+    padding: 0 20px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+/* 播放器导入按钮（通用） */
+.import-player-btn {
+    display: flex;
+    align-items: center;
+    padding: 12px 14px;
+    border-radius: 10px;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    border: 1px solid #e5e7eb;
+    background: #ffffff;
+    cursor: pointer;
+}
+
+.import-player-btn:hover {
+    transform: translateX(2px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.import-player-icon {
+    font-size: 22px;
+    margin-right: 12px;
+    width: 32px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.import-player-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.import-player-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.import-player-desc {
+    font-size: 11px;
+    color: #9ca3af;
+}
+
+.import-arrow {
+    font-size: 16px;
+    color: #d1d5db;
+    transition: color 0.2s;
+    flex-shrink: 0;
+}
+
+.import-player-btn:hover .import-arrow {
+    color: #6b7280;
+}
+
+/* SenPlayer 样式 */
+.import-player-btn.senplayer {
+    border-color: #c4b5fd;
+}
+.import-player-btn.senplayer:hover {
+    background: #faf5ff;
+    border-color: #a78bfa;
+}
+
+/* Forward 样式 */
+.import-player-btn.forward {
+    border-color: #93c5fd;
+}
+.import-player-btn.forward:hover {
+    background: #eff6ff;
+    border-color: #60a5fa;
+}
+
+/* Hills 可展开区域 */
+.import-player-expandable {
+    border: 1px solid #86efac;
+    border-radius: 10px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+}
+
+.import-player-expandable:hover {
+    border-color: #4ade80;
+}
+
+.import-player-expandable .hills-header {
+    border: none;
+    border-radius: 0;
+    margin: 0;
+}
+
+.import-expand-arrow {
+    font-size: 12px;
+    color: #9ca3af;
+    transition: transform 0.3s ease;
+    flex-shrink: 0;
+}
+
+.import-player-expandable.expanded .import-expand-arrow {
+    transform: rotate(180deg);
+}
+
+/* Hills 子线路列表 */
+.import-sub-lines {
+    display: none;
+    padding: 0 12px 10px;
+    gap: 6px;
+    flex-direction: column;
+}
+
+.import-player-expandable.expanded .import-sub-lines {
+    display: flex;
+}
+
+.import-sub-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #16a34a;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.import-sub-line:hover {
+    background: #dcfce7;
+    border-color: #86efac;
+    transform: translateX(2px);
+}
+
+/* 弹窗账号信息 */
+.import-account-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+
+/* 弹窗底部 */
+.import-dialog-footer {
+    padding: 14px 20px;
+    border-top: 1px solid #f0f0f0;
+    flex-shrink: 0;
+}
+
+.import-copy-all-btn {
+    width: 100%;
+    padding: 10px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #4b5563;
+    transition: all 0.2s;
+}
+
+.import-copy-all-btn:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+    color: #1f2937;
+}
+
+/* 导入弹窗响应式 */
+@media (max-width: 768px) {
+    .import-dialog-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+    
+    .import-dialog {
+        border-radius: 16px 16px 0 0;
+        max-width: 100%;
+        max-height: 80vh;
+    }
+    
+    .import-player-btn {
+        padding: 10px 12px;
+    }
+    
+    .import-player-icon {
+        font-size: 18px;
+        margin-right: 10px;
+    }
+    
+    .import-all-btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
 .line-info-compact .line-url.hidden {
     color: #9ca3af;
     letter-spacing: 1px;
