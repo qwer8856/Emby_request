@@ -9065,6 +9065,25 @@ def emby_playback_webhook():
                 db.session.add(record)
                 app.logger.info(f'新增播放记录: {item_name}')
         
+        # ========== 订阅有效性检查 ==========
+        # 播放开始时检查用户订阅是否有效，过期则立即停止播放并禁用账号
+        is_playback_start = event_type in ['playback.start', 'PlaybackStart']
+        if is_playback_start and emby_user.lv != 'a':  # 白名单用户跳过检查
+            has_valid_sub = emby_user.ex and emby_user.ex > datetime.now()
+            if not has_valid_sub:
+                app.logger.warning(f'[Webhook] 过期用户尝试播放: {emby_user.name}, 到期时间={emby_user.ex}')
+                # 停止播放会话
+                if session_id and emby_client.is_enabled():
+                    emby_client.stop_session(session_id)
+                    app.logger.info(f'[Webhook] 已停止过期用户播放会话: {emby_user.name}')
+                # 禁用 Emby 账号
+                if emby_user.embyid and emby_client.is_enabled():
+                    emby_client.disable_user(emby_user.embyid)
+                    emby_client.kill_user_sessions(emby_user.embyid)
+                    app.logger.info(f'[Webhook] 已禁用过期用户Emby账号: {emby_user.name}')
+                db.session.commit()
+                return jsonify({'success': True, 'message': '用户订阅已过期，播放已停止', 'action': 'expired_disabled'})
+        
         # ========== 黑名单检测逻辑 ==========
         # 登录/会话事件：检测 stop_and_ban 规则，立即禁用账号
         # 播放事件：检测所有规则，停止播放
@@ -18895,8 +18914,8 @@ def ensure_background_tasks():
         from threading import Thread
         Thread(target=auto_close_inactive_tickets, daemon=True).start()
     
-    # 每6小时检查一次订阅过期（禁用Emby账号）
-    if last_subscription_check_time is None or (now - last_subscription_check_time).total_seconds() > 21600:
+    # 每1小时检查一次订阅过期（禁用Emby账号）
+    if last_subscription_check_time is None or (now - last_subscription_check_time).total_seconds() > 3600:
         last_subscription_check_time = now
         from threading import Thread
         Thread(target=check_expired_subscriptions, daemon=True).start()
