@@ -27,7 +27,7 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 
 # ==================== 授权验证 ====================
-from license import require_license
+from license import require_license, check_license, is_license_valid
 require_license()  # 验证失败会退出程序
 
 # ==================== 辅助函数（需要在配置函数之前定义）====================
@@ -6649,6 +6649,11 @@ def unbind_emby_account():
 @login_required
 def create_emby_account():
     """创建新的 Emby 账号"""
+    # 运行时授权验证
+    if not is_license_valid():
+        _v, _r = check_license()
+        if not _v:
+            return jsonify({'success': False, 'error': '系统授权异常，请联系管理员'}), 503
     try:
         data = request.get_json()
         username = data.get('username', '').strip()
@@ -8409,6 +8414,11 @@ def admin_logout_api():
 @app.route('/admin')
 @admin_required
 def admin_panel():
+    # 运行时授权验证
+    if not is_license_valid():
+        _v, _r = check_license()
+        if not _v:
+            return '系统授权已失效，请联系开发者', 503
     # 优化：使用单个查询获取统计信息
     from sqlalchemy import func, case
     from sqlalchemy.orm import load_only
@@ -19778,6 +19788,15 @@ def check_expired_subscriptions():
 def ensure_background_tasks():
     global last_ticket_check_time, last_subscription_check_time
     bootstrap_background_tasks()
+    
+    # 轻量级授权状态检查（不发起网络请求，仅检查缓存状态）
+    if not is_license_valid():
+        # 仅对 API 和页面请求返回错误，静态资源放行
+        if not request.path.startswith('/static/'):
+            _v, _r = check_license()
+            if not _v:
+                if request.path.startswith('/api/'):
+                    return jsonify({'success': False, 'error': '系统授权异常'}), 503
     
     now = datetime.now()
     

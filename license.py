@@ -4,7 +4,12 @@ Emby Request 授权验证模块
 
 # 加载编译后的核心模块
 try:
-    from license_core import require_license, check_license, get_machine_id
+    from license_core import (
+        require_license,
+        check_license,
+        is_license_valid,
+        get_machine_id
+    )
 except ImportError:
     import sys
     print("=" * 55)

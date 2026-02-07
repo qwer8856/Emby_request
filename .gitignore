@@ -8,6 +8,7 @@ secrets.json
 
 # ==================== 授权模块（编译后分发）====================
 license_core.py
+compile_license.sh
 # license_core*.so 需要上传到 GitHub
 # license_core*.pyd
 
