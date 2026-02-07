@@ -1664,8 +1664,8 @@
     {% endif %}
 
     <!-- Telegram 绑定弹窗 -->
-    <div class="telegram-bind-overlay" id="telegramBindOverlay" style="display: none;">
-        <div class="telegram-bind-dialog">
+    <div class="telegram-bind-overlay" id="telegramBindOverlay" style="display: none;" onclick="closeTelegramBindDialog()">
+        <div class="telegram-bind-dialog" onclick="event.stopPropagation()">
             <div class="dialog-header">
                 <h3>📱 绑定 Telegram</h3>
                 <button class="close-btn" onclick="closeTelegramBindDialog()">✕</button>
@@ -2316,8 +2316,8 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(5px);
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(6px);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -2325,29 +2325,14 @@
             animation: fadeIn 0.2s ease;
         }
         
-        .telegram-bind-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.75);
-            backdrop-filter: blur(8px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10000;
-            animation: fadeIn 0.3s ease;
-        }
-        
         .telegram-bind-dialog {
             background: #ffffff;
-            border-radius: 24px;
-            width: 95%;
-            max-width: 1200px;
+            border-radius: 18px;
+            width: 92%;
+            max-width: 420px;
             overflow: hidden;
-            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.15), 0 10px 30px rgba(0, 136, 204, 0.1);
-            animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(0, 136, 204, 0.1);
+            animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
             position: relative;
         }
         
@@ -2357,7 +2342,7 @@
             top: 0;
             left: 0;
             right: 0;
-            height: 200px;
+            height: 120px;
             background: linear-gradient(180deg, rgba(0, 136, 204, 0.05) 0%, transparent 100%);
             pointer-events: none;
         }
@@ -2366,7 +2351,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 28px 28px 20px;
+            padding: 20px 22px 14px;
             border-bottom: 1px solid rgba(0, 0, 0, 0.08);
             background: transparent;
             position: relative;
@@ -2375,23 +2360,23 @@
         
         .telegram-bind-dialog .dialog-header h3 {
             margin: 0;
-            font-size: 22px;
+            font-size: 17px;
             font-weight: 600;
             color: #1f2937;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }
         
         .telegram-bind-dialog .close-btn {
             background: rgba(0, 0, 0, 0.05);
             border: 1px solid rgba(0, 0, 0, 0.1);
             color: rgba(0, 0, 0, 0.5);
-            width: 36px;
-            height: 36px;
+            width: 30px;
+            height: 30px;
             border-radius: 50%;
             cursor: pointer;
-            font-size: 18px;
+            font-size: 15px;
             transition: all 0.3s;
             display: flex;
             align-items: center;
@@ -2405,7 +2390,7 @@
         }
         
         .telegram-bind-dialog .dialog-content {
-            padding: 28px;
+            padding: 18px 22px 20px;
             position: relative;
             z-index: 1;
         }
@@ -2413,15 +2398,15 @@
         .telegram-bind-dialog .bind-intro {
             background: linear-gradient(135deg, rgba(0, 136, 204, 0.08) 0%, rgba(0, 102, 170, 0.05) 100%);
             border: 1px solid rgba(0, 136, 204, 0.15);
-            border-radius: 16px;
-            padding: 20px;
-            margin-bottom: 24px;
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 16px;
         }
         
         .telegram-bind-dialog .bind-intro p {
-            margin: 0 0 12px 0;
+            margin: 0 0 8px 0;
             color: #374151;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
         }
         
@@ -2431,47 +2416,38 @@
             list-style: none;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 6px;
         }
         
         .telegram-bind-dialog .bind-intro li {
             color: #6b7280;
-            font-size: 13px;
-            font-size: 13px;
+            font-size: 12px;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
         
         .telegram-bind-dialog .bind-intro li .icon {
-            font-size: 16px;
+            font-size: 14px;
         }
         
-        /* 横向布局的步骤 */
+        /* 步骤布局 */
         .telegram-bind-dialog .bind-steps-horizontal {
             display: flex;
-            flex-direction: row;
-            align-items: stretch;
-            gap: 16px;
-            margin-bottom: 24px;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 16px;
         }
         
         .telegram-bind-dialog .step-item {
-            flex: 1;
             background: rgba(0, 0, 0, 0.02);
             border: 1px solid rgba(0, 0, 0, 0.08);
-            border-radius: 14px;
-            padding: 18px 20px;
+            border-radius: 12px;
+            padding: 14px 16px;
         }
         
         .telegram-bind-dialog .step-divider-horizontal {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: rgba(0, 136, 204, 0.5);
-            font-size: 24px;
-            font-weight: bold;
-            padding: 0 8px;
+            display: none;
         }
         
         .telegram-bind-dialog .step-badge {
@@ -2479,27 +2455,27 @@
             background: linear-gradient(135deg, rgba(0, 136, 204, 0.2) 0%, rgba(0, 102, 170, 0.2) 100%);
             border: 1px solid rgba(0, 136, 204, 0.3);
             color: #0088cc;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 600;
-            padding: 4px 10px;
-            border-radius: 6px;
-            margin-bottom: 12px;
+            padding: 3px 8px;
+            border-radius: 5px;
+            margin-bottom: 8px;
             letter-spacing: 0.5px;
         }
         
         .telegram-bind-dialog .step-content label {
             display: block;
             color: #4b5563;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 500;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         }
         
         .telegram-bind-dialog .bot-link {
             display: flex;
             align-items: center;
-            gap: 12px;
-            padding: 14px 16px;
+            gap: 10px;
+            padding: 10px 14px;
             background: rgba(0, 136, 204, 0.06);
             border: 1px solid rgba(0, 136, 204, 0.15);
             border-radius: 10px;
@@ -2514,13 +2490,13 @@
         }
         
         .telegram-bind-dialog .bot-link .bot-icon {
-            font-size: 24px;
+            font-size: 20px;
         }
         
         .telegram-bind-dialog .bot-link .bot-name {
             flex: 1;
             color: #0088cc;
-            font-size: 15px;
+            font-size: 13px;
             font-weight: 500;
         }
         
@@ -2537,8 +2513,8 @@
         .telegram-bind-dialog .bind-code-container {
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 14px 16px;
+            gap: 8px;
+            padding: 10px 14px;
             background: rgba(0, 0, 0, 0.04);
             border: 1px solid rgba(0, 0, 0, 0.1);
             border-radius: 10px;
@@ -2548,7 +2524,7 @@
             flex: 1;
             color: #0088cc;
             font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 15px;
+            font-size: 13px;
             font-weight: 500;
         }
         
@@ -2570,9 +2546,9 @@
         .telegram-bind-dialog .bind-code-display {
             background: linear-gradient(135deg, rgba(0, 136, 204, 0.06) 0%, rgba(0, 102, 170, 0.04) 100%);
             border: 1px solid rgba(0, 136, 204, 0.15);
-            border-radius: 14px;
-            padding: 20px;
-            margin-bottom: 20px;
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 14px;
         }
         
         .telegram-bind-dialog .code-header {
@@ -2606,24 +2582,24 @@
             flex: 1;
             color: #1f2937;
             font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 32px;
+            font-size: 24px;
             font-weight: 700;
-            letter-spacing: 4px;
+            letter-spacing: 3px;
             text-shadow: none;
         }
         
         .telegram-bind-dialog .refresh-btn {
             background: rgba(0, 136, 204, 0.1);
             border: 1px solid rgba(0, 136, 204, 0.2);
-            border-radius: 10px;
-            width: 44px;
-            height: 44px;
+            border-radius: 8px;
+            width: 36px;
+            height: 36px;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
             transition: all 0.3s;
-            font-size: 20px;
+            font-size: 16px;
         }
         
         .telegram-bind-dialog .refresh-btn:hover:not(:disabled) {
@@ -2639,22 +2615,22 @@
         .telegram-bind-dialog .bind-status-hint {
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 14px 18px;
+            gap: 8px;
+            padding: 10px 14px;
             background: rgba(251, 191, 36, 0.06);
             border: 1px solid rgba(251, 191, 36, 0.15);
             border-radius: 10px;
         }
         
         .telegram-bind-dialog .hint-icon {
-            font-size: 18px;
+            font-size: 15px;
             animation: pulse 2s ease-in-out infinite;
         }
         
         .telegram-bind-dialog .hint-text {
             flex: 1;
             color: #d97706;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 500;
         }
         
