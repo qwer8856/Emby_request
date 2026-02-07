@@ -11544,6 +11544,8 @@
     gap: 8px;
     flex: 1;
     min-width: 0;
+    flex-wrap: wrap;
+    overflow: hidden;
 }
 
 .line-info-compact .line-icon {
@@ -11571,7 +11573,8 @@
     font-weight: 600;
     font-size: 14px;
     color: #1f2937;
-    min-width: 70px;
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .line-info-compact .line-url-new {
@@ -11582,7 +11585,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 280px;
+    min-width: 0;
+    flex: 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
@@ -11599,6 +11603,8 @@
     font-size: 10px;
     font-weight: 500;
     margin-left: 6px;
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .line-badge-compact.whitelist {
@@ -12046,20 +12052,49 @@
     
     .server-line-compact {
         flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
+        align-items: stretch;
+        gap: 6px;
+        padding: 10px 12px;
     }
     
     .line-info-compact {
         width: 100%;
+        gap: 6px;
+        flex-wrap: nowrap;
+    }
+    
+    .line-info-compact .line-icon {
+        font-size: 13px;
+        flex-shrink: 0;
+    }
+    
+    .line-info-compact .line-name-new {
+        font-size: 13px;
+        flex-shrink: 0;
+    }
+    
+    .line-info-compact .line-url-new {
+        font-size: 12px;
+        flex: 1;
+        min-width: 0;
     }
     
     .line-info-compact .line-url {
         max-width: 100%;
     }
     
+    .line-badge-compact {
+        margin-left: auto;
+    }
+    
     .line-actions-compact {
+        display: flex;
         width: 100%;
+        gap: 6px;
+    }
+    
+    .line-toggle-btn {
+        flex: none;
     }
     
     .line-copy-btn {
@@ -14650,7 +14685,16 @@
     /* 线路信息移动端优化 */
     .line-info-compact .line-url-new {
         max-width: 100%;
+        font-size: 11px;
+    }
+    
+    .line-info-compact .line-name-new {
         font-size: 12px;
+    }
+    
+    .line-badge-compact {
+        font-size: 9px;
+        padding: 1px 5px;
     }
     
     /* 滚动性能优化 */
