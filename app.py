@@ -5053,8 +5053,23 @@ def send_admin_review_notification(movie_request, user):
     scope_info = movie_request.get_request_scope() if movie_request.media_type == 'tv' else ''
     user_display = user.name or str(user.tg)
     
-    # 用户 TG mention
+    # 尝试通过 Telegram API 获取用户的 TG 显示名称
     tg_id = user.telegram_id or user.tg
+    if tg_id:
+        try:
+            chat_url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChat'
+            chat_resp = PROXY_SESSION.post(chat_url, json={'chat_id': tg_id}, timeout=5)
+            chat_data = chat_resp.json()
+            if chat_data.get('ok'):
+                tg_result = chat_data.get('result', {})
+                if tg_result.get('username'):
+                    user_display = tg_result['username']
+                elif tg_result.get('first_name'):
+                    user_display = tg_result['first_name']
+        except Exception as e:
+            app.logger.warning(f'[审核通知] 获取用户 {tg_id} TG显示名称失败: {e}')
+    
+    # 用户 TG mention
     user_mention = f'<a href="tg://user?id={tg_id}">{user_display}</a>'
     
     tmdb_url = f"https://www.themoviedb.org/{movie_request.media_type}/{movie_request.tmdb_id}"
@@ -7915,8 +7930,25 @@ def request_movie():
     # 在后台发送 Telegram 通知（不阻塞响应）
     try:
         overview = details.get('overview')
+        user_tg_id = user.telegram_id or user.tg
+        # 尝试通过 Telegram API 获取用户的 TG 显示名称，而非 Emby 账号名
+        display_name = user.name  # 默认使用 Emby 账号名
+        if user_tg_id:
+            try:
+                chat_url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChat'
+                chat_resp = PROXY_SESSION.post(chat_url, json={'chat_id': user_tg_id}, timeout=5)
+                chat_data = chat_resp.json()
+                if chat_data.get('ok'):
+                    tg_result = chat_data.get('result', {})
+                    # 优先使用 username（@xxx），其次 first_name
+                    if tg_result.get('username'):
+                        display_name = tg_result['username']
+                    elif tg_result.get('first_name'):
+                        display_name = tg_result['first_name']
+            except Exception as e:
+                app.logger.warning(f'获取用户 {user_tg_id} TG显示名称失败: {e}')
         # 传递求片范围信息和用户 Telegram ID 到通知（使用真正的 telegram_id 而非系统主键 tg）
-        send_telegram_notification(user.name, title, year, media_type, tmdb_id, poster_path, overview, scope_info, user.telegram_id or user.tg)
+        send_telegram_notification(display_name, title, year, media_type, tmdb_id, poster_path, overview, scope_info, user_tg_id)
     except Exception as e:
         # 即使 Telegram 发送失败也不影响用户体验
         app.logger.error(f'Telegram 通知异常: {e}')
