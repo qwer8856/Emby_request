@@ -3023,13 +3023,8 @@ class EmbyClient:
             return {'success': False, 'error': 'Emby 服务器未配置', 'error_type': 'server_error'}
         
         try:
-            # 先检查用户是否存在
-            existing_user = self.get_user_by_name(username)
-            if not existing_user:
-                app.logger.warning(f'Emby 用户不存在: {username}')
-                return {'success': False, 'error': f'Emby 账号 "{username}" 不存在', 'error_type': 'user_not_found'}
-            
-            # Emby 认证 API
+            # 直接调用 Emby 认证 API，由 Emby 服务器判断用户是否存在及密码是否正确
+            # 不再预检查用户列表，因为 /Users API 可能不返回隐藏/禁用用户，导致误报"不存在"
             url = f"{self.base_url}/Users/AuthenticateByName"
             headers = {
                 'X-Emby-Authorization': f'MediaBrowser Client="Emby Request System", Device="Web", DeviceId="emby-request-system", Version="1.0"',
@@ -3053,8 +3048,15 @@ class EmbyClient:
                     'access_token': result.get('AccessToken')
                 }
             elif response.status_code == 401:
-                app.logger.warning(f'Emby 用户密码错误: {username}')
-                return {'success': False, 'error': 'Emby 密码不正确', 'error_type': 'wrong_password'}
+                # 401 可能是用户名不存在或密码错误，尝试区分
+                # 通过查询用户列表来判断是用户不存在还是密码错误
+                existing_user = self.get_user_by_name(username)
+                if existing_user:
+                    app.logger.warning(f'Emby 用户密码错误: {username}')
+                    return {'success': False, 'error': 'Emby 密码不正确', 'error_type': 'wrong_password'}
+                else:
+                    app.logger.warning(f'Emby 用户名或密码错误: {username}')
+                    return {'success': False, 'error': 'Emby 用户名或密码不正确', 'error_type': 'wrong_password'}
             else:
                 app.logger.warning(f'Emby 用户验证失败: {username}, status={response.status_code}')
                 return {'success': False, 'error': f'Emby 服务器返回错误 ({response.status_code})', 'error_type': 'server_error'}
