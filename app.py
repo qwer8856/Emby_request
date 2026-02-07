@@ -15322,8 +15322,7 @@ def save_system_config_api():
             stream_sync_msg = ''
             if _pending_stream_sync:
                 try:
-                    emby_api = EmbyAPI()
-                    sync_result = emby_api.sync_all_users_stream_limit(_pending_stream_sync['new'])
+                    sync_result = emby_client.sync_all_users_stream_limit(_pending_stream_sync['new'])
                     stream_sync_msg = f'，播放流数限制已从 {_pending_stream_sync["old"]} 同步为 {_pending_stream_sync["new"]}（成功 {sync_result["success"]}/{sync_result["total"]} 人）'
                     app.logger.info(f'最大同时播放流数已从 {_pending_stream_sync["old"]} 改为 {_pending_stream_sync["new"]}，'
                                    f'同步结果: 成功{sync_result["success"]}/{sync_result["total"]}人')
