@@ -6233,43 +6233,89 @@ def bind_emby_account():
         emby_name = auth_result.get('name')
         
         # 检查该 Emby 账号是否已被其他用户绑定（其他 tg 账号）
+        # 注意：如果是迁移过来的旧记录（tg 为负数），不算"已被绑定"，后面会继承并删除
         existing_bind = User.query.filter_by(embyid=emby_id).first()
         if existing_bind and existing_bind.tg != user.tg:
-            return jsonify({'success': False, 'error': '该 Emby 账号已被其他用户绑定'}), 400
+            # 如果旧记录的 tg 是负数（迁移脚本生成的系统主键），允许继承
+            if existing_bind.tg >= 0:
+                return jsonify({'success': False, 'error': '该 Emby 账号已被其他用户绑定'}), 400
         
-        # 查找数据库中是否有该 Emby 用户名的记录（通过 EmbyBoss 创建的老用户）
-        # 这样可以继承原有的等级和订阅信息
-        existing_emby_user = User.query.filter_by(name=username).first()
+        # 查找数据库中是否有该 Emby 用户名的旧记录（从 embyboss 迁移过来的老用户）
+        # 通过 Emby 用户名或 embyid 查找，可以继承原有的等级、订阅、积分等信息
+        existing_emby_user = User.query.filter(
+            User.tg != user.tg,  # 排除当前用户自己
+            db.or_(
+                User.name == username,
+                User.embyid == emby_id
+            )
+        ).first()
         
-        app.logger.info(f'查找用户名 {username} 的记录: {existing_emby_user}')
+        app.logger.info(f'查找用户名 {username} / embyid {emby_id} 的旧记录: {existing_emby_user}')
         if existing_emby_user:
-            app.logger.info(f'找到记录: tg={existing_emby_user.tg}, lv={existing_emby_user.lv}, ex={existing_emby_user.ex}')
+            app.logger.info(f'找到旧记录: tg={existing_emby_user.tg}, lv={existing_emby_user.lv}, '
+                          f'ex={existing_emby_user.ex}, coins={existing_emby_user.coins}')
         
-        inherited_info = None
-        # 如果找到记录，获取等级信息
-        if existing_emby_user and existing_emby_user.lv in ['a', 'b', 'c']:
-            inherited_info = {
-                'lv': existing_emby_user.lv,
-                'ex': existing_emby_user.ex,
-                'cr': existing_emby_user.cr,
-                'iv': existing_emby_user.iv,
-            }
-            app.logger.info(f'将继承用户等级: {username}, lv={existing_emby_user.lv}')
-        
-        # 绑定账号（网站密码和Emby密码独立）
+        # 绑定账号（网站密码 pwd 保持不变，Emby 密码存入 pwd2）
         user.embyid = emby_id
         user.name = emby_name
         user.pwd2 = password  # 保存 Emby 密码到 pwd2 字段
         
-        # 如果找到了原有记录，继承等级和订阅信息
-        if inherited_info:
-            user.lv = inherited_info['lv']
-            user.ex = inherited_info['ex']
-            user.cr = inherited_info['cr'] or user.cr
-            user.iv = inherited_info['iv'] or 0
-            app.logger.info(f'用户 {user.tg} 继承 Emby 账号 {emby_name} 的等级: lv={user.lv}, ex={user.ex}')
+        # 如果找到了旧记录，完整继承所有数据
+        if existing_emby_user and existing_emby_user.lv in ['a', 'b', 'c']:
+            old_tg = existing_emby_user.tg
+            
+            # 继承等级和时间
+            user.lv = existing_emby_user.lv
+            user.ex = existing_emby_user.ex
+            user.cr = existing_emby_user.cr or user.cr
+            
+            # 继承积分（coins）：取两者较大值，避免用户损失
+            old_coins = existing_emby_user.coins or 0
+            cur_coins = user.coins or 0
+            user.coins = max(old_coins, cur_coins)
+            
+            # 继承邀请数
+            user.iv = (existing_emby_user.iv or 0) + (user.iv or 0)
+            
+            # 继承签到时间（取较新的）
+            if existing_emby_user.ch:
+                if not user.ch or existing_emby_user.ch > user.ch:
+                    user.ch = existing_emby_user.ch
+            
+            # 迁移订阅记录（subscriptions 表）到新用户
+            old_subscriptions = Subscription.query.filter_by(user_tg=old_tg).all()
+            for sub in old_subscriptions:
+                sub.user_tg = user.tg  # 将订阅记录指向新用户
+            
+            # 迁移签到记录
+            CheckInRecord.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
+            
+            # 迁移积分交易记录
+            CoinTransaction.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
+            
+            app.logger.info(f'用户 {user.tg} 继承旧记录 tg={old_tg} 的数据: '
+                          f'lv={user.lv}, ex={user.ex}, coins={user.coins}, '
+                          f'订阅记录={len(old_subscriptions)}条')
+            
+            # 删除旧用户记录（避免 name 冲突和数据残留）
+            # 先清理旧记录的其他关联数据
+            try:
+                SupportTicket.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
+                TicketMessage.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
+                MovieRequest.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
+                Order.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
+                UserActivityLog.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
+                PlaybackRecord.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
+                UserDevice.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
+                InviteRecord.query.filter_by(inviter_tg=old_tg).update({'inviter_tg': user.tg})
+                InviteRecord.query.filter_by(invitee_tg=old_tg).update({'invitee_tg': user.tg})
+            except Exception as e:
+                app.logger.warning(f'迁移旧记录关联数据时部分失败（不影响绑定）: {e}')
+            
+            db.session.delete(existing_emby_user)
+            app.logger.info(f'已删除旧用户记录 tg={old_tg}，数据已全部迁移到 tg={user.tg}')
         else:
-            # 没有找到原有记录，设置为默认 B 级（普通注册用户）
+            # 没有找到旧记录，设置为默认 B 级（普通注册用户）
             if user.lv == 'd':  # 只有当前是"无账号"状态才升级
                 user.lv = 'b'
                 app.logger.info(f'用户 {user.tg} 绑定新账号，设置为 B 级普通用户')
