@@ -10118,6 +10118,30 @@ def telegram_webhook():
             send_telegram_reply(chat_id, "❌ 无法识别目标用户")
             return jsonify({'ok': True})
         
+        # 检查目标用户是否在授权群组内
+        if target_user_id:
+            try:
+                member_url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChatMember'
+                member_resp = PROXY_SESSION.post(member_url, json={
+                    'chat_id': TELEGRAM_CHAT_ID,
+                    'user_id': target_user_id
+                }, timeout=5)
+                member_data = member_resp.json()
+                if member_data.get('ok'):
+                    member_status = member_data.get('result', {}).get('status', '')
+                    if member_status in ('left', 'kicked'):
+                        send_telegram_reply(chat_id, "❌ 该用户不在群组内，无法操作")
+                        return jsonify({'ok': True})
+                else:
+                    # API 调用失败（用户从未加入过群组等情况）
+                    app.logger.warning(f'[/kk] getChatMember 失败: {member_data}')
+                    send_telegram_reply(chat_id, "❌ 该用户不在群组内，无法操作")
+                    return jsonify({'ok': True})
+            except Exception as e:
+                app.logger.warning(f'[/kk] 检查用户群组成员状态失败: {e}')
+                send_telegram_reply(chat_id, "❌ 检查用户群组状态失败，请稍后再试")
+                return jsonify({'ok': True})
+        
         # 获取系统配置中的赠送天数
         config = load_system_config()
         gift_days = config.get('telegram', {}).get('gift_days', 30)
