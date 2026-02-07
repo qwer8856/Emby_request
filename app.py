@@ -9966,7 +9966,6 @@ def telegram_webhook():
         # 将目标用户信息存入缓存，回调时查询
         kk_cache_key = f'kk_target_{target_user_id}'
         set_db_config(kk_cache_key, {
-        app.logger.error('[/kk gift] 无法获取 Bot 用户名，赠送失败')
             'username': target_username or '',
             'first_name': target_first_name or '',
             'cached_at': datetime.now().isoformat()
