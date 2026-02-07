@@ -13992,8 +13992,8 @@ def payment_notify():
             
             # 更新用户信息
             user.ex = end_date
-            if user.lv == 'a':  # 只有访客才升级
-                user.lv = 'b'  # 升级为注册用户
+            if user.lv not in ['a', 'b']:  # 只升级访客(d)/封禁(c)用户，不降级白名单
+                user.lv = 'b'
             
             # 恢复Emby账号（如果之前因过期被禁用）
             if user.embyid and emby_client.is_enabled():
@@ -14063,9 +14063,16 @@ def payment_callback():
             # 创建订阅记录
             user = db.session.get(User, order.user_tg)
             if user:
-                # 计算订阅开始和结束时间
-                start_date = datetime.now()
-                end_date = start_date + timedelta(days=order.duration_months * 30)
+                # 计算订阅开始和结束时间 - 在现有订阅基础上叠加
+                now = datetime.now()
+                start_date = now
+                purchased_days = order.duration_months * 30
+                
+                # 如果用户已有未过期的订阅，在此基础上叠加
+                if user.ex and user.ex > now:
+                    end_date = user.ex + timedelta(days=purchased_days)
+                else:
+                    end_date = now + timedelta(days=purchased_days)
                 
                 subscription = Subscription(
                     user_tg=user.tg,
@@ -14083,7 +14090,8 @@ def payment_callback():
                 
                 # 更新用户信息
                 user.ex = end_date
-                user.lv = 'b'  # 升级为注册用户
+                if user.lv not in ['a', 'b']:  # 只升级访客(d)/封禁(c)用户，不降级白名单
+                    user.lv = 'b'
                 
                 # 邀请返利：检查是否有邀请人，给邀请人返利购买金额10%的天数
                 invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first()
@@ -14178,8 +14186,15 @@ def query_payment():
                     # 创建订阅（与notify相同逻辑）
                     user = db.session.get(User, order.user_tg)
                     if user:
-                        start_date = datetime.now()
-                        end_date = start_date + timedelta(days=order.duration_months * 30)
+                        now = datetime.now()
+                        start_date = now
+                        purchased_days = order.duration_months * 30
+                        
+                        # 在现有订阅基础上叠加
+                        if user.ex and user.ex > now:
+                            end_date = user.ex + timedelta(days=purchased_days)
+                        else:
+                            end_date = now + timedelta(days=purchased_days)
                         
                         subscription = Subscription(
                             user_tg=user.tg,
@@ -14194,7 +14209,7 @@ def query_payment():
                         )
                         db.session.add(subscription)
                         user.ex = end_date
-                        if user.lv == 'a':
+                        if user.lv not in ['a', 'b']:  # 只升级访客(d)/封禁(c)用户，不降级白名单
                             user.lv = 'b'
                         
                         # 恢复Emby账号（如果之前因过期被禁用）
@@ -18535,8 +18550,8 @@ def admin_mark_order_paid(order_no):
             # 否则从现在开始计算
             user.ex = now + timedelta(days=30 * duration_months)
         
-        # 如果是访客等级，升级为注册用户
-        if user.lv == 'a':
+        # 如果是访客/封禁等级，升级为注册用户（不降级白名单）
+        if user.lv not in ['a', 'b']:
             user.lv = 'b'
         
         # 邀请返利：检查是否有邀请人，给邀请人返利购买金额10%的天数
