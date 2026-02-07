@@ -1969,6 +1969,15 @@
             flex-shrink: 0;
         }
         
+        .app-version {
+            text-align: center;
+            font-size: 11px;
+            color: #b0b0b0;
+            padding: 8px 0 2px;
+            letter-spacing: 0.5px;
+            user-select: none;
+        }
+        
         .user-card {
             display: flex;
             align-items: center;

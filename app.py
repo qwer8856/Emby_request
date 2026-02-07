@@ -13,6 +13,9 @@ from functools import wraps
 import logging
 from logging.handlers import RotatingFileHandler
 import hashlib
+
+# 应用版本号
+APP_VERSION = '1.0.0'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -6814,7 +6817,8 @@ def dashboard():
                          library_counts=library_counts,
                          is_banned=is_banned,
                          now=datetime.now(),
-                         site_config=site_config)
+                         site_config=site_config,
+                         app_version=APP_VERSION)
 
 
 @app.route('/search')
@@ -19566,13 +19570,17 @@ if __name__ == '__main__':
     host = os.getenv('FLASK_HOST', '0.0.0.0')
     port = int(os.getenv('FLASK_PORT', 5000))
     
-    app.logger.info(f'启动开发服务器: {host}:{port} (Debug={debug_mode})')
+    app.logger.info(f'Emby Request v{APP_VERSION} 启动开发服务器: {host}:{port} (Debug={debug_mode})')
+    print(f'\n  🎬 Emby Request v{APP_VERSION}')
+    print(f'  🌐 http://{host}:{port}\n')
     app.run(debug=debug_mode, host=host, port=port)
 else:
     # Gunicorn 等 WSGI 服务器启动时的初始化
+    print(f'\n  🎬 Emby Request v{APP_VERSION}')
     init_db()
     admin_config = init_admin_config()
     secret_path = admin_config.get('admin', {}).get('secret_path')
     if secret_path:
         print(f"[INFO] 管理后台入口: /{secret_path}")
     bootstrap_background_tasks()
+    app.logger.info(f'Emby Request v{APP_VERSION} (Gunicorn) 启动完成')

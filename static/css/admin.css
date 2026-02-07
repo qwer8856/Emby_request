@@ -6891,6 +6891,19 @@ select.custom-select:focus,
     
     .mobile-header {
         display: flex;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 56px;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-bottom: 1px solid #e2e8f0;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 16px;
+        z-index: 998;
     }
     
     .admin-topbar {
@@ -6898,7 +6911,7 @@ select.custom-select:focus,
     }
     
     .admin-main {
-        padding-top: 60px;
+        padding-top: 56px;
     }
     
     .admin-content {
@@ -6966,7 +6979,7 @@ select.custom-select:focus,
     
     .admin-main {
         margin-left: 0;
-        padding-top: 60px;
+        padding-top: 56px;
         width: 100%;
     }
     
