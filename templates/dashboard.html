@@ -1729,7 +1729,7 @@
     <!-- Emby 账号引导弹窗（未绑定时自动弹出） -->
     <div class="emby-bind-overlay" id="embyGuideOverlay" style="display: none;">
         <div class="emby-bind-dialog emby-guide-dialog">
-            <button class="close-btn" onclick="closeEmbyGuideDialog()">&times;</button>
+            <button class="close-btn" onclick="closeEmbyGuideDialog()" style="color:#999">&times;</button>
             <div class="guide-header">
                 <div class="guide-icon">📺</div>
                 <h2>欢迎使用 Emby 影视服务</h2>
@@ -1762,6 +1762,9 @@
         .emby-guide-dialog {
             max-width: 480px;
             padding: 36px 30px 28px;
+            background: #faf9f7 !important;
+            border: 1px solid #e8e5e0 !important;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15) !important;
         }
         .guide-header {
             text-align: center;
@@ -1772,13 +1775,13 @@
             margin-bottom: 16px;
         }
         .guide-header h2 {
-            color: #fff;
+            color: #1a1a1a;
             font-size: 20px;
             font-weight: 700;
             margin-bottom: 10px;
         }
         .guide-header p {
-            color: rgba(255,255,255,0.55);
+            color: #888;
             font-size: 14px;
             line-height: 1.6;
         }
@@ -1792,15 +1795,15 @@
             align-items: center;
             gap: 14px;
             padding: 18px 16px;
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.1);
+            background: #fff;
+            border: 1px solid #e8e5e0;
             border-radius: 14px;
             cursor: pointer;
             transition: all 0.25s;
         }
         .guide-option:hover {
-            background: rgba(102,126,234,0.15);
-            border-color: rgba(102,126,234,0.4);
+            background: #f0edff;
+            border-color: #667eea;
             transform: translateX(4px);
         }
         .guide-option:active {
@@ -1814,25 +1817,25 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: rgba(255,255,255,0.06);
+            background: #f5f3ff;
             border-radius: 12px;
         }
         .guide-option-info {
             flex: 1;
         }
         .guide-option-info h3 {
-            color: #fff;
+            color: #1a1a1a;
             font-size: 15px;
             font-weight: 600;
             margin-bottom: 4px;
         }
         .guide-option-info p {
-            color: rgba(255,255,255,0.5);
+            color: #999;
             font-size: 12px;
             margin: 0;
         }
         .guide-option-arrow {
-            color: rgba(255,255,255,0.3);
+            color: #ccc;
             font-size: 22px;
             font-weight: 300;
             flex-shrink: 0;
@@ -1842,16 +1845,17 @@
             cursor: not-allowed;
         }
         .guide-option.guide-btn-disabled:hover {
-            background: rgba(255,255,255,0.06);
-            border-color: rgba(255,255,255,0.1);
+            background: #fff;
+            border-color: #e8e5e0;
             transform: none;
         }
         .guide-create-hint {
             text-align: center;
-            color: #f59e0b;
+            color: #d97706;
             font-size: 12px;
-            padding: 8px 12px;
-            background: rgba(245,158,11,0.08);
+            padding: 10px 14px;
+            background: #fef8ee;
+            border: 1px solid #fde6b4;
             border-radius: 8px;
             line-height: 1.5;
         }
