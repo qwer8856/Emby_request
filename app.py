@@ -3406,10 +3406,10 @@ class User(db.Model):
         if self.lv == 'a':
             return True
         
-        # B级注册用户：只检查是否过期（不检查us字段）
+        # B级注册用户：必须有有效的过期时间才算活跃
         if self.ex:
             return datetime.now() < self.ex
-        return True
+        return False  # 没有过期时间的B级用户视为非活跃
     
     @property
     def username(self):
@@ -5109,11 +5109,6 @@ def send_group_completion_notification(user_tg_id, username, title, year, media_
     # 使用正确的媒体分类
     media_type_cn = get_media_category(media_type, tmdb_id)
     
-    # 获取自定义模板
-    config = load_system_config()
-    templates = config.get('telegram', {}).get('templates', {})
-    completion_template = templates.get('completion', '')
-    
     # 构建@用户的 mention（使用 HTML 格式）
     # 使用 tg://user?id= 格式可以点击并显示用户名
     display_name = username or '用户'
@@ -5122,47 +5117,32 @@ def send_group_completion_notification(user_tg_id, username, title, year, media_
     else:
         user_mention = f'<b>{display_name}</b>'
     
-    # 如果有自定义模板，使用模板
-    if completion_template:
-        message = completion_template
-        # 替换变量
-        message = message.replace('{user}', user_mention)
-        message = message.replace('{title}', f'<b>{title}</b>')
-        message = message.replace('{year}', str(year or '未知'))
-        message = message.replace('{category}', media_type_cn)
-        message = message.replace('{rating}', str(rating) if rating else '暂无')
-        message = message.replace('{quality}', quality if quality else '未知')
-        message = message.replace('{size}', size if size else '未知')
-        message = message.replace('{file_count}', str(file_count) if file_count else '')
-    else:
-        # 使用默认格式
-        message_lines = [
-            f"{user_mention} ✅ <b>您请求的影片已入库完成！</b>",
-            f"",
-            f"<b>{title}</b> ({year or '未知'})",
-        ]
-        
-        # 添加文件数量信息
-        if file_count:
-            message_lines.append(f"已入库{file_count}个文件")
-        
-        message_lines.append("")  # 空行
-        
-        # 添加详细信息
-        if rating:
-            message_lines.append(f"评分：{rating}")
-        message_lines.append(f"类别：{media_type_cn}")
-        if quality:
-            message_lines.append(f"质量：{quality}")
-        if size:
-            message_lines.append(f"大小：{size}")
-        
-        message_lines.extend([
-            "",
-            "现在可以在 Emby 中观看了！"
-        ])
-        
-        message = '\n'.join(message_lines)
+    # 使用系统内置默认格式
+    message_lines = [
+        f"{user_mention} ✅ <b>您请求的影片已入库完成！</b>",
+        f"",
+        f"<b>{title}</b> ({year or '未知'})",
+    ]
+    
+    # 添加文件数量信息
+    if file_count:
+        message_lines.append(f"已入库{file_count}个文件")
+    
+    message_lines.append("")  # 空行
+    
+    # 添加详细信息
+    if rating:
+        message_lines.append(f"评分：{rating}")
+    message_lines.append(f"类别：{media_type_cn}")
+    if quality:
+        message_lines.append(f"质量：{quality}")
+    if size:
+        message_lines.append(f"大小：{size}")
+    
+    message_lines.extend([
+        "",
+        "现在可以在 Emby 中观看了！"
+    ])
     
     message = '\n'.join(message_lines)
     
@@ -6312,7 +6292,7 @@ def bind_emby_account():
             # 先清理旧记录的其他关联数据
             try:
                 SupportTicket.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
-                TicketMessage.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
+                TicketMessage.query.filter_by(sender_id=old_tg).update({'sender_id': user.tg})
                 MovieRequest.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
                 Order.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
                 UserActivityLog.query.filter_by(user_tg=old_tg).update({'user_tg': user.tg})
@@ -13273,22 +13253,14 @@ def use_redeem_code():
         redeem.used_at = datetime.now()
         
         # 同步更新用户表的订阅状态
-        try:
-            # 设置用户等级为 'b'（注册用户/付费用户），但不降级管理员
-            if user.lv not in ['a']:  # 不改变管理员等级
-                user.lv = 'b'
-            
-            # 更新过期时间 - 使用不带时区的时间，与数据库一致
-            now = datetime.now()
-            end_date = now + timedelta(days=redeem.duration_days)
-            # 如果用户已有过期时间且未过期，则在此基础上续期
-            if user.ex and user.ex > now:
-                end_date = user.ex + timedelta(days=redeem.duration_days)
-            user.ex = end_date
-            
-            app.logger.info(f'更新用户订阅状态: lv={user.lv}, ex={user.ex}')
-        except Exception as e:
-            app.logger.warning(f'更新用户订阅状态失败: {e}')
+        # 设置用户等级为 'b'（注册用户/付费用户），但不降级管理员
+        if user.lv not in ['a']:  # 不改变管理员等级
+            user.lv = 'b'
+        
+        # 更新过期时间 - 直接使用上面已经正确计算（含叠加）的 end_date
+        user.ex = end_date
+        
+        app.logger.info(f'更新用户订阅状态: lv={user.lv}, ex={user.ex}')
         
         db.session.commit()
         
@@ -16072,6 +16044,11 @@ def exchange_plan():
         db.session.add(coin_trans)
         
         db.session.commit()
+        
+        # 恢复Emby账号（如果之前因过期被禁用）
+        if user.embyid and emby_client.is_enabled():
+            if emby_client.enable_user(user.embyid):
+                app.logger.info(f'用户 {user.name} 积分兑换成功，已恢复Emby账号')
         
         app.logger.info(f'用户兑换套餐成功: {user.name}, 套餐: {plan_name}, 花费: {coins_cost}积分')
         
