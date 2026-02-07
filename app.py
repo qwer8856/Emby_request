@@ -8386,6 +8386,68 @@ def pt_push_to_qb():
     return jsonify({'success': True, 'task': task.to_dict()})
 
 
+# ==================== Emby Webhook 辅助函数 ====================
+def _verify_emby_webhook_secret():
+    """验证 Emby Webhook 密钥（可选）。返回 True 表示通过，返回 Response 表示拒绝。"""
+    if not EMBY_WEBHOOK_SECRET or not EMBY_WEBHOOK_SECRET.strip():
+        return True  # 未配置密钥，跳过验证
+    
+    # 从多种来源获取密钥（兼容不同配置方式）
+    provided_secret = (
+        request.headers.get('X-Emby-Secret', '')
+        or request.headers.get('X-Webhook-Secret', '')
+        or request.args.get('secret', '')  # URL 参数: ?secret=xxx
+        or request.args.get('token', '')   # URL 参数: ?token=xxx
+        or request.headers.get('Authorization', '').replace('Bearer ', '')
+    )
+    
+    if not provided_secret:
+        app.logger.warning(f'Emby Webhook 未提供密钥 (headers: {dict(request.headers)})')
+        return jsonify({'success': False, 'error': 'Webhook 密钥未提供。请在 Emby 的 Webhook URL 中添加 ?token=你的密钥，或在 Header 中添加 X-Emby-Secret'}), 401
+    
+    import hmac
+    if not hmac.compare_digest(provided_secret.strip(), EMBY_WEBHOOK_SECRET.strip()):
+        app.logger.warning(f'Emby Webhook 密钥不匹配')
+        return jsonify({'success': False, 'error': '密钥验证失败'}), 401
+    
+    return True
+
+
+def _parse_emby_webhook_data():
+    """解析 Emby Webhook 数据（兼容 JSON / form-data / Webhooks 插件格式）"""
+    data = {}
+    try:
+        content_type = request.content_type or ''
+        
+        if 'application/json' in content_type:
+            # 标准 JSON 格式
+            data = request.get_json(silent=True) or {}
+        elif 'multipart/form-data' in content_type or 'application/x-www-form-urlencoded' in content_type:
+            # Emby Webhooks 插件使用 form-data，数据通常在 'data' 字段中
+            raw_data = request.form.get('data', '')
+            if raw_data:
+                data = json.loads(raw_data)
+            else:
+                # 尝试直接从 form 字段构建
+                data = request.form.to_dict()
+        else:
+            # 尝试强制按 JSON 解析
+            data = request.get_json(force=True, silent=True) or {}
+        
+        if not data:
+            # 最后尝试从原始 body 解析
+            raw_body = request.get_data(as_text=True)
+            if raw_body:
+                try:
+                    data = json.loads(raw_body)
+                except (json.JSONDecodeError, ValueError):
+                    app.logger.debug(f'Webhook 原始数据非 JSON: {raw_body[:200]}')
+    except Exception as e:
+        app.logger.warning(f'解析 Webhook 数据异常: {e}')
+    
+    return data
+
+
 # ==================== Emby Webhook 接口 ====================
 @app.route('/api/webhook/emby', methods=['POST'])
 def emby_webhook():
@@ -8396,23 +8458,16 @@ def emby_webhook():
     1. 打开 Emby 控制台 → 设置 → 通知
     2. 添加 Webhook 通知
     3. URL: http://你的服务器地址:5002/api/webhook/emby
+       如果配置了密钥: http://你的服务器地址:5002/api/webhook/emby?token=你的密钥
     4. 事件类型选择: library.new (新媒体入库)
-    5. 可选: 添加 Header "X-Emby-Secret: 你的密钥" 用于验证
+    5. 也可在 Header 中添加 X-Emby-Secret: 你的密钥
     """
     # 验证密钥（可选，仅当配置了密钥时才验证）
-    if EMBY_WEBHOOK_SECRET and EMBY_WEBHOOK_SECRET.strip():
-        provided_secret = request.headers.get('X-Emby-Secret', '')
-        # 也检查 Authorization header（某些系统可能用这个）
-        if not provided_secret:
-            provided_secret = request.headers.get('Authorization', '').replace('Bearer ', '')
-        if provided_secret != EMBY_WEBHOOK_SECRET:
-            app.logger.warning(f'Emby Webhook 密钥验证失败 - 收到: "{provided_secret[:10]}..." 期望: "{EMBY_WEBHOOK_SECRET[:10]}..."')
-            return jsonify({'success': False, 'error': '密钥验证失败'}), 401
+    secret_check = _verify_emby_webhook_secret()
+    if secret_check is not True:
+        return secret_check
     
-    try:
-        data = request.get_json(force=True) or {}
-    except Exception:
-        data = {}
+    data = _parse_emby_webhook_data()
     
     event_type = data.get('Event', '')
     app.logger.info(f'收到 Emby 入库 Webhook: {event_type}')
@@ -8774,22 +8829,16 @@ def emby_playback_webhook():
     1. 打开 Emby 控制台 → 设置 → 通知
     2. 添加 Webhook 通知
     3. URL: http://你的服务器地址:5002/api/webhook/emby/playback
+       如果配置了密钥: http://你的服务器地址:5002/api/webhook/emby/playback?token=你的密钥
     4. 事件类型选择: playback.start (播放开始)
-    5. 可选: 添加 Header "X-Emby-Secret: 你的密钥" 用于验证
+    5. 也可在 Header 中添加 X-Emby-Secret: 你的密钥
     """
     # 验证密钥（可选）
-    if EMBY_WEBHOOK_SECRET and EMBY_WEBHOOK_SECRET.strip():
-        provided_secret = request.headers.get('X-Emby-Secret', '')
-        if not provided_secret:
-            provided_secret = request.headers.get('Authorization', '').replace('Bearer ', '')
-        if provided_secret != EMBY_WEBHOOK_SECRET:
-            app.logger.warning(f'播放 Webhook 密钥验证失败')
-            return jsonify({'success': False, 'error': '密钥验证失败'}), 401
+    secret_check = _verify_emby_webhook_secret()
+    if secret_check is not True:
+        return secret_check
     
-    try:
-        data = request.get_json(force=True) or {}
-    except Exception:
-        data = {}
+    data = _parse_emby_webhook_data()
     
     event_type = data.get('Event', '')
     app.logger.info(f'收到 Emby 播放 Webhook: {event_type}')
@@ -9053,10 +9102,18 @@ def emby_playback_webhook():
 @app.route('/api/webhook/emby/test', methods=['GET', 'POST'])
 def test_emby_webhook():
     """测试 Emby Webhook 配置（无需登录）"""
+    secret_configured = bool(EMBY_WEBHOOK_SECRET and EMBY_WEBHOOK_SECRET.strip())
+    hint = ''
+    if secret_configured:
+        hint = '已配置密钥验证。请在 Emby Webhook URL 后加 ?token=你的密钥，或在 Header 中添加 X-Emby-Secret'
+    else:
+        hint = '未配置密钥，所有请求均可通过'
+    
     return jsonify({
         'success': True,
         'message': 'Emby Webhook 接口正常',
-        'secret_configured': bool(EMBY_WEBHOOK_SECRET),
+        'secret_configured': secret_configured,
+        'hint': hint,
         'endpoints': {
             'library': '/api/webhook/emby (入库通知)',
             'playback': '/api/webhook/emby/playback (播放检测/黑名单)'
@@ -9909,6 +9966,7 @@ def telegram_webhook():
         # 将目标用户信息存入缓存，回调时查询
         kk_cache_key = f'kk_target_{target_user_id}'
         set_db_config(kk_cache_key, {
+        app.logger.error('[/kk gift] 无法获取 Bot 用户名，赠送失败')
             'username': target_username or '',
             'first_name': target_first_name or '',
             'cached_at': datetime.now().isoformat()
@@ -12027,11 +12085,56 @@ def batch_users():
                     emby_client.enable_user(user.embyid)
                 success_count += 1
             elif action == 'delete':
-                # 删除关联数据
-                SupportTicket.query.filter_by(user_tg=user.tg).delete()
-                Order.query.filter_by(user_tg=user.tg).delete()
-                Subscription.query.filter_by(user_tg=user.tg).delete()
-                MovieRequest.query.filter_by(user_tg=str(user.tg)).delete()
+                # 防止删除管理员
+                if user.is_admin:
+                    fail_count += 1
+                    continue
+                
+                user_tg = user.tg
+                
+                # 先删除 Emby 账号（如果有）
+                if user.embyid and emby_client.is_enabled():
+                    try:
+                        emby_client.delete_user(user.embyid)
+                    except Exception as emby_err:
+                        app.logger.warning(f'批量删除: Emby账号删除失败 user={user.name}, err={emby_err}')
+                
+                # 删除所有关联数据（与单个删除保持一致）
+                # 1. 播放记录（有外键引用 emby.tg）
+                PlaybackRecord.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+                # 2. 用户设备
+                UserDevice.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+                # 3. 订阅记录
+                Subscription.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+                # 4. 订单记录
+                Order.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+                # 5. 下载任务（有外键引用 movie_requests.id，必须先删）
+                request_ids = [r.id for r in MovieRequest.query.filter_by(user_tg=user_tg).all()]
+                if request_ids:
+                    DownloadTask.query.filter(DownloadTask.request_id.in_(request_ids)).delete(synchronize_session=False)
+                # 6. 求片记录
+                MovieRequest.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+                # 7. 工单消息和工单
+                ticket_ids = [t.id for t in SupportTicket.query.filter_by(user_tg=user_tg).all()]
+                if ticket_ids:
+                    TicketMessage.query.filter(TicketMessage.ticket_id.in_(ticket_ids)).delete(synchronize_session=False)
+                SupportTicket.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+                # 8. 邀请记录
+                InviteRecord.query.filter(
+                    (InviteRecord.inviter_tg == user_tg) | (InviteRecord.invitee_tg == user_tg)
+                ).delete(synchronize_session=False)
+                # 9. 用户活动日志
+                UserActivityLog.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+                # 10. 签到记录
+                CheckInRecord.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+                # 11. 积分交易记录
+                CoinTransaction.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+                # 12. 兑换记录
+                ExchangeRecord.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+                # 13. 清除兑换码使用者引用
+                RedeemCode.query.filter_by(used_by=user_tg).update({'used_by': None}, synchronize_session=False)
+                
+                # 最后删除用户
                 db.session.delete(user)
                 success_count += 1
             elif action == 'gift':
@@ -12057,12 +12160,19 @@ def batch_users():
             else:
                 fail_count += 1
         except Exception as e:
-            app.logger.error(f'批量用户操作失败: ID={uid}, error={e}')
+            db.session.rollback()
+            app.logger.error(f'批量用户操作失败: ID={uid}, action={action}, error={e}', exc_info=True)
             fail_count += 1
     
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'批量操作提交失败: action={action}, error={e}', exc_info=True)
+        return jsonify({'success': False, 'error': f'操作提交失败: {str(e)}'}), 500
+    
     app.logger.info(f'管理员批量{action}用户: 成功={success_count}, 失败={fail_count}')
-    return jsonify({'success': True, 'message': f'已处理 {success_count} 个用户', 'success_count': success_count})
+    return jsonify({'success': True, 'message': f'已处理 {success_count} 个用户', 'success_count': success_count, 'fail_count': fail_count})
 
 
 @app.route('/api/admin/orders/batch', methods=['POST'])
