@@ -3035,7 +3035,9 @@ class EmbyClient:
                 'Pw': password
             }
             
+            app.logger.info(f'Emby 认证请求: url={url}, username={username}')
             response = requests.post(url, json=data, headers=headers, timeout=10)
+            app.logger.info(f'Emby 认证响应: status={response.status_code}, body={response.text[:500]}')
             
             if response.status_code == 200:
                 result = response.json()
@@ -6464,7 +6466,10 @@ def bind_emby_account():
         if not auth_result.get('success'):
             # 返回详细的错误信息（账号不存在 or 密码错误）
             error_msg = auth_result.get('error', 'Emby 验证失败')
-            app.logger.warning(f'Emby 绑定失败: {username}, 错误: {error_msg}')
+            # 调试：列出 Emby 服务器上所有用户名，帮助排查
+            all_emby_users = emby_client.get_all_users()
+            emby_names = [u.get('Name', '?') for u in all_emby_users]
+            app.logger.warning(f'Emby 绑定失败: 输入用户名="{username}", 错误: {error_msg}, Emby服务器现有用户: {emby_names}')
             return jsonify({'success': False, 'error': error_msg}), 400
         
         emby_id = auth_result.get('id')
