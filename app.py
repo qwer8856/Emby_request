@@ -11558,25 +11558,44 @@ def edit_telegram_message(chat_id, message_id, text, reply_markup=None):
         return False
 
 
-def _schedule_delete_gift_message(gift_data):
-    """15秒后自动删除群组中的赠送消息"""
+def _update_gift_message_claimed(gift_data, claimed_user_id, claimed_username, is_renew=False):
+    """更新群组中的赠送消息为已领取状态
+    
+    Args:
+        is_renew: True=已有账号续期, False=新注册
+    """
+    from html import escape as html_escape
     group_chat_id = gift_data.get('group_chat_id')
     group_message_id = gift_data.get('group_message_id')
     if not group_chat_id or not group_message_id:
         return
     
-    def _do_delete():
-        import time
-        time.sleep(15)
-        try:
-            delete_telegram_message(group_chat_id, group_message_id)
-            app.logger.info(f'[Gift] 已自动删除群组赠送消息: chat={group_chat_id}, msg={group_message_id}')
-        except Exception as e:
-            app.logger.warning(f'[Gift] 自动删除群组赠送消息失败: {e}')
+    # 构建领取人显示
+    claimed_display_name = html_escape(str(claimed_username or claimed_user_id))
+    claimed_display = f'<a href="tg://user?id={claimed_user_id}">{claimed_display_name}</a>'
     
-    import threading
-    t = threading.Thread(target=_do_delete, daemon=True)
-    t.start()
+    # 构建赠送人显示
+    from_user_id = gift_data.get('from_user_id')
+    from_username = gift_data.get('from_username', '管理员')
+    if from_user_id:
+        operator_display = f'<a href="tg://user?id={from_user_id}">{html_escape(str(from_username))}</a>'
+    else:
+        operator_display = f'<b>{html_escape(str(from_username))}</b>'
+    
+    days = gift_data.get('days', 0)
+    claim_type = '续期' if is_renew else '注册'
+    
+    claimed_message = (
+        f"🎟️ <b>赠送码{claim_type}</b> - "
+        f"{claimed_display} "
+        f"[<code>{claimed_user_id}</code>] "
+        f"已领取 {operator_display} 赠送的资格\n"
+        f"📦 {claim_type}: {days}天 | 📅 领取时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    )
+    
+    # 编辑群组消息为已领取状态（移除领取按钮）
+    edit_telegram_message(group_chat_id, group_message_id, claimed_message)
+    app.logger.info(f'[Gift] 已更新群组赠送消息为已领取({claim_type}): chat={group_chat_id}, msg={group_message_id}, claimed_by={claimed_user_id}')
 
 
 def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
@@ -11717,8 +11736,8 @@ def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
         gift_data['used_at'] = datetime.now().isoformat()
         set_db_config(gift_key, gift_data)
         
-        # 15秒后自动删除群组中的赠送消息
-        _schedule_delete_gift_message(gift_data)
+        # 更新群组中的赠送消息为已领取状态（已有账号=续期）
+        _update_gift_message_claimed(gift_data, telegram_user_id, telegram_username, is_renew=True)
         
         return jsonify({'ok': True})
     
@@ -11800,8 +11819,8 @@ def create_gift_account(chat_id, telegram_user_id, username, gift_code, gift_dat
         gift_data['used_at'] = datetime.now().isoformat()
         set_db_config(gift_key, gift_data)
         
-        # 15秒后自动删除群组中的赠送消息
-        _schedule_delete_gift_message(gift_data)
+        # 更新群组中的赠送消息为已领取状态（新注册）
+        _update_gift_message_claimed(gift_data, telegram_user_id, username, is_renew=False)
         
         # 获取面板登录链接
         site_config = load_site_config()
@@ -14073,6 +14092,25 @@ def use_redeem_code():
         log_user_activity(UserActivityLog.ACTION_REDEEM_CODE, user=user,
                          detail={'code': code, 'plan_type': redeem.plan_type, 'plan_name': plan_name, 
                                 'duration_days': redeem.duration_days, 'code_type': redeem.code_type})
+        
+        # 发送兑换码使用通知到 Telegram 群组
+        try:
+            code_type_name = '注册码' if redeem.code_type == 'new' else '续期码'
+            # 兑换码脱敏：显示前4位，其余用 ░ 遮盖
+            masked_code = code[:4] + '░' * max(len(code) - 4, 0) if len(code) > 4 else code
+            # 用户显示名称
+            display_name = user.emby_name or user.name or str(user.tg)
+            
+            notify_msg = (
+                f"🎟️ <b>{code_type_name}使用</b> - "
+                f"<a href=\"tg://user?id={user.tg}\">{display_name}</a> "
+                f"[<code>{user.tg}</code>] "
+                f"使用了 <code>{masked_code}</code>\n"
+                f"📦 套餐: {plan_name} | ⏱ {redeem.duration_days}天 | 📅 到期: {end_date.strftime('%Y-%m-%d')}"
+            )
+            send_admin_notification(notify_msg)
+        except Exception as e:
+            app.logger.warning(f'发送兑换码使用群组通知失败: {e}')
         
         # 检查用户是否有 Emby 账号
         has_emby_account = bool(user.embyid)

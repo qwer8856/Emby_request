@@ -2710,6 +2710,7 @@
 
     <script id="dashboard-data" type="application/json">
         {
+            "siteName": {{ (site_config.site_name or 'Emby') | tojson }},
             "tmdbImageBase": {{ tmdb_image_base | tojson }},
             "requestedKeys": [
                 {% if requests %}

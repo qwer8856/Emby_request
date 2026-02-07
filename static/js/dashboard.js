@@ -3594,10 +3594,11 @@ async function unbindTelegramId() {
             
             // ========== SenPlayer（支持多线路一次性导入） ==========
             // senplayer://importserver?type=emby&name=服名&address=https://线路1:443&username=xx&password=xx&address1name=线路2名&address1=线路2地址:端口
+            const siteName = dashboardMeta.siteName || 'Emby';
             const firstLine = lines[0];
             const firstInfo = getLineInfo(firstLine);
             const firstAddr = `${firstInfo.scheme}://${firstInfo.host}:${firstInfo.port}`;
-            let senParams = `type=emby&name=${encodeURIComponent(firstLine.name)}&address=${encodeURIComponent(firstAddr)}&username=${encodedUser}&password=${encodedPwd}`;
+            let senParams = `type=emby&name=${encodeURIComponent(siteName)}&address=${encodeURIComponent(firstAddr)}&username=${encodedUser}&password=${encodedPwd}`;
             lines.slice(1).forEach((line, i) => {
                 const info = getLineInfo(line);
                 const addr = `${info.scheme}://${info.host}:${info.port}`;
@@ -3607,7 +3608,7 @@ async function unbindTelegramId() {
             
             // ========== Forward（支持多线路一次性导入） ==========
             // forward://import?type=emby&scheme=https&host=xx&port=443&title=主线路名&username=xx&password=xx&line1=https://host:port&line1title=线路名
-            let fwdParams = `type=emby&scheme=${firstInfo.scheme}&host=${encodeURIComponent(firstInfo.host)}&port=${firstInfo.port}&title=${encodeURIComponent(firstLine.name)}&username=${encodedUser}&password=${encodedPwd}`;
+            let fwdParams = `type=emby&scheme=${firstInfo.scheme}&host=${encodeURIComponent(firstInfo.host)}&port=${firstInfo.port}&title=${encodeURIComponent(siteName)}&username=${encodedUser}&password=${encodedPwd}`;
             lines.slice(1).forEach((line, i) => {
                 const info = getLineInfo(line);
                 const addr = `${info.scheme}://${info.host}:${info.port}`;
