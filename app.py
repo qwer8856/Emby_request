@@ -3167,6 +3167,66 @@ class EmbyClient:
             app.logger.error(f'设置用户策略异常: {user_id}, error={e}')
             return False
 
+    def sync_all_users_stream_limit(self, max_streams: int) -> dict:
+        """同步所有 Emby 用户的最大同时播放流数限制
+        
+        Args:
+            max_streams: 最大同时播放流数（0表示不限制）
+            
+        Returns:
+            dict: {'success': int, 'failed': int, 'total': int}
+        """
+        if not self.is_enabled():
+            return {'success': 0, 'failed': 0, 'total': 0}
+        
+        result = {'success': 0, 'failed': 0, 'total': 0}
+        
+        try:
+            # 获取所有有 embyid 的用户
+            users = User.query.filter(User.embyid.isnot(None), User.embyid != '').all()
+            result['total'] = len(users)
+            
+            params = {'api_key': self.api_key}
+            
+            for user in users:
+                try:
+                    # 获取用户当前策略
+                    url = f"{self.base_url}/Users/{user.embyid}"
+                    response = self.session.get(url, params=params, timeout=10)
+                    if response.status_code != 200:
+                        result['failed'] += 1
+                        continue
+                    
+                    user_info = response.json()
+                    policy = user_info.get('Policy', {})
+                    
+                    # 更新流数限制
+                    if max_streams > 0:
+                        policy['SimultaneousStreamLimit'] = max_streams
+                    else:
+                        # 0表示不限制，移除限制
+                        policy.pop('SimultaneousStreamLimit', None)
+                    
+                    # 提交策略
+                    policy_url = f"{self.base_url}/Users/{user.embyid}/Policy"
+                    resp = self.session.post(
+                        policy_url, params=params, json=policy,
+                        headers={'Content-Type': 'application/json'}, timeout=10
+                    )
+                    if resp.status_code in [200, 204]:
+                        result['success'] += 1
+                    else:
+                        result['failed'] += 1
+                except Exception as e:
+                    app.logger.warning(f'同步用户 {user.embyid} 流数限制失败: {e}')
+                    result['failed'] += 1
+            
+            app.logger.info(f'同步流数限制完成: 总计{result["total"]}人, 成功{result["success"]}人, 失败{result["failed"]}人')
+        except Exception as e:
+            app.logger.error(f'批量同步流数限制异常: {e}')
+        
+        return result
+
     def check_username_available(self, username: str) -> bool:
         """检查用户名是否可用（不存在）"""
         if not self.is_enabled():
@@ -14908,6 +14968,7 @@ def save_system_config_api():
     """保存系统配置（管理员）"""
     try:
         data = request.json
+        _pending_stream_sync = None  # 标记是否需要同步播放流数限制
         
         # 获取当前配置
         current_config = load_system_config()
@@ -14934,7 +14995,12 @@ def save_system_config_api():
             if 'gift_days' in tg:
                 current_config['telegram']['gift_days'] = int(tg['gift_days'])
             if 'max_streams' in tg:
-                current_config['telegram']['max_streams'] = int(tg['max_streams'])
+                new_max_streams = int(tg['max_streams'])
+                old_max_streams = current_config['telegram'].get('max_streams', 0)
+                current_config['telegram']['max_streams'] = new_max_streams
+                # 标记需要同步（保存成功后执行）
+                if new_max_streams != old_max_streams:
+                    _pending_stream_sync = {'old': old_max_streams, 'new': new_max_streams}
             if 'bot_admins' in tg:
                 current_config['telegram']['bot_admins'] = tg['bot_admins'].strip()
             # 更新欢迎图片 URL
@@ -15034,9 +15100,22 @@ def save_system_config_api():
             
             app.logger.info(f'系统配置已更新')
             
+            # 如果最大同时播放流数发生变化，同步到所有已有 Emby 用户
+            stream_sync_msg = ''
+            if _pending_stream_sync:
+                try:
+                    emby_api = EmbyAPI()
+                    sync_result = emby_api.sync_all_users_stream_limit(_pending_stream_sync['new'])
+                    stream_sync_msg = f'，播放流数限制已从 {_pending_stream_sync["old"]} 同步为 {_pending_stream_sync["new"]}（成功 {sync_result["success"]}/{sync_result["total"]} 人）'
+                    app.logger.info(f'最大同时播放流数已从 {_pending_stream_sync["old"]} 改为 {_pending_stream_sync["new"]}，'
+                                   f'同步结果: 成功{sync_result["success"]}/{sync_result["total"]}人')
+                except Exception as e:
+                    stream_sync_msg = f'，但同步播放限制到已有用户失败: {e}'
+                    app.logger.error(f'同步流数限制到已有用户失败: {e}')
+            
             return jsonify({
                 'success': True,
-                'message': '系统配置保存成功'
+                'message': '系统配置保存成功' + stream_sync_msg
             }), 200
         else:
             return jsonify({
