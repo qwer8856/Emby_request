@@ -9993,6 +9993,20 @@ def telegram_webhook():
         checkin_config = get_db_config('checkin', {})
         coin_name = checkin_config.get('coin_name', '积分')
         
+        # 如果没有 first_name（通过 tgid 指定用户时），尝试通过 Telegram API 获取
+        if target_user_id and not target_first_name:
+            try:
+                chat_url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChat'
+                chat_resp = PROXY_SESSION.post(chat_url, json={'chat_id': target_user_id}, timeout=5)
+                chat_data = chat_resp.json()
+                if chat_data.get('ok'):
+                    result = chat_data.get('result', {})
+                    target_first_name = result.get('first_name', '')
+                    if not target_username:
+                        target_username = result.get('username', '')
+            except Exception as e:
+                app.logger.warning(f'[/kk] 获取用户 {target_user_id} Telegram信息失败: {e}')
+        
         # 查询用户在数据库中的信息
         existing_user = None
         if target_user_id:
@@ -10642,6 +10656,8 @@ def handle_kk_gift(callback_id, chat_id, message_id, target_user_id, target_user
         'from_user_id': operator_id,
         'from_username': operator_username or operator_first_name,
         'created_at': datetime.now().isoformat(),
+        'group_chat_id': chat_id,
+        'group_message_id': message_id,
     }
     
     gift_key = f'gift_{gift_code}'
@@ -10791,6 +10807,27 @@ def edit_telegram_message(chat_id, message_id, text, reply_markup=None):
         return False
 
 
+def _schedule_delete_gift_message(gift_data):
+    """15秒后自动删除群组中的赠送消息"""
+    group_chat_id = gift_data.get('group_chat_id')
+    group_message_id = gift_data.get('group_message_id')
+    if not group_chat_id or not group_message_id:
+        return
+    
+    def _do_delete():
+        import time
+        time.sleep(15)
+        try:
+            delete_telegram_message(group_chat_id, group_message_id)
+            app.logger.info(f'[Gift] 已自动删除群组赠送消息: chat={group_chat_id}, msg={group_message_id}')
+        except Exception as e:
+            app.logger.warning(f'[Gift] 自动删除群组赠送消息失败: {e}')
+    
+    import threading
+    t = threading.Thread(target=_do_delete, daemon=True)
+    t.start()
+
+
 def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
     """处理赠送领取 - 验证用户身份并显示注册选项"""
     
@@ -10928,6 +10965,10 @@ def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
         gift_data['used_by_name'] = telegram_username or ''
         gift_data['used_at'] = datetime.now().isoformat()
         set_db_config(gift_key, gift_data)
+        
+        # 15秒后自动删除群组中的赠送消息
+        _schedule_delete_gift_message(gift_data)
+        
         return jsonify({'ok': True})
     
     # 用户没有账号，显示注册选项
@@ -11007,6 +11048,9 @@ def create_gift_account(chat_id, telegram_user_id, username, gift_code, gift_dat
         gift_data['used_by_name'] = username
         gift_data['used_at'] = datetime.now().isoformat()
         set_db_config(gift_key, gift_data)
+        
+        # 15秒后自动删除群组中的赠送消息
+        _schedule_delete_gift_message(gift_data)
         
         # 获取面板登录链接
         site_config = load_site_config()
