@@ -5813,6 +5813,17 @@ def login():
             session['session_token'] = new_token  # 存储token到session
             app.logger.info(f'用户 {username} 登录成功')
             log_user_activity(UserActivityLog.ACTION_LOGIN, user=user, detail='网页登录成功')
+            
+            # 登录时检查：如果用户有有效订阅但 Emby 账号可能被禁用，自动恢复
+            if user.embyid and emby_client.is_enabled():
+                is_whitelist = user.lv == 'a'
+                has_valid_sub = user.ex and user.ex > datetime.now()
+                if is_whitelist or has_valid_sub:
+                    try:
+                        emby_client.enable_user(user.embyid)
+                    except Exception:
+                        pass  # 不影响登录
+            
             return jsonify({'success': True, 'redirect': url_for('dashboard')}), 200
         else:
             app.logger.warning(f'登录失败: 用户名={username}')
@@ -6321,6 +6332,17 @@ def bind_emby_account():
                 app.logger.info(f'用户 {user.tg} 绑定新账号，设置为 B 级普通用户')
         
         db.session.commit()
+        
+        # 如果用户有有效订阅或白名单，确保Emby账号在服务器上是启用状态
+        # （用户可能从embyboss迁移过来，Emby服务器上账号可能仍处于禁用状态）
+        is_whitelist = user.lv == 'a'
+        has_valid_sub = user.ex and user.ex > datetime.now()
+        if (is_whitelist or has_valid_sub) and user.embyid and emby_client.is_enabled():
+            try:
+                if emby_client.enable_user(user.embyid):
+                    app.logger.info(f'用户 {user.tg} 绑定时自动启用Emby账号: {emby_name}')
+            except Exception as e:
+                app.logger.warning(f'绑定时启用Emby账号失败（不影响绑定）: {e}')
         
         # 更新 session
         session['username'] = emby_name
@@ -10881,6 +10903,12 @@ def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
                 if existing_user.embyid and emby_client.is_enabled():
                     emby_client.enable_user(existing_user.embyid)
                 app.logger.info(f'[Gift] 被禁用用户 {existing_user.name} (tg={existing_user.tg}) 领取赠送后自动解禁')
+            else:
+                # 非禁用用户领取赠送后，也需要恢复Emby账号
+                # （用户可能之前因过期被自动禁用了Emby，但账号等级仍是'b'）
+                if existing_user.embyid and emby_client.is_enabled():
+                    if emby_client.enable_user(existing_user.embyid):
+                        app.logger.info(f'[Gift] 用户 {existing_user.name} 领取赠送后恢复Emby账号')
             
             db.session.commit()
             
@@ -13579,6 +13607,11 @@ def payment_callback():
                         invite_record.reward_claimed = True
                         
                         app.logger.info(f'邀请返利: 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}')
+                
+                # 恢复Emby账号（如果之前因过期被禁用）
+                if user.embyid and emby_client.is_enabled():
+                    if emby_client.enable_user(user.embyid):
+                        app.logger.info(f'用户 {user.name} 支付成功，已恢复Emby账号')
             
             db.session.commit()
             app.logger.info(f'支付成功: 订单={order_no}, 交易号={trade_no}')
@@ -13664,6 +13697,11 @@ def query_payment():
                         user.ex = end_date
                         if user.lv == 'a':
                             user.lv = 'b'
+                        
+                        # 恢复Emby账号（如果之前因过期被禁用）
+                        if user.embyid and emby_client.is_enabled():
+                            if emby_client.enable_user(user.embyid):
+                                app.logger.info(f'用户 {user.name} 轮询确认支付成功，已恢复Emby账号')
                     
                     db.session.commit()
                     
@@ -18018,6 +18056,11 @@ def admin_mark_order_paid(order_no):
         
         db.session.commit()
         
+        # 恢复Emby账号（如果之前因过期被禁用）
+        if user.embyid and emby_client.is_enabled():
+            if emby_client.enable_user(user.embyid):
+                app.logger.info(f'管理员手动标记付款，已恢复用户 {user.name} 的Emby账号')
+        
         app.logger.info(f'管理员手动标记订单 {order_no} 为已支付，用户 {user.name} 订阅已生效，到期时间: {user.ex}')
         
         return jsonify({
@@ -18742,6 +18785,16 @@ def check_expired_subscriptions():
             
             for user in expired_users:
                 try:
+                    # 二次确认：重新从数据库读取最新状态，防止竞态条件
+                    # （用户可能在查询后刚续费，此时不应被禁用）
+                    db.session.refresh(user)
+                    if user.lv == 'a':  # 白名单用户跳过
+                        continue
+                    if user.ex and user.ex > datetime.now():  # 已续费，跳过
+                        continue
+                    if not user.embyid:  # 已无Emby账号，跳过
+                        continue
+                    
                     # 计算过期天数（如果 ex 为 None，视为刚刚过期）
                     days_expired = (now - user.ex).days if user.ex else 0
                     
