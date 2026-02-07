@@ -7755,6 +7755,29 @@ def admin_get_all_playback_history():
             end = start + per_page
             paged_history = history[start:end]
             
+            # 补充进度数据：从本地数据库获取 webhook 记录的精确播放进度
+            for record in paged_history:
+                if record.get('play_percentage') is not None and record['play_percentage'] > 0:
+                    continue  # 已有进度数据，跳过
+                
+                item_id = record.get('item_id', '')
+                uid = record.get('user_id', '')
+                if item_id and uid:
+                    try:
+                        # 通过 emby_user_id 找到本地用户
+                        local_user = User.query.filter_by(embyid=uid).first()
+                        if local_user:
+                            # 查找本地最新的播放记录（匹配 emby_item_id）
+                            local_record = PlaybackRecord.query.filter_by(
+                                user_tg=local_user.tg,
+                                emby_item_id=item_id
+                            ).order_by(PlaybackRecord.started_at.desc()).first()
+                            
+                            if local_record and local_record.play_percentage and local_record.play_percentage > 0:
+                                record['play_percentage'] = round(local_record.play_percentage, 1)
+                    except Exception:
+                        pass
+            
             return jsonify({
                 'success': True,
                 'records': paged_history,
