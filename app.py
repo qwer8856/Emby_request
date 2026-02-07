@@ -5909,11 +5909,13 @@ def login():
         
         # 验证密码（只验证网站密码pwd，不验证Emby密码pwd2）
         if user and user.pwd == password:
-            # 检查用户是否激活且未过期
-            if not user.is_active:
-                app.logger.warning(f'用户 {username} 登录失败: 账户已过期或被禁用')
-                log_user_activity(UserActivityLog.ACTION_LOGIN, user=user, detail='账户已过期或被禁用', status='failed')
-                return jsonify({'success': False, 'error': '账户已过期或被禁用'}), 401
+            # 检查用户是否被封禁（只拦截 C 级禁用用户，其他等级都允许登录）
+            # 注意：登录 ≠ 有Emby使用权，新注册用户(B级无订阅)和D级用户也应能登录网站
+            if user.lv == 'c':
+                app.logger.warning(f'用户 {username} 登录失败: 账户已被禁用')
+                log_user_activity(UserActivityLog.ACTION_LOGIN, user=user, detail='账户已被禁用', status='failed')
+                ban_reason = f'（原因：{user.ban_reason}）' if user.ban_reason else ''
+                return jsonify({'success': False, 'error': f'账户已被禁用{ban_reason}'}), 401
             
             # 生成新的session_token
             import secrets
