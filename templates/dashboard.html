@@ -1726,6 +1726,137 @@
         </div>
     </div>
 
+    <!-- Emby 账号引导弹窗（未绑定时自动弹出） -->
+    <div class="emby-bind-overlay" id="embyGuideOverlay" style="display: none;">
+        <div class="emby-bind-dialog emby-guide-dialog">
+            <button class="close-btn" onclick="closeEmbyGuideDialog()">&times;</button>
+            <div class="guide-header">
+                <div class="guide-icon">📺</div>
+                <h2>欢迎使用 Emby 影视服务</h2>
+                <p>检测到您还没有绑定 Emby 账号，请先完成账号设置以开始使用</p>
+            </div>
+            <div class="guide-options">
+                <div class="guide-option" onclick="guideToEmbyBind()">
+                    <div class="guide-option-icon">🔗</div>
+                    <div class="guide-option-info">
+                        <h3>绑定已有账号</h3>
+                        <p>我已经有 Emby 账号，直接绑定使用</p>
+                    </div>
+                    <div class="guide-option-arrow">›</div>
+                </div>
+                <div class="guide-option" id="guideCreateBtn" onclick="guideToEmbyCreate()">
+                    <div class="guide-option-icon">✨</div>
+                    <div class="guide-option-info">
+                        <h3>创建新账号</h3>
+                        <p>我还没有账号，帮我创建一个新的</p>
+                    </div>
+                    <div class="guide-option-arrow">›</div>
+                </div>
+                <div class="guide-create-hint" id="guideCreateHint" style="display: none;">
+                    💡 创建新账号需要有效订阅，您可以先绑定已有账号或购买订阅后再创建
+                </div>
+            </div>
+        </div>
+    </div>
+    <style>
+        .emby-guide-dialog {
+            max-width: 480px;
+            padding: 36px 30px 28px;
+        }
+        .guide-header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        .guide-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        .guide-header h2 {
+            color: #fff;
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        .guide-header p {
+            color: rgba(255,255,255,0.55);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .guide-options {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .guide-option {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 18px 16px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.25s;
+        }
+        .guide-option:hover {
+            background: rgba(102,126,234,0.15);
+            border-color: rgba(102,126,234,0.4);
+            transform: translateX(4px);
+        }
+        .guide-option:active {
+            transform: translateX(2px);
+        }
+        .guide-option-icon {
+            font-size: 28px;
+            flex-shrink: 0;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.06);
+            border-radius: 12px;
+        }
+        .guide-option-info {
+            flex: 1;
+        }
+        .guide-option-info h3 {
+            color: #fff;
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .guide-option-info p {
+            color: rgba(255,255,255,0.5);
+            font-size: 12px;
+            margin: 0;
+        }
+        .guide-option-arrow {
+            color: rgba(255,255,255,0.3);
+            font-size: 22px;
+            font-weight: 300;
+            flex-shrink: 0;
+        }
+        .guide-option.guide-btn-disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .guide-option.guide-btn-disabled:hover {
+            background: rgba(255,255,255,0.06);
+            border-color: rgba(255,255,255,0.1);
+            transform: none;
+        }
+        .guide-create-hint {
+            text-align: center;
+            color: #f59e0b;
+            font-size: 12px;
+            padding: 8px 12px;
+            background: rgba(245,158,11,0.08);
+            border-radius: 8px;
+            line-height: 1.5;
+        }
+    </style>
+
     <!-- Emby 账号绑定弹窗（仅绑定已有账号） -->
     <div class="emby-bind-overlay" id="embyBindOverlay" style="display: none;">
         <div class="emby-bind-dialog">
@@ -2722,10 +2853,18 @@
         }
     </script>
     <script src="{{ url_for('static', filename='js/common.js') }}?v=22"></script>
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=41"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=42"></script>
     <script src="{{ url_for('static', filename='js/checkin.js') }}?v=4"></script>
     {% if site_config.custom_js %}
     <script>{{ site_config.custom_js | safe }}</script>
+    {% endif %}
+    {% if not user.embyid %}
+    <script>
+        // 用户未绑定 Emby，页面加载后弹出引导
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(checkEmbyBindStatus, 800);
+        });
+    </script>
     {% endif %}
 </body>
 </html>

@@ -26,12 +26,52 @@ async function checkEmbyBindStatus() {
         const data = await response.json();
         
         if (data.success && !data.has_emby_account) {
-            // 用户没有 Emby 账号，显示绑定弹窗
-            showEmbyBindDialog();
+            // 用户没有 Emby 账号，显示引导弹窗
+            showEmbyGuideDialog(data.can_create);
         }
     } catch (error) {
         console.error('检查 Emby 绑定状态失败:', error);
     }
+}
+
+// 显示 Emby 账号引导弹窗
+function showEmbyGuideDialog(canCreate) {
+    const overlay = document.getElementById('embyGuideOverlay');
+    if (!overlay) return;
+    // 根据是否可创建来控制创建按钮状态
+    const createBtn = document.getElementById('guideCreateBtn');
+    const createHint = document.getElementById('guideCreateHint');
+    if (createBtn) {
+        if (canCreate) {
+            createBtn.classList.remove('guide-btn-disabled');
+            createBtn.onclick = function() { closeEmbyGuideDialog(); showEmbyCreateDialog(); };
+        } else {
+            createBtn.classList.add('guide-btn-disabled');
+            createBtn.onclick = function() { showToast('您没有有效订阅，暂时无法创建新账号', 'warning'); };
+        }
+    }
+    if (createHint) {
+        createHint.style.display = canCreate ? 'none' : 'block';
+    }
+    overlay.style.display = 'flex';
+}
+
+// 关闭引导弹窗
+function closeEmbyGuideDialog() {
+    const overlay = document.getElementById('embyGuideOverlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+// 从引导弹窗跳转到绑定
+function guideToEmbyBind() {
+    closeEmbyGuideDialog();
+    showEmbyBindDialog();
+}
+
+// 从引导弹窗跳转到创建
+function guideToEmbyCreate() {
+    closeEmbyGuideDialog();
+    showEmbyCreateDialog();
 }
 
 // 显示 Emby 账号绑定弹窗（仅绑定）
