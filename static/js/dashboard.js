@@ -5067,6 +5067,13 @@ async function unbindTelegramId() {
                 const sessionsData = await sessionsRes.json();
                 const historyData = await historyRes.json();
                 
+                // 检查播放流数限制
+                if (sessionsData.stream_limit && sessionsData.stream_limit.exceeded) {
+                    const sl = sessionsData.stream_limit;
+                    const stoppedNames = sl.stopped_sessions.map(s => s.device || '未知设备').join('、');
+                    showMessage(`同时播放设备数超过限制（${sl.max_streams}），已自动停止: ${stoppedNames}`, 'warning');
+                }
+                
                 // 更新统计卡片
                 updatePlaybackStats(sessionsData);
                 
