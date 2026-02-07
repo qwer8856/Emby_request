@@ -11086,6 +11086,9 @@ def handle_registration_input(chat_id, telegram_user_id, text):
         delete_db_config(gift_key)
         delete_db_config(reg_state_key)
         
+        # 更新群组中的赠送消息为已领取状态（新注册）
+        _update_gift_message_claimed(gift_data, telegram_user_id, username, is_renew=False)
+        
         # 获取面板登录链接
         site_config = load_site_config()
         panel_url = site_config.get('panel_url', '')
@@ -16680,6 +16683,7 @@ def user_checkin():
             'success': True,
             'message': f'签到成功！获得 {coins_earned} {checkin_config.get("coin_name", "积分")}',
             'coins_earned': coins_earned,
+            'coin_name': checkin_config.get('coin_name', '积分'),
             'continuous_days': continuous_days,
             'total_coins': user.coins
         }), 200
