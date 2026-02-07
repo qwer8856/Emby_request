@@ -2329,7 +2329,7 @@
             background: #ffffff;
             border-radius: 18px;
             width: 92%;
-            max-width: 420px;
+            max-width: 520px;
             overflow: hidden;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(0, 136, 204, 0.1);
             animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
@@ -2434,12 +2434,14 @@
         /* 步骤布局 */
         .telegram-bind-dialog .bind-steps-horizontal {
             display: flex;
-            flex-direction: column;
+            flex-direction: row;
+            align-items: stretch;
             gap: 10px;
             margin-bottom: 16px;
         }
         
         .telegram-bind-dialog .step-item {
+            flex: 1;
             background: rgba(0, 0, 0, 0.02);
             border: 1px solid rgba(0, 0, 0, 0.08);
             border-radius: 12px;
@@ -2447,7 +2449,13 @@
         }
         
         .telegram-bind-dialog .step-divider-horizontal {
-            display: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(0, 136, 204, 0.5);
+            font-size: 20px;
+            font-weight: bold;
+            flex-shrink: 0;
         }
         
         .telegram-bind-dialog .step-badge {
