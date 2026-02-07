@@ -3014,6 +3014,7 @@ async function loadSystemConfig() {
             document.getElementById('tgChatId').value = config.telegram.chat_id || '';
             document.getElementById('tgGroupId').value = config.telegram.group_id || '';
             document.getElementById('tgGiftDays').value = config.telegram.gift_days || 30;
+            document.getElementById('tgMaxStreams').value = config.telegram.max_streams || 0;
             document.getElementById('tgBotAdmins').value = config.telegram.bot_admins || '';
             document.getElementById('tgBotPhoto').value = config.telegram.bot_photo || '';
             
@@ -3236,6 +3237,7 @@ async function saveTelegramConfig() {
     const tgChatId = document.getElementById('tgChatId').value.trim();
     const tgGroupId = document.getElementById('tgGroupId').value.trim();
     const tgGiftDays = parseInt(document.getElementById('tgGiftDays').value) || 30;
+    const tgMaxStreams = parseInt(document.getElementById('tgMaxStreams').value) || 0;
     const tgBotAdmins = document.getElementById('tgBotAdmins').value.trim();
     const tgBotPhoto = document.getElementById('tgBotPhoto').value.trim();
     
@@ -3251,6 +3253,7 @@ async function saveTelegramConfig() {
                     chat_id: tgChatId,
                     group_id: tgGroupId,
                     gift_days: tgGiftDays,
+                    max_streams: tgMaxStreams,
                     bot_admins: tgBotAdmins,
                     bot_photo: tgBotPhoto
                 }

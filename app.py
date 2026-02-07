@@ -1142,6 +1142,7 @@ DEFAULT_SYSTEM_CONFIG = {
         'group_id': '',
         'bot_admins': '',  # BOT管理员 Telegram ID，多个用逗号分隔
         'gift_days': 30,   # /kk 命令赠送天数
+        'max_streams': 0,  # 最大同时播放流数（0表示不限制）
         'bot_photo': '',   # Bot 欢迎图片 URL（留空使用默认图片）
         'configured_url': '',  # 用户配置的 Webhook 服务器地址
         'templates': {
@@ -2899,6 +2900,12 @@ class EmbyClient:
             policy = user_info.get('Policy', {})
             policy['IsDisabled'] = False
             
+            # 同步最大同时播放流数限制
+            config = load_system_config()
+            max_streams = config.get('telegram', {}).get('max_streams', 0)
+            if max_streams and max_streams > 0:
+                policy['SimultaneousStreamLimit'] = max_streams
+            
             # 更新用户策略
             policy_url = f"{self.base_url}/Users/{emby_user_id}/Policy"
             response = self.session.post(
@@ -3126,6 +3133,12 @@ class EmbyClient:
             # 删除媒体权限 - 全部禁止
             policy['EnableContentDeletion'] = False
             policy['EnableContentDeletionFromFolders'] = []
+            
+            # 最大同时播放流数限制
+            config = load_system_config()
+            max_streams = config.get('telegram', {}).get('max_streams', 0)
+            if max_streams and max_streams > 0:
+                policy['SimultaneousStreamLimit'] = max_streams
             
             # 最大同步视频流
             policy['SyncPlayAccess'] = 'CreateAndJoinGroups'
@@ -14807,6 +14820,7 @@ def get_system_config_api():
                 'chat_id': config['telegram']['chat_id'],
                 'group_id': config['telegram']['group_id'],
                 'gift_days': config['telegram'].get('gift_days', 30),
+                'max_streams': config['telegram'].get('max_streams', 0),
                 'bot_admins': config['telegram'].get('bot_admins', ''),
                 'bot_photo': config['telegram'].get('bot_photo', ''),
                 'templates': templates,
@@ -14892,6 +14906,8 @@ def save_system_config_api():
                 current_config['telegram']['group_id'] = tg['group_id'].strip()
             if 'gift_days' in tg:
                 current_config['telegram']['gift_days'] = int(tg['gift_days'])
+            if 'max_streams' in tg:
+                current_config['telegram']['max_streams'] = int(tg['max_streams'])
             if 'bot_admins' in tg:
                 current_config['telegram']['bot_admins'] = tg['bot_admins'].strip()
             # 更新欢迎图片 URL
