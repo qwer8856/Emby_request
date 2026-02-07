@@ -7816,8 +7816,8 @@ def request_movie():
     # 在后台发送 Telegram 通知（不阻塞响应）
     try:
         overview = details.get('overview')
-        # 传递求片范围信息和用户 Telegram ID 到通知
-        send_telegram_notification(user.name, title, year, media_type, tmdb_id, poster_path, overview, scope_info, user.tg)
+        # 传递求片范围信息和用户 Telegram ID 到通知（使用真正的 telegram_id 而非系统主键 tg）
+        send_telegram_notification(user.name, title, year, media_type, tmdb_id, poster_path, overview, scope_info, user.telegram_id or user.tg)
     except Exception as e:
         # 即使 Telegram 发送失败也不影响用户体验
         app.logger.error(f'Telegram 通知异常: {e}')
@@ -8262,7 +8262,7 @@ def update_request_status(request_id):
             # 如果是手动标记入库，也发送群组通知
             if movie_request.status == 'completed':
                 send_group_completion_notification(
-                    user_tg_id=user.tg,
+                    user_tg_id=user.telegram_id or user.tg,
                     username=user.name or user.username,
                     title=movie_request.title,
                     year=movie_request.year,
@@ -8641,8 +8641,10 @@ def emby_webhook():
             username = user.name if user else '用户'
             
             # 发送群组通知（使用从 Emby 获取的信息）
+            # 获取用户真实 Telegram ID 用于 @mention
+            _notify_tg_id = user.telegram_id if user and user.telegram_id else matched_request.user_tg
             send_group_completion_notification(
-                user_tg_id=matched_request.user_tg,
+                user_tg_id=_notify_tg_id,
                 username=username,
                 title=matched_request.title,
                 year=matched_request.year,
@@ -12103,8 +12105,11 @@ def batch_update_status():
                         
                         # 入库完成时额外发送群组通知
                         if status == 'completed':
+                            # 获取用户真实 Telegram ID
+                            _batch_user = User.query.filter_by(tg=user_tg).first()
+                            _batch_tg_id = _batch_user.telegram_id if _batch_user and _batch_user.telegram_id else user_tg
                             send_group_completion_notification(
-                                user_tg_id=user_tg,
+                                user_tg_id=_batch_tg_id,
                                 username=username,
                                 title=movie_request.title,
                                 year=movie_request.year,
