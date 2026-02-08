@@ -20996,6 +20996,88 @@ def ensure_background_tasks():
         Thread(target=check_expired_subscriptions, daemon=True).start()
 
 
+# ==================== 播放限制调试 API ====================
+@app.route('/api/admin/debug/stream-limit', methods=['GET'])
+@admin_required
+def debug_stream_limit():
+    """调试：查看播放限制配置和所有用户的实际 Emby Policy"""
+    try:
+        config = load_system_config()
+        max_streams = config.get('telegram', {}).get('max_streams', 0)
+        
+        result = {
+            'config_max_streams': max_streams,
+            'emby_enabled': emby_client.is_enabled(),
+            'users': []
+        }
+        
+        if not emby_client.is_enabled():
+            return jsonify({'success': True, **result}), 200
+        
+        # 获取所有有 embyid 的用户
+        users = User.query.filter(User.embyid.isnot(None), User.embyid != '').limit(50).all()
+        params = {'api_key': emby_client.api_key}
+        
+        for user in users:
+            user_data = {
+                'name': user.name,
+                'embyid': user.embyid,
+                'lv': user.lv,
+                'policy': None,
+                'error': None
+            }
+            try:
+                url = f"{emby_client.base_url}/Users/{user.embyid}"
+                response = emby_client.session.get(url, params=params, timeout=10)
+                if response.status_code == 200:
+                    user_info = response.json()
+                    policy = user_info.get('Policy', {})
+                    user_data['policy'] = {
+                        'SimultaneousStreamLimit': policy.get('SimultaneousStreamLimit', '未设置'),
+                        'MaxActiveSessions': policy.get('MaxActiveSessions', '未设置'),
+                        'IsDisabled': policy.get('IsDisabled'),
+                        'IsAdministrator': policy.get('IsAdministrator'),
+                    }
+                    # 列出 Policy 中所有包含 Stream/Session/Limit 的键
+                    user_data['policy']['_all_stream_keys'] = {
+                        k: v for k, v in policy.items() 
+                        if any(word in k.lower() for word in ['stream', 'session', 'limit', 'simultaneous', 'max'])
+                    }
+                else:
+                    user_data['error'] = f'HTTP {response.status_code}'
+            except Exception as e:
+                user_data['error'] = str(e)
+            
+            result['users'].append(user_data)
+        
+        return jsonify({'success': True, **result}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/debug/stream-limit/sync', methods=['POST'])
+@admin_required
+def debug_stream_limit_sync():
+    """调试：手动触发同步播放限制到所有 Emby 用户"""
+    try:
+        config = load_system_config()
+        max_streams = config.get('telegram', {}).get('max_streams', 0)
+        
+        if not max_streams or max_streams <= 0:
+            return jsonify({'success': False, 'error': f'当前 max_streams={max_streams}，未设置限制'}), 400
+        
+        sync_result = emby_client.sync_all_users_stream_limit(max_streams)
+        
+        return jsonify({
+            'success': True,
+            'max_streams': max_streams,
+            'sync_result': sync_result,
+            'message': f'已同步 max_streams={max_streams} 到 {sync_result["success"]}/{sync_result["total"]} 个用户'
+        }), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ==================== 设备黑名单管理 API ====================
 @app.route('/api/admin/device-blacklist', methods=['GET'])
 @admin_required
