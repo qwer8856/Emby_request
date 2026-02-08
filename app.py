@@ -10126,63 +10126,62 @@ def emby_playback_webhook():
                 max_streams = config.get('telegram', {}).get('max_streams', 0)
             
                 if max_streams and max_streams > 0:
-                    # 白名单用户不受限制
-                    if emby_user.lv != 'a':
-                        # playback.start 时 Emby Sessions API 更新有延迟，
-                        # 新会话可能还没注册到 Sessions 列表中，短暂等待提高准确度
-                        # playback.progress 时不需要等待
-                        if is_playback_start:
-                            import time as _time
-                            _time.sleep(1.5)
-                        
-                        playing_count, playing_sessions = emby_client.get_user_playing_count(emby_user.embyid)
-                        
-                        app.logger.info(
-                            f'[播放限流] 用户={emby_user.name}, 正在播放={playing_count}, 限制={max_streams}, '
-                            f'当前会话={session_id}, 设备={device_name}'
+                    # 所有用户统一限制最大播放设备数（包括白名单用户）
+                    # playback.start 时 Emby Sessions API 更新有延迟，
+                    # 新会话可能还没注册到 Sessions 列表中，短暂等待提高准确度
+                    # playback.progress 时不需要等待
+                    if is_playback_start:
+                        import time as _time
+                        _time.sleep(1.5)
+                    
+                    playing_count, playing_sessions = emby_client.get_user_playing_count(emby_user.embyid)
+                    
+                    app.logger.info(
+                        f'[播放限流] 用户={emby_user.name}, 正在播放={playing_count}, 限制={max_streams}, '
+                        f'当前会话={session_id}, 设备={device_name}'
+                    )
+                    
+                    if playing_count > max_streams:
+                        app.logger.warning(
+                            f'[Webhook] 用户 {emby_user.name} 同时播放 {playing_count} 个流，'
+                            f'超过限制 {max_streams}，将停止当前会话'
                         )
                         
-                        if playing_count > max_streams:
-                            app.logger.warning(
-                                f'[Webhook] 用户 {emby_user.name} 同时播放 {playing_count} 个流，'
-                                f'超过限制 {max_streams}，将停止当前会话'
+                        # 停止当前触发的会话（即最新开始的这个）
+                        if session_id:
+                            emby_client.stop_session(
+                                session_id,
+                                reason=f'同时播放设备数已达上限（{max_streams}），请先关闭其他设备的播放'
                             )
-                            
-                            # 停止当前触发的会话（即最新开始的这个）
-                            if session_id:
-                                emby_client.stop_session(
-                                    session_id,
-                                    reason=f'同时播放设备数已达上限（{max_streams}），请先关闭其他设备的播放'
-                                )
-                            
-                            # 如果停了当前会话后仍然超限，也停掉其他最新的
-                            if playing_count > max_streams + 1:
-                                excess = playing_count - max_streams
-                                sorted_sessions = sorted(playing_sessions, key=lambda x: x.get('last_activity', ''), reverse=True)
-                                for i, ps in enumerate(sorted_sessions):
-                                    if i >= excess:
-                                        break
-                                    ps_id = ps.get('session_id')
-                                    if ps_id and ps_id != session_id:
-                                        emby_client.stop_session(
-                                            ps_id,
-                                            reason=f'同时播放设备数已达上限（{max_streams}），请先关闭其他设备的播放'
-                                        )
-                            
-                            # 记录日志
-                            device_list = ', '.join([f"{s['device_name']}({s['client']})" for s in playing_sessions])
-                            app.logger.info(
-                                f'[Webhook] 已停止超限播放: 用户={emby_user.name}, '
-                                f'正在播放={playing_count}/{max_streams}, '
-                                f'设备列表=[{device_list}]'
-                            )
-                            
-                            db.session.commit()
-                            return jsonify({
-                                'success': True,
-                                'message': f'同时播放超过限制({playing_count}/{max_streams})，已停止播放',
-                                'action': 'stream_limit_exceeded'
-                            })
+                        
+                        # 如果停了当前会话后仍然超限，也停掉其他最新的
+                        if playing_count > max_streams + 1:
+                            excess = playing_count - max_streams
+                            sorted_sessions = sorted(playing_sessions, key=lambda x: x.get('last_activity', ''), reverse=True)
+                            for i, ps in enumerate(sorted_sessions):
+                                if i >= excess:
+                                    break
+                                ps_id = ps.get('session_id')
+                                if ps_id and ps_id != session_id:
+                                    emby_client.stop_session(
+                                        ps_id,
+                                        reason=f'同时播放设备数已达上限（{max_streams}），请先关闭其他设备的播放'
+                                    )
+                        
+                        # 记录日志
+                        device_list = ', '.join([f"{s['device_name']}({s['client']})" for s in playing_sessions])
+                        app.logger.info(
+                            f'[Webhook] 已停止超限播放: 用户={emby_user.name}, '
+                            f'正在播放={playing_count}/{max_streams}, '
+                            f'设备列表=[{device_list}]'
+                        )
+                        
+                        db.session.commit()
+                        return jsonify({
+                            'success': True,
+                            'message': f'同时播放超过限制({playing_count}/{max_streams})，已停止播放',
+                            'action': 'stream_limit_exceeded'
+                        })
         
         # ========== 黑名单检测逻辑 ==========
         # 登录/会话事件：检测 stop_and_ban 规则，立即禁用账号
