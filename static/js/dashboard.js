@@ -3524,6 +3524,8 @@ async function unbindTelegramId() {
             
             // 账号信息（紧凑版）- 只在已绑定时显示
             if (data.account && data.account.username) {
+                const safeUsername = (data.account.username || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                const safePassword = (data.account.password || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
                 html += `
                     <div class="server-account-compact">
                         <h4>🔑 您的Emby账号</h4>
@@ -3531,7 +3533,7 @@ async function unbindTelegramId() {
                             <div class="account-item">
                                 <span class="label">账号</span>
                                 <span class="value">${data.account.username}</span>
-                                <button class="btn-small" onclick="copyToClipboard('${data.account.username}')" title="复制">📋</button>
+                                <button class="btn-small copy-btn" data-copy="${safeUsername}" title="复制">📋</button>
                             </div>
                             <div class="account-item">
                                 <span class="label">密码</span>
@@ -3541,7 +3543,7 @@ async function unbindTelegramId() {
                                 <button class="btn-small" onclick="togglePasswordVisibility()" title="${passwordVisible ? '隐藏' : '显示'}">
                                     ${passwordVisible ? '🙈' : '👁️'}
                                 </button>
-                                <button class="btn-small" onclick="copyToClipboard('${data.account.password || ''}')" title="复制">📋</button>
+                                <button class="btn-small copy-btn" data-copy="${safePassword}" title="复制">📋</button>
                             </div>
                         </div>
                     </div>
@@ -3561,7 +3563,7 @@ async function unbindTelegramId() {
                 data.lines.forEach((line, index) => {
                     const isVisible = lineVisibility[index] || false;
                     const displayUrl = isVisible ? line.full_url : '••••••••••••••••••••';
-                    const safeFullUrl = line.full_url.replace(/'/g, "\\'");
+                    const safeFullUrl = line.full_url.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
                     const safeName = line.name.replace(/'/g, "\\'").replace(/</g, '&lt;');
                     html += `
                         <div class="server-line-compact">
@@ -3575,7 +3577,7 @@ async function unbindTelegramId() {
                                 <button class="line-toggle-btn" onclick="toggleSingleLineVisibility(${index})" title="${isVisible ? '隐藏' : '显示'}">
                                     ${isVisible ? '🙈' : '👁️'}
                                 </button>
-                                <button class="line-copy-btn" onclick="copyToClipboard('${safeFullUrl}')">复制</button>
+                                <button class="line-copy-btn copy-btn" data-copy="${safeFullUrl}">复制</button>
                             </div>
                         </div>
                     `;
@@ -3605,6 +3607,16 @@ async function unbindTelegramId() {
             }
             
             container.innerHTML = html;
+
+            // 为所有复制按钮绑定事件（避免 onclick 内联引号问题）
+            container.querySelectorAll('.copy-btn[data-copy]').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const text = this.getAttribute('data-copy');
+                    copyToClipboard(text);
+                });
+            });
         }
         
         function togglePasswordVisibility() {
@@ -3645,18 +3657,43 @@ async function unbindTelegramId() {
         }
         
         function copyToClipboard(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                showMessage('已复制到剪贴板', 'success');
-            }).catch(() => {
-                // 兼容性处理
-                const textarea = document.createElement('textarea');
-                textarea.value = text;
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textarea);
-                showMessage('已复制到剪贴板', 'success');
-            });
+            if (!text) {
+                showMessage('没有可复制的内容', 'warning');
+                return;
+            }
+            // 优先使用 Clipboard API（需要 HTTPS 或 localhost）
+            if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showMessage('已复制到剪贴板 ✅', 'success');
+                }).catch(() => {
+                    _fallbackCopy(text);
+                });
+            } else {
+                _fallbackCopy(text);
+            }
+        }
+
+        function _fallbackCopy(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            textarea.style.top = '0';
+            textarea.setAttribute('readonly', '');
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            try {
+                const ok = document.execCommand('copy');
+                if (ok) {
+                    showMessage('已复制到剪贴板 ✅', 'success');
+                } else {
+                    showMessage('复制失败，请手动复制', 'error');
+                }
+            } catch (e) {
+                showMessage('复制失败，请手动复制', 'error');
+            }
+            document.body.removeChild(textarea);
         }
 
         // ==================== 一键导入播放器功能 ====================
