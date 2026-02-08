@@ -922,51 +922,15 @@
                 <!-- 筛选栏 -->
                 <div class="activity-filter-bar">
                     <select id="activityTypeFilter" class="activity-filter-select" onchange="loadMyActivityLogs()">
-                        <option value="">📋 全部类型</option>
-                        <optgroup label="🔐 账户相关">
-                            <option value="login">🔐 登录</option>
-                            <option value="logout">🚪 登出</option>
-                            <option value="register">📝 注册</option>
-                            <option value="password_change">🔑 修改密码</option>
-                            <option value="password_reset">🔓 重置密码</option>
-                            <option value="bind_telegram">🤖 绑定Telegram</option>
-                        </optgroup>
-                        <optgroup label="🎬 Emby相关">
-                            <option value="emby_account_create">🆕 创建Emby账号</option>
-                            <option value="emby_password_reset">🔄 重置Emby密码</option>
-                            <option value="playback_start">▶️ 开始播放</option>
-                            <option value="view_lines">🔗 查看线路</option>
-                        </optgroup>
-                        <optgroup label="🎬 求片相关">
-                            <option value="request_movie">🎬 提交求片</option>
-                            <option value="cancel_request">❌ 取消求片</option>
-                        </optgroup>
-                        <optgroup label="💰 充值与兑换">
-                            <option value="redeem_code">🎟️ 兑换码</option>
-                            <option value="create_order">🛒 创建订单</option>
-                            <option value="payment_success">💳 支付成功</option>
-                            <option value="payment_failed">❌ 支付失败</option>
-                            <option value="coin_change">💰 积分变更</option>
-                        </optgroup>
-                        <optgroup label="💎 订阅相关">
-                            <option value="subscription_change">💎 订阅变更</option>
-                            <option value="subscription_gift">🎁 赠送订阅</option>
-                            <option value="subscription_reduce">⏳ 减少订阅</option>
-                            <option value="level_change">📊 等级变更</option>
-                        </optgroup>
-                        <optgroup label="🎁 邀请相关">
-                            <option value="invite_created">🎁 创建邀请码</option>
-                            <option value="invite_used">🎁 使用邀请码</option>
-                        </optgroup>
-                        <optgroup label="🎫 工单相关">
-                            <option value="submit_ticket">🎫 提交工单</option>
-                            <option value="reply_ticket">💬 回复工单</option>
-                        </optgroup>
-                        <optgroup label="⚠️ 账号状态">
-                            <option value="account_banned">⛔ 账号封禁</option>
-                            <option value="account_unbanned">✅ 账号解封</option>
-                            <option value="device_blocked">🚫 设备封禁</option>
-                        </optgroup>
+                        <option value="">📋 全部日志</option>
+                        <option value="login">🔐 登录登出</option>
+                        <option value="password_change">🔑 密码修改</option>
+                        <option value="request_movie">🎬 求片记录</option>
+                        <option value="view_lines">🔗 查看线路</option>
+                        <option value="payment_success">💰 充值记录</option>
+                        <option value="redeem_code">🎟️ 兑换记录</option>
+                        <option value="subscription_change">💎 订阅变更</option>
+                        <option value="emby_account_create">🆕 Emby账号</option>
                     </select>
                     <select id="activityDaysFilter" class="activity-filter-select" onchange="loadMyActivityLogs()">
                         <option value="7">⏰ 最近7天</option>

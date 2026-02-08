@@ -16534,9 +16534,20 @@ def get_my_activity_logs():
         
         query = UserActivityLog.query.filter_by(user_tg=user.tg)
         
-        # 按操作类型筛选
+        # 按操作类型筛选（支持分组筛选）
         if action_type:
-            query = query.filter_by(action_type=action_type)
+            # 分组映射：选择某类型时，同时包含相关子类型
+            type_groups = {
+                'login': ['login', 'logout', 'register', 'bind_telegram'],
+                'password_change': ['password_change', 'password_reset', 'emby_password_reset'],
+                'request_movie': ['request_movie', 'cancel_request'],
+                'payment_success': ['payment_success', 'payment_failed', 'create_order'],
+                'subscription_change': ['subscription_change', 'subscription_gift', 'subscription_reduce', 'level_change'],
+                'emby_account_create': ['emby_account_create', 'emby_password_reset', 'playback_start'],
+                'redeem_code': ['redeem_code', 'coin_change'],
+            }
+            group = type_groups.get(action_type, [action_type])
+            query = query.filter(UserActivityLog.action_type.in_(group))
         
         # 按时间范围筛选
         if days and days.isdigit():
@@ -17955,15 +17966,6 @@ def get_user_lines():
                 accessible_lines.append(line.to_dict(include_sensitive=True))
                 line_names.append(f"{line.name}(普通)")
         
-        # 记录查看线路日志（只有有权限时记录）
-        user_type = '白名单用户' if is_whitelist else '订阅用户'
-        log_user_activity(UserActivityLog.ACTION_VIEW_LINES, user=user,
-                         detail={
-                             'user_type': user_type,
-                             'lines_count': len(accessible_lines), 
-                             'lines': line_names
-                         })
-        
         return jsonify({
             'success': True,
             'has_access': True,
@@ -17978,6 +17980,31 @@ def get_user_lines():
     except Exception as e:
         app.logger.error(f'获取线路信息失败: {e}')
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/lines/view-log', methods=['POST'])
+@login_required
+def log_view_lines():
+    """用户点击查看线路时记录日志（前端小眼睛触发）"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False}), 404
+        
+        data = request.get_json() or {}
+        line_name = data.get('line_name', '')
+        line_index = data.get('line_index', -1)
+        
+        log_user_activity(UserActivityLog.ACTION_VIEW_LINES, user=user,
+                         detail={
+                             'line_name': line_name,
+                             'action': '查看线路'
+                         })
+        
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        app.logger.error(f'记录查看线路日志失败: {e}')
+        return jsonify({'success': False}), 500
 
 
 @app.route('/api/admin/invite-stats', methods=['GET'])

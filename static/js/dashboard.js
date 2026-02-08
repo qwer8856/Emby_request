@@ -3571,9 +3571,19 @@ async function unbindTelegramId() {
         
         // 单独控制每条线路的显示/隐藏
         function toggleSingleLineVisibility(index) {
+            const wasHidden = !lineVisibility[index];
             lineVisibility[index] = !lineVisibility[index];
             if (serverLinesData) {
                 renderServerLines(serverLinesData);
+                // 从隐藏变为显示时记录查看日志
+                if (wasHidden && serverLinesData.lines && serverLinesData.lines[index]) {
+                    const lineName = serverLinesData.lines[index].name || '';
+                    fetch('/api/lines/view-log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ line_name: lineName, line_index: index })
+                    }).catch(() => {});
+                }
             }
         }
         
