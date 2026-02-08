@@ -1,47 +1,35 @@
 services:
-  emby_request:
-    build: .
-    container_name: emby_request
+  emby-request:
+    image: gongjuren8856/emby-request:latest
+    container_name: emby-request
     restart: unless-stopped
     ports:
       - "5000:5000"
     volumes:
-      - ./instance:/app/instance
-      - ./logs:/app/logs
-      # 挂载机器码文件（用于授权绑定）
+      # 配置文件持久化
+      - /root/Panel/instance:/app/instance
+      # 日志持久化
+      - /root/Panel/logs:/app/logs
+      # 迁移脚本（从 embyboss 迁移用户数据，迁移完成后可删除此行）
+      - /root/Panel/migrate_from_embyboss.py:/app/migrate_from_embyboss.py
+      # 机器码绑定
       - /etc/machine-id:/etc/machine-id:ro
     environment:
       - TZ=Asia/Shanghai
-      # ==================== 授权配置 [必须] ====================
-      # LICENSE_KEY: 授权码，联系管理员获取
-      # 格式: EMBY-XXXX-XXXX-XXXX-XXXX
-      - LICENSE_KEY=your-license-key-here
-      
-      # ==================== 代理配置 [可选] ====================
-      # 如果您的服务器在中国大陆，需要配置代理才能访问 Telegram、TMDB 等外网服务
-      # 以下三种代理方式选择其一即可，优先级: SOCKS5 > HTTP > 系统代理
-      
-      # 方式1: HTTP/HTTPS 代理
-      # 格式: http://ip:port 或 http://user:pass@ip:port
-      # - HTTP_PROXY=http://127.0.0.1:7890
-      # - HTTPS_PROXY=http://127.0.0.1:7890
-      
-      # 方式2: SOCKS5 代理 (推荐)
-      # 格式: socks5://ip:port 或 socks5://user:pass@ip:port
-      # - SOCKS5_PROXY=socks5://127.0.0.1:7891
-      
-      # 方式3: 统一代理设置 (同时设置 HTTP 和 SOCKS5)
-      # - ALL_PROXY=socks5://127.0.0.1:7891
-      
-      # 不走代理的地址 (本地地址默认不走代理)
-      # - NO_PROXY=localhost,127.0.0.1,192.168.0.0/16,10.0.0.0/8
-      
-    env_file:
-      - .env
+      # ========== 授权码 [必须] ==========
+      - LICENSE_KEY=
+      # ========== Flask 配置 [必须] ==========
+      # 生成命令: python3 -c "import secrets; print(secrets.token_hex(32))"
+      - SECRET_KEY=
+      # ========== 数据库配置 [必须] ==========
+      - DB_HOST=
+      - DB_PORT=
+      - DB_USER=
+      - DB_PASSWORD=
+      - DB_NAME=
     networks:
-      - emby_network
+      - emby-network
 
 networks:
-  emby_network:
+  emby-network:
     driver: bridge
-

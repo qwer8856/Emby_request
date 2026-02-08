@@ -20187,8 +20187,8 @@ def admin_cancel_order(order_no):
         
         # 更新订单状态为取消
         db.session.execute(
-            text("UPDATE orders SET payment_status = 'cancelled', updated_at = NOW() WHERE order_no = :order_no"),
-            {'order_no': order_no}
+            text("UPDATE orders SET payment_status = 'cancelled', updated_at = :now WHERE order_no = :order_no"),
+            {'order_no': order_no, 'now': datetime.now()}
         )
         db.session.commit()
         
@@ -20507,7 +20507,7 @@ def migrate_database():
     migrations = [
         # (表名, 列名, 列定义 for MySQL, 列定义 for SQLite)
         ('emby', 'telegram_id', 'BIGINT NULL UNIQUE'),
-        ('emby', 'is_banned', 'TINYINT(1) DEFAULT 0'),
+        ('emby', 'is_banned', 'INTEGER DEFAULT 0'),
         ('emby', 'ban_reason', 'VARCHAR(500) NULL'),
         ('emby', 'invited_by', 'INTEGER NULL'),
         ('emby', 'invite_count', 'INTEGER DEFAULT 0'),
