@@ -6558,6 +6558,10 @@ async function loadUserDetails(userId) {
                 <div class="value">${user.emby_name || user.emby_id || '<span style="color:#999;">未绑定</span>'}</div>
             </div>
             <div class="info-item">
+                <div class="label">绑定邮箱</div>
+                <div class="value">${user.email ? '📧 ' + user.email : '<span style="color:#999;">未绑定</span>'}</div>
+            </div>
+            <div class="info-item">
                 <div class="label">用户等级</div>
                 <div class="value ${levelClass}">${user.level_name}</div>
             </div>

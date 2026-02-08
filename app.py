@@ -16167,6 +16167,7 @@ def admin_test_email():
 @admin_required
 def admin_broadcast_email():
     """管理员群发邮件"""
+    from threading import Thread
     try:
         data = request.json
         subject = data.get('subject', '').strip()
@@ -16207,36 +16208,33 @@ def admin_broadcast_email():
         processed_content = content.replace('\n', '<br>')
         site_name = get_site_config().get('site_name', 'Emby')
         html = build_email_html(subject, processed_content, site_name)
+        total_count = len(recipients)
         
-        # 异步发送
-        success_count = 0
-        fail_count = 0
-        fail_list = []
-        
-        for addr in recipients:
-            try:
-                ok, msg = send_email(addr, f'【{site_name}】{subject}', html)
-                if ok:
-                    success_count += 1
-                else:
+        # 后台线程异步发送，避免大量收件人时请求超时
+        def _send_broadcast():
+            success_count = 0
+            fail_count = 0
+            for addr in recipients:
+                try:
+                    ok, msg = send_email(addr, f'【{site_name}】{subject}', html)
+                    if ok:
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                        app.logger.warning(f'群发邮件失败: {addr} - {msg}')
+                except Exception as e:
                     fail_count += 1
-                    fail_list.append(f'{addr}: {msg}')
-            except Exception as e:
-                fail_count += 1
-                fail_list.append(f'{addr}: {str(e)}')
+                    app.logger.warning(f'群发邮件异常: {addr} - {e}')
+            app.logger.info(f'群发邮件完成: 标题={subject}, 成功={success_count}, 失败={fail_count}, 总计={total_count}')
         
-        app.logger.info(f'群发邮件完成: 标题={subject}, 成功={success_count}, 失败={fail_count}')
-        
-        result_msg = f'发送完成: 成功 {success_count} 封'
-        if fail_count > 0:
-            result_msg += f'，失败 {fail_count} 封'
+        thread = Thread(target=_send_broadcast)
+        thread.daemon = True
+        thread.start()
         
         return jsonify({
             'success': True,
-            'message': result_msg,
-            'success_count': success_count,
-            'fail_count': fail_count,
-            'total': len(recipients)
+            'message': f'已开始向 {total_count} 个地址发送邮件，发送进度请查看日志',
+            'total': total_count
         }), 200
         
     except Exception as e:
@@ -17235,12 +17233,24 @@ EMAIL_VERIFY_CODES = {}
 
 
 def cleanup_expired_bind_codes():
-    """清理过期的绑定码"""
+    """清理过期的绑定码、邮箱验证码和密码重置码"""
     now = datetime.now()
     expired = [code for code, data in TELEGRAM_BIND_CODES.items() 
                if data.get('expires_at') and data['expires_at'] < now]
     for code in expired:
         del TELEGRAM_BIND_CODES[code]
+    
+    # 同时清理过期的邮箱验证码
+    expired_email = [key for key, data in EMAIL_VERIFY_CODES.items()
+                     if data.get('expires_at') and data['expires_at'] < now]
+    for key in expired_email:
+        del EMAIL_VERIFY_CODES[key]
+    
+    # 清理过期的密码重置验证码
+    expired_reset = [key for key, data in PASSWORD_RESET_CODES.items()
+                     if data.get('expires_at') and data['expires_at'] < now]
+    for key in expired_reset:
+        del PASSWORD_RESET_CODES[key]
 
 
 @app.route('/api/user/telegram', methods=['GET'])
@@ -19001,7 +19011,8 @@ def admin_get_users():
                     User.name.ilike(f'%{search}%'),
                     User.emby_name.ilike(f'%{search}%'),
                     cast(User.tg, String).ilike(f'%{search}%'),
-                    cast(User.telegram_id, String).ilike(f'%{search}%')
+                    cast(User.telegram_id, String).ilike(f'%{search}%'),
+                    User.email.ilike(f'%{search}%')
                 )
             )
         
@@ -19074,6 +19085,7 @@ def admin_get_users():
                 'name': user.name,
                 'emby_name': user.emby_name,  # Emby用户名（独立于网站用户名）
                 'telegram_id': user.telegram_id,  # 只有绑定了才有值
+                'email': user.email,  # 绑定邮箱
                 'is_admin': user.is_admin,
                 'level': user.lv,
                 'subscription_status': subscription_status,
@@ -19570,6 +19582,7 @@ def admin_get_user_details(user_id):
                 'level_name': level_name,
                 'is_admin': user.is_admin,
                 'is_bot_admin': is_bot_admin,
+                'email': user.email,  # 绑定邮箱
                 'coins': user_coins,  # 用户积分
                 'expires_at': user.ex.isoformat() if user.ex else None,
                 'created_at': user.cr.isoformat() if user.cr else None,
