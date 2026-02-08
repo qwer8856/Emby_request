@@ -3104,6 +3104,71 @@ body.page-admin {
     --hover-bg: rgba(102, 126, 234, 0.08);
 }
 
+/* 设置页面分类标签导航 */
+.settings-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    padding: 4px;
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.settings-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.settings-tab:hover {
+    background: var(--hover-bg, rgba(99, 102, 241, 0.08));
+    color: var(--text-primary);
+}
+
+.settings-tab.active {
+    background: var(--primary-color, #6366f1);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.settings-tab span {
+    font-size: 15px;
+}
+
+/* 隐藏非当前分组的设置卡片 */
+.settings-card[data-settings-group] {
+    display: none;
+}
+
+.settings-card[data-settings-group].settings-group-visible {
+    display: block;
+}
+
+@media (max-width: 768px) {
+    .settings-tabs {
+        gap: 4px;
+        padding: 3px;
+    }
+    .settings-tab {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+}
+
 .settings-card {
     background: var(--card-bg);
     border: 1px solid var(--border-color);

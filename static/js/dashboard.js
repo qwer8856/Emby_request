@@ -4572,7 +4572,7 @@ async function unbindTelegramId() {
                     document.getElementById('totalInvites').textContent = data.total_invites;
                     document.getElementById('validInvites').textContent = data.successful_invites;
                     document.getElementById('totalReward').textContent = data.total_rewards;
-                    document.getElementById('pendingReward').textContent = '0'; // 待实现
+                    document.getElementById('pendingReward').textContent = data.pending_rewards || 0;
                 }
                 
                 // 加载邀请记录
@@ -4581,18 +4581,33 @@ async function unbindTelegramId() {
                 
                 if (recordsData.success && recordsData.records.length > 0) {
                     const recordsList = document.getElementById('inviteRecords');
-                    recordsList.innerHTML = recordsData.records.map(record => `
-                        <div class="record-item">
-                            <div class="record-user">
-                                <div class="record-avatar">${record.invitee_name?.[0] || '?'}</div>
-                                <div class="record-info">
-                                    <div class="record-name">${record.invitee_name}</div>
-                                    <div class="record-date">${new Date(record.created_at).toLocaleDateString()}</div>
+                    recordsList.innerHTML = recordsData.records.map(record => {
+                        // 状态显示
+                        let statusHtml = '';
+                        if (record.status === 'pending') {
+                            statusHtml = '<span style="color:#f59e0b;font-size:12px;">⏳ 待审核 ' + (record.pending_reward || 0) + ' 天</span>';
+                        } else if (record.status === 'approved') {
+                            statusHtml = '<span style="color:#10b981;font-size:12px;">✅ 已发放</span>';
+                        } else {
+                            statusHtml = '<span style="color:#9ca3af;font-size:12px;">等待购买</span>';
+                        }
+                        
+                        return `
+                            <div class="record-item">
+                                <div class="record-user">
+                                    <div class="record-avatar">${record.invitee_name?.[0] || '?'}</div>
+                                    <div class="record-info">
+                                        <div class="record-name">${record.invitee_name}</div>
+                                        <div class="record-date">${new Date(record.created_at).toLocaleDateString()}</div>
+                                    </div>
+                                </div>
+                                <div class="record-reward">
+                                    ${record.reward_value ? '+' + record.reward_value + ' 天' : ''}
+                                    <div>${statusHtml}</div>
                                 </div>
                             </div>
-                            <div class="record-reward">+${record.reward_value} 天</div>
-                        </div>
-                    `).join('');
+                        `;
+                    }).join('');
                 }
             } catch (error) {
                 console.error('加载邀请信息失败:', error);

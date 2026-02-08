@@ -482,10 +482,12 @@
                         <span class="feature-icon">📱</span>
                         <span>多端同步观看</span>
                     </div>
+                    {% if invite_reward_enabled %}
                     <div class="feature-item">
                         <span class="feature-icon">🎁</span>
                         <span>邀请好友得奖励</span>
                     </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -499,10 +501,15 @@
             
             <div class="message" id="message"></div>
             
-            {% if invite_code %}
+            {% if invite_code and invite_reward_enabled %}
             <div class="invite-badge">
                 <span class="badge-icon">🎁</span>
                 <span>使用邀请码注册，双方都可获得额外奖励！</span>
+            </div>
+            {% elif invite_code and not invite_reward_enabled %}
+            <div class="invite-badge">
+                <span class="badge-icon">🎉</span>
+                <span>您正在通过好友邀请注册</span>
             </div>
             {% elif register_mode == 'invite' %}
             <div class="invite-badge" style="background: #fef3c7; border-color: #fbbf24;">

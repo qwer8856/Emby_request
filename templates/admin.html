@@ -1050,13 +1050,15 @@
                                 <th>邀请码</th>
                                 <th>奖励类型</th>
                                 <th>奖励金额</th>
+                                <th>待审核</th>
                                 <th>状态</th>
                                 <th>邀请时间</th>
+                                <th>操作</th>
                             </tr>
                         </thead>
                         <tbody id="invitesTableBody">
                             <tr>
-                                <td colspan="7" class="loading-cell">加载中...</td>
+                                <td colspan="9" class="loading-cell">加载中...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -1383,399 +1385,25 @@
                         <h2>⚙️ 系统设置</h2>
                     </div>
 
-                    <!-- 前端配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
-                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
-                            <div class="header-left">
-                                <span class="collapse-icon">▶</span>
-                                <h3>🎨 前端配置</h3>
-                            </div>
-                            <span class="status-badge" id="siteConfigStatus">已配置</span>
-                        </div>
-                        <div class="settings-card-body collapsible-content">
-                            <p class="settings-desc">配置网站名称、联系方式等前端显示信息，保存后刷新页面即可生效。</p>
-
-                            <div class="settings-form">
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="siteName">网站名称</label>
-                                        <input type="text" id="siteName" placeholder="Emby" class="form-input">
-                                        <span class="form-hint">显示在侧边栏和页面顶部</span>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="siteSubtitle">网站副标题</label>
-                                        <input type="text" id="siteSubtitle" placeholder="管理系统" class="form-input">
-                                        <span class="form-hint">显示在网站名称下方</span>
-                                    </div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="siteTitle">页面标题</label>
-                                    <input type="text" id="siteTitle" placeholder="Emby管理系统" class="form-input">
-                                    <span class="form-hint">浏览器标签页显示的标题</span>
-                                </div>
-
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="siteLogo">网站 LOGO</label>
-                                        <input type="text" id="siteLogo" placeholder="https://example.com/logo.png"
-                                            class="form-input">
-                                        <span class="form-hint">LOGO 图片 URL，留空则不显示 LOGO</span>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="shopUrl">定价/购买链接</label>
-                                        <input type="text" id="shopUrl" placeholder="https://shop.example.com"
-                                            class="form-input">
-                                        <span class="form-hint">顶部导航"定价"按钮链接，留空则不显示</span>
-                                    </div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="telegramGroup">Telegram 群组链接</label>
-                                    <input type="text" id="telegramGroup" placeholder="https://t.me/your_group"
-                                        class="form-input">
-                                    <span class="form-hint">Telegram 群组完整链接，留空则不显示 Telegram 按钮</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="panelUrl">面板登录链接</label>
-                                    <input type="text" id="panelUrl" placeholder="https://your-domain.com"
-                                        class="form-input">
-                                    <span class="form-hint">用户注册成功后显示的面板登录链接，留空则不显示</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="supportEmail">支持邮箱</label>
-                                    <input type="email" id="supportEmail" placeholder="support@example.com"
-                                        class="form-input">
-                                    <span class="form-hint">技术支持页面显示的联系邮箱</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="registerMode">注册模式</label>
-                                    <select id="registerMode" class="form-input">
-                                        <option value="open">开放注册 - 任何人都可以注册</option>
-                                        <option value="invite">仅邀请注册 - 需要邀请码才能注册</option>
-                                        <option value="closed">关闭注册 - 禁止新用户注册</option>
-                                    </select>
-                                    <span class="form-hint">控制网站的注册方式</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" id="useImageProxy" checked>
-                                        <span>启用 TMDB 图片代理</span>
-                                    </label>
-                                    <span class="form-hint">大陆用户建议开启（解决图片无法加载问题），海外用户可关闭以加速图片加载</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="welcomeMessage">欢迎语</label>
-                                    <input type="text" id="welcomeMessage" placeholder="欢迎使用 Emby 管理系统！"
-                                        class="form-input">
-                                    <span class="form-hint">使用文档页面显示的欢迎语</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label>快速链接配置</label>
-                                    <div id="customLinksContainer" class="custom-links-container">
-                                        <!-- 动态生成的链接配置项 -->
-                                    </div>
-                                    <button type="button" class="btn-secondary btn-sm" onclick="addCustomLink()"
-                                        style="margin-top: 10px;">
-                                        <span>➕</span> 添加链接
-                                    </button>
-                                    <span class="form-hint">配置技术支持页面的快速链接</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="customCss">自定义 CSS（可选）</label>
-                                    <textarea id="customCss" placeholder="/* 自定义样式 */" class="form-input"
-                                        rows="4"></textarea>
-                                    <span class="form-hint">添加自定义CSS样式，会注入到页面head中</span>
-                                </div>
-                            </div>
-
-                            <div class="settings-actions">
-                                <button class="btn-primary" onclick="saveSiteConfig()">
-                                    <span>💾</span> 保存配置
-                                </button>
-                                <button class="btn-secondary" onclick="loadSiteConfig()">
-                                    <span>🔄</span> 重新加载
-                                </button>
-                            </div>
-                        </div>
+                    <!-- 设置分类标签导航 -->
+                    <div class="settings-tabs" id="settingsTabs">
+                        <button class="settings-tab active" data-group="basic" onclick="switchSettingsGroup('basic', this)">
+                            <span>🔌</span> 基础服务
+                        </button>
+                        <button class="settings-tab" data-group="business" onclick="switchSettingsGroup('business', this)">
+                            <span>💰</span> 运营管理
+                        </button>
+                        <button class="settings-tab" data-group="site" onclick="switchSettingsGroup('site', this)">
+                            <span>🎨</span> 站点外观
+                        </button>
+                        <button class="settings-tab" data-group="advanced" onclick="switchSettingsGroup('advanced', this)">
+                            <span>🔧</span> 进阶设置
+                        </button>
                     </div>
 
-                    <!-- 系统公告 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
-                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
-                            <div class="header-left">
-                                <span class="collapse-icon">▶</span>
-                                <h3>📢 系统公告</h3>
-                            </div>
-                            <span class="status-badge" id="announcementsStatus">0 条公告</span>
-                        </div>
-                        <div class="settings-card-body collapsible-content">
-                            <p class="settings-desc">管理系统公告，公告将显示在用户仪表盘首页。</p>
-
-                            <div class="settings-actions" style="margin-bottom: 16px;">
-                                <button class="btn-primary" onclick="openAnnouncementModal()">
-                                    <span>➕</span> 发布公告
-                                </button>
-                            </div>
-
-                            <div class="announcements-list-compact" id="announcementsListCompact">
-                                <div class="loading-placeholder">加载中...</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 线路管理 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
-                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
-                            <div class="header-left">
-                                <span class="collapse-icon">▶</span>
-                                <h3>🔗 线路管理</h3>
-                            </div>
-                            <span class="status-badge" id="linesStatus">0 条线路</span>
-                        </div>
-                        <div class="settings-card-body collapsible-content">
-                            <p class="settings-desc">配置 Emby 服务器连接线路，支持多线路负载和白名单专属线路。</p>
-
-                            <div class="settings-actions" style="margin-bottom: 16px;">
-                                <button class="btn-primary" onclick="showAddLineModal()">
-                                    <span>➕</span> 添加线路
-                                </button>
-                            </div>
-
-                            <div class="lines-stats-mini">
-                                <div class="stat-mini">
-                                    <span class="stat-mini-value" id="totalLines">0</span>
-                                    <span class="stat-mini-label">总线路</span>
-                                </div>
-                                <div class="stat-mini">
-                                    <span class="stat-mini-value" id="activeLines">0</span>
-                                    <span class="stat-mini-label">已启用</span>
-                                </div>
-                                <div class="stat-mini">
-                                    <span class="stat-mini-value" id="whitelistLines">0</span>
-                                    <span class="stat-mini-label">白名单专属</span>
-                                </div>
-                            </div>
-
-                            <div class="lines-list-compact" id="linesList">
-                                <div class="loading-placeholder">
-                                    <div class="spinner"></div>
-                                    <p>加载中...</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 支付配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
-                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
-                            <div class="header-left">
-                                <span class="collapse-icon">▶</span>
-                                <h3>💳 支付配置</h3>
-                            </div>
-                            <span class="status-badge" id="paymentStatus">未配置</span>
-                        </div>
-                        <div class="settings-card-body collapsible-content">
-                            <p class="settings-desc">配置易支付接口，支持支付宝、微信等多种支付方式。配置完成后用户可在线购买订阅套餐。</p>
-
-                            <div class="settings-form">
-                                <div class="form-group">
-                                    <label for="epayUrl">易支付接口地址</label>
-                                    <input type="text" id="epayUrl" placeholder="https://pay.example.com"
-                                        class="form-input">
-                                    <span class="form-hint">易支付服务商提供的接口地址，不带最后的斜杠</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="epayPid">商户ID (PID)</label>
-                                    <input type="text" id="epayPid" placeholder="10001" class="form-input">
-                                    <span class="form-hint">易支付分配的商户号</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="epayKey">商户密钥 (KEY)</label>
-                                    <input type="password" id="epayKey" placeholder="请输入商户密钥" class="form-input">
-                                    <span class="form-hint">易支付分配的商户密钥，用于签名验证</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="epayNotifyUrl">异步通知地址（可选）</label>
-                                    <input type="text" id="epayNotifyUrl" placeholder="留空则自动使用当前域名" class="form-input">
-                                    <span class="form-hint">支付成功后易支付服务器通知的地址，一般留空即可</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="epayReturnUrl">同步跳转地址（可选）</label>
-                                    <input type="text" id="epayReturnUrl" placeholder="留空则自动使用当前域名" class="form-input">
-                                    <span class="form-hint">支付成功后用户跳转的页面地址，一般留空即可</span>
-                                </div>
-                            </div>
-
-                            <div class="settings-actions">
-                                <button class="btn-primary" onclick="savePaymentConfig()">
-                                    <span>💾</span> 保存配置
-                                </button>
-                                <button class="btn-secondary" onclick="testPaymentConfig()">
-                                    <span>🔧</span> 测试连接
-                                </button>
-                            </div>
-
-                            <div class="settings-tips">
-                                <h4>📌 配置说明</h4>
-                                <ul>
-                                    <li>填写易支付服务商提供的接口地址、商户ID和商户密钥后点击保存</li>
-                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
-                                    <li>异步通知地址默认为：<code>你的域名/api/payment/notify</code>（一般留空即可）</li>
-                                    <li>同步跳转地址默认为：<code>你的域名/dashboard#purchase</code>（一般留空即可）</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- MoviePilot 配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
-                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
-                            <div class="header-left">
-                                <span class="collapse-icon">▶</span>
-                                <h3>🎬 MoviePilot 配置</h3>
-                            </div>
-                            <span class="status-badge" id="mpStatus">未配置</span>
-                        </div>
-                        <div class="settings-card-body collapsible-content">
-                            <p class="settings-desc">配置 MoviePilot 连接，用于搜索和推送下载任务。支持用户名密码或 Token 认证。</p>
-
-                            <div class="settings-form">
-                                <div class="form-group">
-                                    <label for="mpUrl">MoviePilot 地址</label>
-                                    <input type="text" id="mpUrl" placeholder="http://127.0.0.1:3000"
-                                        class="form-input">
-                                    <span class="form-hint">MoviePilot Web UI 地址，不带末尾斜杠</span>
-                                </div>
-
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="mpUsername">用户名</label>
-                                        <input type="text" id="mpUsername" placeholder="admin" class="form-input">
-                                        <span class="form-hint">MoviePilot 登录用户名</span>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="mpPassword">密码</label>
-                                        <input type="password" id="mpPassword" placeholder="请输入密码" class="form-input">
-                                        <span class="form-hint">MoviePilot 登录密码</span>
-                                    </div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="mpToken">API Token（可选）</label>
-                                    <input type="text" id="mpToken" placeholder="留空则使用用户名密码登录" class="form-input">
-                                    <span class="form-hint">如已有 Token 可直接填写，优先级高于用户名密码</span>
-                                </div>
-                            </div>
-
-                            <div class="settings-actions">
-                                <button class="btn-primary" onclick="saveMoviePilotConfig()">
-                                    <span>💾</span> 保存配置
-                                </button>
-                                <button class="btn-secondary" onclick="testMoviePilotConfig()">
-                                    <span>🔧</span> 测试连接
-                                </button>
-                            </div>
-
-                            <div class="settings-tips">
-                                <h4>📌 配置说明</h4>
-                                <ul>
-                                    <li>MoviePilot 用于搜索 PT 站点的种子资源</li>
-                                    <li>可以使用<strong>用户名+密码</strong>或直接提供 <strong>API Token</strong></li>
-                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
-                                    <li>确保 MoviePilot 已正确配置 PT 站点索引器</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- qBittorrent 配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
-                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
-                            <div class="header-left">
-                                <span class="collapse-icon">▶</span>
-                                <h3>📥 qBittorrent 配置</h3>
-                            </div>
-                            <span class="status-badge" id="qbStatus">未配置</span>
-                        </div>
-                        <div class="settings-card-body collapsible-content">
-                            <p class="settings-desc">配置 qBittorrent 下载客户端，用于自动下载种子文件。</p>
-
-                            <div class="settings-form">
-                                <div class="form-group">
-                                    <label for="qbUrl">qBittorrent 地址</label>
-                                    <input type="text" id="qbUrl" placeholder="http://127.0.0.1:8080"
-                                        class="form-input">
-                                    <span class="form-hint">qBittorrent Web UI 地址，不带末尾斜杠</span>
-                                </div>
-
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="qbUsername">用户名</label>
-                                        <input type="text" id="qbUsername" placeholder="admin" class="form-input">
-                                        <span class="form-hint">qBittorrent Web UI 用户名</span>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="qbPassword">密码</label>
-                                        <input type="password" id="qbPassword" placeholder="请输入密码" class="form-input">
-                                        <span class="form-hint">qBittorrent Web UI 密码</span>
-                                    </div>
-                                </div>
-
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="qbCategory">下载分类</label>
-                                        <input type="text" id="qbCategory" placeholder="emby-request"
-                                            class="form-input">
-                                        <span class="form-hint">下载任务的分类标签，便于管理</span>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="qbSavePath">保存路径（可选）</label>
-                                        <input type="text" id="qbSavePath" placeholder="留空使用默认路径" class="form-input">
-                                        <span class="form-hint">下载文件保存路径，留空使用 qB 默认设置</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="settings-actions">
-                                <button class="btn-primary" onclick="saveQbittorrentConfig()">
-                                    <span>💾</span> 保存配置
-                                </button>
-                                <button class="btn-secondary" onclick="testQbittorrentConfig()">
-                                    <span>🔧</span> 测试连接
-                                </button>
-                            </div>
-
-                            <div class="settings-tips">
-                                <h4>📌 配置说明</h4>
-                                <ul>
-                                    <li>qBittorrent 用于自动下载搜索到的种子</li>
-                                    <li>需要开启 qBittorrent 的 <strong>Web UI</strong> 功能</li>
-                                    <li>建议设置专门的分类，便于管理求片下载任务</li>
-                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
+                    <!-- ==================== 基础服务 - 核心对接 ==================== -->
                     <!-- Emby 服务器配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
+                    <div class="settings-card collapsible collapsed" data-settings-group="basic">
                         <div class="settings-card-header" onclick="toggleSettingsCard(this)">
                             <div class="header-left">
                                 <span class="collapse-icon">▶</span>
@@ -1830,143 +1458,8 @@
                         </div>
                     </div>
 
-                    <!-- 订阅管理配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
-                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
-                            <div class="header-left">
-                                <span class="collapse-icon">▶</span>
-                                <h3>📅 订阅过期管理</h3>
-                            </div>
-                            <span class="status-badge" id="subscriptionExpireStatus">已配置</span>
-                        </div>
-                        <div class="settings-card-body collapsible-content">
-                            <p class="settings-desc">配置订阅过期后的账号处理策略，包括禁用和删除时机。</p>
-
-                            <div class="settings-form">
-                                <div class="form-group">
-                                    <label>过期处理策略</label>
-                                    <div class="checkbox-group" style="margin-top: 8px;">
-                                        <label class="checkbox-label">
-                                            <input type="checkbox" id="expireAutoDisable" checked>
-                                            <span>订阅过期后自动禁用 Emby 账号</span>
-                                        </label>
-                                    </div>
-                                    <span class="form-hint">启用后，订阅过期的用户将无法登录 Emby</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="expireDeleteDays">过期后删除 Emby 账号（天）</label>
-                                    <div class="input-with-hint">
-                                        <input type="number" id="expireDeleteDays" placeholder="0" class="form-input"
-                                            min="0" max="365" value="0">
-                                        <span class="unit-label">天</span>
-                                    </div>
-                                    <span class="form-hint">设为 0 表示不删除；过期超过该天数后将自动删除 Emby 服务器上的账号</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label>删除选项</label>
-                                    <div class="checkbox-group" style="margin-top: 8px;">
-                                        <label class="checkbox-label">
-                                            <input type="checkbox" id="expireDeleteWebAccount">
-                                            <span>同时删除网站账号</span>
-                                        </label>
-                                    </div>
-                                    <span class="form-hint">启用后，删除 Emby 账号时也会删除网站用户数据；不启用则仅删除 Emby 账号，用户可重新绑定</span>
-                                </div>
-                            </div>
-
-                            <div class="settings-actions">
-                                <button class="btn-primary" onclick="saveSubscriptionExpireConfig()">
-                                    <span>💾</span> 保存配置
-                                </button>
-                                <button class="btn-secondary" onclick="loadSubscriptionExpireConfig()">
-                                    <span>🔄</span> 重新加载
-                                </button>
-                            </div>
-
-                            <div class="settings-tips">
-                                <h4>📌 配置说明</h4>
-                                <ul>
-                                    <li>系统每小时自动检查一次订阅过期状态</li>
-                                    <li>过期禁用：立即禁用 Emby 账号，用户无法播放</li>
-                                    <li>过期删除 Emby 账号：从 Emby 服务器删除账号</li>
-                                    <li>同时删除网站账号：连同网站用户数据一起删除</li>
-                                    <li>建议设置删除天数（如30天），给用户续费的缓冲时间</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 邀请返利配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
-                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
-                            <div class="header-left">
-                                <span class="collapse-icon">▶</span>
-                                <h3>🎁 邀请返利设置</h3>
-                            </div>
-                            <span class="status-badge" id="inviteRewardStatus">已开启</span>
-                        </div>
-                        <div class="settings-card-body collapsible-content">
-                            <p class="settings-desc">配置邀请返利比例，被邀请人每次购买/兑换时，邀请人将获得对应比例的天数奖励。邀请关系永久绑定。</p>
-
-                            <div class="settings-form">
-                                <div class="form-group">
-                                    <label>启用邀请返利</label>
-                                    <div class="checkbox-group" style="margin-top: 8px;">
-                                        <label class="checkbox-label">
-                                            <input type="checkbox" id="inviteRewardEnabled" checked>
-                                            <span>开启邀请返利功能</span>
-                                        </label>
-                                    </div>
-                                    <span class="form-hint">关闭后，所有购买/兑换将不再触发邀请返利</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="inviteRewardPercent">返利比例（%）</label>
-                                    <div class="input-with-hint">
-                                        <input type="number" id="inviteRewardPercent" placeholder="10" class="form-input"
-                                            min="0" max="100" step="1" value="10">
-                                        <span class="unit-label">%</span>
-                                    </div>
-                                    <span class="form-hint">被邀请人购买/兑换天数 × 该比例 = 邀请人获得的返利天数（如购买30天 × 10% = 3天）</span>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="inviteRewardMinDays">最低返利天数</label>
-                                    <div class="input-with-hint">
-                                        <input type="number" id="inviteRewardMinDays" placeholder="1" class="form-input"
-                                            min="0" max="365" value="1">
-                                        <span class="unit-label">天</span>
-                                    </div>
-                                    <span class="form-hint">即使按比例计算不足该天数，也保证返利不低于此值；设为 0 则严格按比例（可能为0天）</span>
-                                </div>
-                            </div>
-
-                            <div class="settings-actions">
-                                <button class="btn-primary" onclick="saveInviteRewardConfig()">
-                                    <span>💾</span> 保存配置
-                                </button>
-                                <button class="btn-secondary" onclick="loadInviteRewardConfig()">
-                                    <span>🔄</span> 重新加载
-                                </button>
-                            </div>
-
-                            <div class="settings-tips">
-                                <h4>📌 配置说明</h4>
-                                <ul>
-                                    <li>邀请关系在注册时建立，永久绑定，不会解除</li>
-                                    <li>被邀请人每次购买套餐或使用兑换码，邀请人都会获得返利</li>
-                                    <li>返利以天数形式叠加到邀请人的订阅时间上</li>
-                                    <li>例：比例10%，被邀请人购买90天，邀请人获得9天</li>
-                                    <li>设为 0% 等同于关闭返利（但邀请关系仍会记录）</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- Telegram BOT配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
+                    <div class="settings-card collapsible collapsed" data-settings-group="basic">
                         <div class="settings-card-header" onclick="toggleSettingsCard(this)">
                             <div class="header-left">
                                 <span class="collapse-icon">▶</span>
@@ -2117,8 +1610,800 @@
                         </div>
                     </div>
 
-                    <!-- 入库通知配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
+                    <!-- TMDB API 配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="basic">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🎬 TMDB API 配置</h3>
+                            </div>
+                            <span class="status-badge" id="tmdbStatus">未配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置 TMDB API 用于搜索影片信息、获取海报和详情。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label for="tmdbApiKey">TMDB API Key</label>
+                                    <input type="text" id="tmdbApiKey" placeholder="请输入 TMDB API Key"
+                                        class="form-input">
+                                    <span class="form-hint">从 <a href="https://www.themoviedb.org/settings/api"
+                                            target="_blank">TMDB 官网</a> 获取 API Key</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveTmdbConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="testTmdbConfig()">
+                                    <span>🔧</span> 测试连接
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>访问 <a href="https://www.themoviedb.org/signup" target="_blank">TMDB 官网</a> 注册账号
+                                    </li>
+                                    <li>在设置 → API 中申请 API Key</li>
+                                    <li>TMDB 用于搜索影片信息、获取海报和详细介绍</li>
+                                    <li>海报图片自动通过服务器代理加载（使用环境变量中的代理配置）</li>
+                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 前端配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="site">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🎨 前端配置</h3>
+                            </div>
+                            <span class="status-badge" id="siteConfigStatus">已配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置网站名称、联系方式等前端显示信息，保存后刷新页面即可生效。</p>
+
+                            <div class="settings-form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="siteName">网站名称</label>
+                                        <input type="text" id="siteName" placeholder="Emby" class="form-input">
+                                        <span class="form-hint">显示在侧边栏和页面顶部</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="siteSubtitle">网站副标题</label>
+                                        <input type="text" id="siteSubtitle" placeholder="管理系统" class="form-input">
+                                        <span class="form-hint">显示在网站名称下方</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="siteTitle">页面标题</label>
+                                    <input type="text" id="siteTitle" placeholder="Emby管理系统" class="form-input">
+                                    <span class="form-hint">浏览器标签页显示的标题</span>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="siteLogo">网站 LOGO</label>
+                                        <input type="text" id="siteLogo" placeholder="https://example.com/logo.png"
+                                            class="form-input">
+                                        <span class="form-hint">LOGO 图片 URL，留空则不显示 LOGO</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="shopUrl">定价/购买链接</label>
+                                        <input type="text" id="shopUrl" placeholder="https://shop.example.com"
+                                            class="form-input">
+                                        <span class="form-hint">顶部导航"定价"按钮链接，留空则不显示</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="telegramGroup">Telegram 群组链接</label>
+                                    <input type="text" id="telegramGroup" placeholder="https://t.me/your_group"
+                                        class="form-input">
+                                    <span class="form-hint">Telegram 群组完整链接，留空则不显示 Telegram 按钮</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="panelUrl">面板登录链接</label>
+                                    <input type="text" id="panelUrl" placeholder="https://your-domain.com"
+                                        class="form-input">
+                                    <span class="form-hint">用户注册成功后显示的面板登录链接，留空则不显示</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="supportEmail">支持邮箱</label>
+                                    <input type="email" id="supportEmail" placeholder="support@example.com"
+                                        class="form-input">
+                                    <span class="form-hint">技术支持页面显示的联系邮箱</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="registerMode">注册模式</label>
+                                    <select id="registerMode" class="form-input">
+                                        <option value="open">开放注册 - 任何人都可以注册</option>
+                                        <option value="invite">仅邀请注册 - 需要邀请码才能注册</option>
+                                        <option value="closed">关闭注册 - 禁止新用户注册</option>
+                                    </select>
+                                    <span class="form-hint">控制网站的注册方式</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="useImageProxy" checked>
+                                        <span>启用 TMDB 图片代理</span>
+                                    </label>
+                                    <span class="form-hint">大陆用户建议开启（解决图片无法加载问题），海外用户可关闭以加速图片加载</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="welcomeMessage">欢迎语</label>
+                                    <input type="text" id="welcomeMessage" placeholder="欢迎使用 Emby 管理系统！"
+                                        class="form-input">
+                                    <span class="form-hint">使用文档页面显示的欢迎语</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>快速链接配置</label>
+                                    <div id="customLinksContainer" class="custom-links-container">
+                                        <!-- 动态生成的链接配置项 -->
+                                    </div>
+                                    <button type="button" class="btn-secondary btn-sm" onclick="addCustomLink()"
+                                        style="margin-top: 10px;">
+                                        <span>➕</span> 添加链接
+                                    </button>
+                                    <span class="form-hint">配置技术支持页面的快速链接</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="customCss">自定义 CSS（可选）</label>
+                                    <textarea id="customCss" placeholder="/* 自定义样式 */" class="form-input"
+                                        rows="4"></textarea>
+                                    <span class="form-hint">添加自定义CSS样式，会注入到页面head中</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveSiteConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="loadSiteConfig()">
+                                    <span>🔄</span> 重新加载
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 支付配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="business">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>💳 支付配置</h3>
+                            </div>
+                            <span class="status-badge" id="paymentStatus">未配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置易支付接口，支持支付宝、微信等多种支付方式。配置完成后用户可在线购买订阅套餐。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label for="epayUrl">易支付接口地址</label>
+                                    <input type="text" id="epayUrl" placeholder="https://pay.example.com"
+                                        class="form-input">
+                                    <span class="form-hint">易支付服务商提供的接口地址，不带最后的斜杠</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="epayPid">商户ID (PID)</label>
+                                    <input type="text" id="epayPid" placeholder="10001" class="form-input">
+                                    <span class="form-hint">易支付分配的商户号</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="epayKey">商户密钥 (KEY)</label>
+                                    <input type="password" id="epayKey" placeholder="请输入商户密钥" class="form-input">
+                                    <span class="form-hint">易支付分配的商户密钥，用于签名验证</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="epayNotifyUrl">异步通知地址（可选）</label>
+                                    <input type="text" id="epayNotifyUrl" placeholder="留空则自动使用当前域名" class="form-input">
+                                    <span class="form-hint">支付成功后易支付服务器通知的地址，一般留空即可</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="epayReturnUrl">同步跳转地址（可选）</label>
+                                    <input type="text" id="epayReturnUrl" placeholder="留空则自动使用当前域名" class="form-input">
+                                    <span class="form-hint">支付成功后用户跳转的页面地址，一般留空即可</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="savePaymentConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="testPaymentConfig()">
+                                    <span>🔧</span> 测试连接
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>填写易支付服务商提供的接口地址、商户ID和商户密钥后点击保存</li>
+                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
+                                    <li>异步通知地址默认为：<code>你的域名/api/payment/notify</code>（一般留空即可）</li>
+                                    <li>同步跳转地址默认为：<code>你的域名/dashboard#purchase</code>（一般留空即可）</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 订阅过期管理 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="business">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>📅 订阅过期管理</h3>
+                            </div>
+                            <span class="status-badge" id="subscriptionExpireStatus">已配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置订阅过期后的账号处理策略，包括禁用和删除时机。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label>过期处理策略</label>
+                                    <div class="checkbox-group" style="margin-top: 8px;">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="expireAutoDisable" checked>
+                                            <span>订阅过期后自动禁用 Emby 账号</span>
+                                        </label>
+                                    </div>
+                                    <span class="form-hint">启用后，订阅过期的用户将无法登录 Emby</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="expireDeleteDays">过期后删除 Emby 账号（天）</label>
+                                    <div class="input-with-hint">
+                                        <input type="number" id="expireDeleteDays" placeholder="0" class="form-input"
+                                            min="0" max="365" value="0">
+                                        <span class="unit-label">天</span>
+                                    </div>
+                                    <span class="form-hint">设为 0 表示不删除；过期超过该天数后将自动删除 Emby 服务器上的账号</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>删除选项</label>
+                                    <div class="checkbox-group" style="margin-top: 8px;">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="expireDeleteWebAccount">
+                                            <span>同时删除网站账号</span>
+                                        </label>
+                                    </div>
+                                    <span class="form-hint">启用后，删除 Emby 账号时也会删除网站用户数据；不启用则仅删除 Emby 账号，用户可重新绑定</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveSubscriptionExpireConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="loadSubscriptionExpireConfig()">
+                                    <span>🔄</span> 重新加载
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>系统每小时自动检查一次订阅过期状态</li>
+                                    <li>过期禁用：立即禁用 Emby 账号，用户无法播放</li>
+                                    <li>过期删除 Emby 账号：从 Emby 服务器删除账号</li>
+                                    <li>同时删除网站账号：连同网站用户数据一起删除</li>
+                                    <li>建议设置删除天数（如30天），给用户续费的缓冲时间</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 邀请返利设置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="business">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🎁 邀请返利设置</h3>
+                            </div>
+                            <span class="status-badge" id="inviteRewardStatus">已开启</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置邀请返利比例，被邀请人每次购买/兑换时，邀请人将获得对应比例的天数奖励。邀请关系永久绑定。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label>启用邀请返利</label>
+                                    <div class="checkbox-group" style="margin-top: 8px;">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="inviteRewardEnabled" checked>
+                                            <span>开启邀请返利功能</span>
+                                        </label>
+                                    </div>
+                                    <span class="form-hint">关闭后，所有购买/兑换将不再触发邀请返利</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="inviteRewardPercent">返利比例（%）</label>
+                                    <div class="input-with-hint">
+                                        <input type="number" id="inviteRewardPercent" placeholder="10" class="form-input"
+                                            min="0" max="100" step="1" value="10">
+                                        <span class="unit-label">%</span>
+                                    </div>
+                                    <span class="form-hint">被邀请人购买/兑换天数 × 该比例 = 邀请人获得的返利天数（如购买30天 × 10% = 3天）</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="inviteRewardMinDays">最低返利天数</label>
+                                    <div class="input-with-hint">
+                                        <input type="number" id="inviteRewardMinDays" placeholder="1" class="form-input"
+                                            min="0" max="365" value="1">
+                                        <span class="unit-label">天</span>
+                                    </div>
+                                    <span class="form-hint">即使按比例计算不足该天数，也保证返利不低于此值；设为 0 则严格按比例（可能为0天）</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="inviteRewardMode">默认返利模式</label>
+                                    <select id="inviteRewardMode" class="form-input">
+                                        <option value="recurring">🔄 循环返利（每次购买都返利）</option>
+                                        <option value="once">1️⃣ 一次性返利（仅首次购买返利）</option>
+                                    </select>
+                                    <span class="form-hint">全局默认模式，可在用户详情中为特定用户单独设置覆盖</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveInviteRewardConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="loadInviteRewardConfig()">
+                                    <span>🔄</span> 重新加载
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>邀请关系在注册时建立，永久绑定，不会解除</li>
+                                    <li><b>循环返利</b>：被邀请人每次购买/兑换，邀请人都获得返利</li>
+                                    <li><b>一次性返利</b>：仅被邀请人首次购买/兑换时返利一次</li>
+                                    <li>返利以天数形式叠加到邀请人的订阅时间上</li>
+                                    <li>可在「用户详情」中为特定用户设置个性化返利比例和模式</li>
+                                    <li>例：比例10%，被邀请人购买90天，邀请人获得9天</li>
+                                    <li>设为 0% 等同于关闭返利（但邀请关系仍会记录）</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 签到系统配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="business">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🎯 签到系统配置</h3>
+                            </div>
+                            <span class="status-badge" id="checkinStatus">未开启</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置每日签到功能，用户签到可获得积分，积分可兑换订阅套餐。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <div class="toggle-switch-container">
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="checkinEnabled" onchange="toggleCheckinConfig()">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                        <div class="toggle-label-text">
+                                            <strong>启用网页签到功能</strong>
+                                            <span class="form-hint">开启后，用户仪表盘会显示签到卡片</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <div class="toggle-switch-container">
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="checkinBotEnabled">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                        <div class="toggle-label-text">
+                                            <strong>启用BOT签到功能</strong>
+                                            <span class="form-hint">开启后，用户可以在Telegram BOT处使用 /checkin 命令签到</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="checkinConfigDetails" style="display: none;">
+                                    <div class="form-group">
+                                        <label for="coinName">货币名称</label>
+                                        <input type="text" id="coinName" placeholder="积分" class="form-input"
+                                            maxlength="10">
+                                        <span class="form-hint">积分的显示名称，例如：积分、金币、豆子等</span>
+                                    </div>
+
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="coinMin">最少获得</label>
+                                            <input type="number" id="coinMin" placeholder="1" class="form-input" min="1"
+                                                max="100">
+                                            <span class="form-hint">签到最少获得的积分数</span>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="coinMax">最多获得</label>
+                                            <input type="number" id="coinMax" placeholder="10" class="form-input"
+                                                min="1" max="100">
+                                            <span class="form-hint">签到最多获得的积分数</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label>兑换套餐配置</label>
+                                        <div id="exchangePlansContainer" class="exchange-plans-container">
+                                            <!-- 动态生成的兑换套餐配置项 -->
+                                        </div>
+                                        <button type="button" class="btn-secondary btn-sm"
+                                            onclick="openPlanSelectModal()" style="margin-top: 10px;">
+                                            <span>➕</span> 添加套餐
+                                        </button>
+                                        <span class="form-hint">配置用户可以用积分兑换的订阅套餐</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveCheckinConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="loadCheckinConfig()">
+                                    <span>🔄</span> 重新加载
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>签到功能关闭时，用户仪表盘不会显示签到卡片</li>
+                                    <li>每个用户每天只能签到一次，签到获得的积分数在配置范围内随机</li>
+                                    <li>连续签到可以累计天数，断签后重新计算</li>
+                                    <li>用户可以使用积分兑换配置的订阅套餐，兑换后订阅时间会自动延长</li>
+                                    <li>管理员可以在用户管理界面手动赠送或扣除用户积分</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 求片限制配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="business">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🎯 求片限制配置</h3>
+                            </div>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置不同等级用户的每日求片次数限制。</p>
+
+                            <div class="settings-form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="limitLevelA">A级（白名单用户）</label>
+                                        <input type="number" id="limitLevelA" placeholder="3" class="form-input" min="0"
+                                            max="99">
+                                        <span class="form-hint">白名单用户每日求片次数</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="limitLevelB">B级（注册用户）</label>
+                                        <input type="number" id="limitLevelB" placeholder="1" class="form-input" min="0"
+                                            max="99">
+                                        <span class="form-hint">普通注册用户每日求片次数</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="limitLevelC">C级（已禁用）</label>
+                                        <input type="number" id="limitLevelC" placeholder="0" class="form-input" min="0"
+                                            max="99">
+                                        <span class="form-hint">被禁用用户每日求片次数（通常为0）</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="limitLevelD">D级（无账号）</label>
+                                        <input type="number" id="limitLevelD" placeholder="0" class="form-input" min="0"
+                                            max="99">
+                                        <span class="form-hint">未绑定账号用户每日求片次数</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveRequestLimitConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li><strong>A级</strong>：白名单用户，拥有最高求片权限</li>
+                                    <li><strong>B级</strong>：普通注册用户</li>
+                                    <li><strong>C级</strong>：被禁用的用户，建议设为 0</li>
+                                    <li><strong>D级</strong>：未绑定 Emby 账号的用户，建议设为 0</li>
+                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 系统公告 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="site">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>📢 系统公告</h3>
+                            </div>
+                            <span class="status-badge" id="announcementsStatus">0 条公告</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">管理系统公告，公告将显示在用户仪表盘首页。</p>
+
+                            <div class="settings-actions" style="margin-bottom: 16px;">
+                                <button class="btn-primary" onclick="openAnnouncementModal()">
+                                    <span>➕</span> 发布公告
+                                </button>
+                            </div>
+
+                            <div class="announcements-list-compact" id="announcementsListCompact">
+                                <div class="loading-placeholder">加载中...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 线路管理 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="site">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🔗 线路管理</h3>
+                            </div>
+                            <span class="status-badge" id="linesStatus">0 条线路</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置 Emby 服务器连接线路，支持多线路负载和白名单专属线路。</p>
+
+                            <div class="settings-actions" style="margin-bottom: 16px;">
+                                <button class="btn-primary" onclick="showAddLineModal()">
+                                    <span>➕</span> 添加线路
+                                </button>
+                            </div>
+
+                            <div class="lines-stats-mini">
+                                <div class="stat-mini">
+                                    <span class="stat-mini-value" id="totalLines">0</span>
+                                    <span class="stat-mini-label">总线路</span>
+                                </div>
+                                <div class="stat-mini">
+                                    <span class="stat-mini-value" id="activeLines">0</span>
+                                    <span class="stat-mini-label">已启用</span>
+                                </div>
+                                <div class="stat-mini">
+                                    <span class="stat-mini-value" id="whitelistLines">0</span>
+                                    <span class="stat-mini-label">白名单专属</span>
+                                </div>
+                            </div>
+
+                            <div class="lines-list-compact" id="linesList">
+                                <div class="loading-placeholder">
+                                    <div class="spinner"></div>
+                                    <p>加载中...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MoviePilot 配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="advanced">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🎬 MoviePilot 配置</h3>
+                            </div>
+                            <span class="status-badge" id="mpStatus">未配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置 MoviePilot 连接，用于搜索和推送下载任务。支持用户名密码或 Token 认证。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label for="mpUrl">MoviePilot 地址</label>
+                                    <input type="text" id="mpUrl" placeholder="http://127.0.0.1:3000"
+                                        class="form-input">
+                                    <span class="form-hint">MoviePilot Web UI 地址，不带末尾斜杠</span>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="mpUsername">用户名</label>
+                                        <input type="text" id="mpUsername" placeholder="admin" class="form-input">
+                                        <span class="form-hint">MoviePilot 登录用户名</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="mpPassword">密码</label>
+                                        <input type="password" id="mpPassword" placeholder="请输入密码" class="form-input">
+                                        <span class="form-hint">MoviePilot 登录密码</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="mpToken">API Token（可选）</label>
+                                    <input type="text" id="mpToken" placeholder="留空则使用用户名密码登录" class="form-input">
+                                    <span class="form-hint">如已有 Token 可直接填写，优先级高于用户名密码</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveMoviePilotConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="testMoviePilotConfig()">
+                                    <span>🔧</span> 测试连接
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>MoviePilot 用于搜索 PT 站点的种子资源</li>
+                                    <li>可以使用<strong>用户名+密码</strong>或直接提供 <strong>API Token</strong></li>
+                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
+                                    <li>确保 MoviePilot 已正确配置 PT 站点索引器</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- qBittorrent 配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="advanced">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>📥 qBittorrent 配置</h3>
+                            </div>
+                            <span class="status-badge" id="qbStatus">未配置</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置 qBittorrent 下载客户端，用于自动下载种子文件。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label for="qbUrl">qBittorrent 地址</label>
+                                    <input type="text" id="qbUrl" placeholder="http://127.0.0.1:8080"
+                                        class="form-input">
+                                    <span class="form-hint">qBittorrent Web UI 地址，不带末尾斜杠</span>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="qbUsername">用户名</label>
+                                        <input type="text" id="qbUsername" placeholder="admin" class="form-input">
+                                        <span class="form-hint">qBittorrent Web UI 用户名</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="qbPassword">密码</label>
+                                        <input type="password" id="qbPassword" placeholder="请输入密码" class="form-input">
+                                        <span class="form-hint">qBittorrent Web UI 密码</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="qbCategory">下载分类</label>
+                                        <input type="text" id="qbCategory" placeholder="emby-request"
+                                            class="form-input">
+                                        <span class="form-hint">下载任务的分类标签，便于管理</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="qbSavePath">保存路径（可选）</label>
+                                        <input type="text" id="qbSavePath" placeholder="留空使用默认路径" class="form-input">
+                                        <span class="form-hint">下载文件保存路径，留空使用 qB 默认设置</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveQbittorrentConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="testQbittorrentConfig()">
+                                    <span>🔧</span> 测试连接
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>qBittorrent 用于自动下载搜索到的种子</li>
+                                    <li>需要开启 qBittorrent 的 <strong>Web UI</strong> 功能</li>
+                                    <li>建议设置专门的分类，便于管理求片下载任务</li>
+                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 搜索设置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="advanced">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🔍 搜索设置</h3>
+                            </div>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置 PT 站点搜索策略和下载监控参数。</p>
+
+                            <div class="settings-form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="searchStrategy">搜索策略</label>
+                                        <select id="searchStrategy" class="form-input">
+                                            <option value="all">全部搜索 - 搜索所有站点并聚合结果</option>
+                                            <option value="first">优先匹配 - 找到结果后停止搜索</option>
+                                        </select>
+                                        <span class="form-hint">推荐使用「全部搜索」获取更全面的结果</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="pollInterval">下载状态轮询间隔（秒）</label>
+                                        <input type="number" id="pollInterval" placeholder="10" class="form-input"
+                                            min="5" max="60">
+                                        <span class="form-hint">检查下载进度的时间间隔，建议 10-30 秒</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveSearchConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>搜索策略影响 PT 站点的资源搜索方式</li>
+                                    <li>轮询间隔越短下载状态更新越及时，但会增加服务器负担</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 入库通知设置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="advanced">
                         <div class="settings-card-header" onclick="toggleSettingsCard(this)">
                             <div class="header-left">
                                 <span class="collapse-icon">▶</span>
@@ -2240,318 +2525,8 @@
                         </div>
                     </div>
 
-                    <!-- 搜索配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
-                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
-                            <div class="header-left">
-                                <span class="collapse-icon">▶</span>
-                                <h3>🔍 搜索设置</h3>
-                            </div>
-                        </div>
-                        <div class="settings-card-body collapsible-content">
-                            <p class="settings-desc">配置 PT 站点搜索策略和下载监控参数。</p>
-
-                            <div class="settings-form">
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="searchStrategy">搜索策略</label>
-                                        <select id="searchStrategy" class="form-input">
-                                            <option value="all">全部搜索 - 搜索所有站点并聚合结果</option>
-                                            <option value="first">优先匹配 - 找到结果后停止搜索</option>
-                                        </select>
-                                        <span class="form-hint">推荐使用「全部搜索」获取更全面的结果</span>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="pollInterval">下载状态轮询间隔（秒）</label>
-                                        <input type="number" id="pollInterval" placeholder="10" class="form-input"
-                                            min="5" max="60">
-                                        <span class="form-hint">检查下载进度的时间间隔，建议 10-30 秒</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="settings-actions">
-                                <button class="btn-primary" onclick="saveSearchConfig()">
-                                    <span>💾</span> 保存配置
-                                </button>
-                            </div>
-
-                            <div class="settings-tips">
-                                <h4>📌 配置说明</h4>
-                                <ul>
-                                    <li>搜索策略影响 PT 站点的资源搜索方式</li>
-                                    <li>轮询间隔越短下载状态更新越及时，但会增加服务器负担</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- TMDB 配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
-                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
-                            <div class="header-left">
-                                <span class="collapse-icon">▶</span>
-                                <h3>🎬 TMDB API 配置</h3>
-                            </div>
-                            <span class="status-badge" id="tmdbStatus">未配置</span>
-                        </div>
-                        <div class="settings-card-body collapsible-content">
-                            <p class="settings-desc">配置 TMDB API 用于搜索影片信息、获取海报和详情。</p>
-
-                            <div class="settings-form">
-                                <div class="form-group">
-                                    <label for="tmdbApiKey">TMDB API Key</label>
-                                    <input type="text" id="tmdbApiKey" placeholder="请输入 TMDB API Key"
-                                        class="form-input">
-                                    <span class="form-hint">从 <a href="https://www.themoviedb.org/settings/api"
-                                            target="_blank">TMDB 官网</a> 获取 API Key</span>
-                                </div>
-                            </div>
-
-                            <div class="settings-actions">
-                                <button class="btn-primary" onclick="saveTmdbConfig()">
-                                    <span>💾</span> 保存配置
-                                </button>
-                                <button class="btn-secondary" onclick="testTmdbConfig()">
-                                    <span>🔧</span> 测试连接
-                                </button>
-                            </div>
-
-                            <div class="settings-tips">
-                                <h4>📌 配置说明</h4>
-                                <ul>
-                                    <li>访问 <a href="https://www.themoviedb.org/signup" target="_blank">TMDB 官网</a> 注册账号
-                                    </li>
-                                    <li>在设置 → API 中申请 API Key</li>
-                                    <li>TMDB 用于搜索影片信息、获取海报和详细介绍</li>
-                                    <li>海报图片自动通过服务器代理加载（使用环境变量中的代理配置）</li>
-                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 二级分类策略配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
-                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
-                            <div class="header-left">
-                                <span class="collapse-icon">▶</span>
-                                <h3>📂 二级分类策略</h3>
-                            </div>
-                        </div>
-                        <div class="settings-card-body collapsible-content">
-                            <p class="settings-desc">配置电影和电视剧的分类规则，用于通知消息中的分类显示。规则按顺序匹配，匹配到即返回。</p>
-
-                            <!-- 电影分类 -->
-                            <div class="category-section">
-                                <h4 style="margin: 15px 0 10px; color: var(--text-primary);">🎬 电影分类</h4>
-                                <div id="movieCategoryList" class="category-list"></div>
-                                <button class="btn-secondary btn-sm" onclick="addCategory('movie')"
-                                    style="margin-top: 10px;">
-                                    <span>➕</span> 添加电影分类
-                                </button>
-                            </div>
-
-                            <!-- 电视剧分类 -->
-                            <div class="category-section" style="margin-top: 20px;">
-                                <h4 style="margin: 15px 0 10px; color: var(--text-primary);">📺 电视剧分类</h4>
-                                <div id="tvCategoryList" class="category-list"></div>
-                                <button class="btn-secondary btn-sm" onclick="addCategory('tv')"
-                                    style="margin-top: 10px;">
-                                    <span>➕</span> 添加电视剧分类
-                                </button>
-                            </div>
-
-                            <div class="settings-actions" style="margin-top: 20px;">
-                                <button class="btn-primary" onclick="saveCategoryConfig()">
-                                    <span>💾</span> 保存配置
-                                </button>
-                                <button class="btn-secondary" onclick="resetCategoryConfig()">
-                                    <span>🔄</span> 恢复默认
-                                </button>
-                            </div>
-
-                            <div class="settings-tips">
-                                <h4>📌 配置说明</h4>
-                                <ul>
-                                    <li>分类按<strong>从上到下</strong>的顺序依次匹配，匹配到即返回该分类名</li>
-                                    <li>最后一个无条件的分类作为<strong>默认分类</strong>（当所有条件都不匹配时使用）</li>
-                                    <li><strong>内容类型</strong>：16=动画, 99=纪录片, 10762=儿童, 10764=真人秀, 10767=脱口秀</li>
-                                    <li><strong>国家/地区</strong>：CN=中国大陆, TW=台湾, HK=香港, US=美国, JP=日本, KR=韩国, GB=英国</li>
-                                    <li><strong>语言</strong>：zh/cn=中文, en=英语, ja=日语, ko=韩语</li>
-                                    <li>同一分类下的多个条件是<strong>且（AND）</strong>的关系</li>
-                                    <li>同一条件内的多个值是<strong>或（OR）</strong>的关系</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 签到系统配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
-                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
-                            <div class="header-left">
-                                <span class="collapse-icon">▶</span>
-                                <h3>🎯 签到系统配置</h3>
-                            </div>
-                            <span class="status-badge" id="checkinStatus">未开启</span>
-                        </div>
-                        <div class="settings-card-body collapsible-content">
-                            <p class="settings-desc">配置每日签到功能，用户签到可获得积分，积分可兑换订阅套餐。</p>
-
-                            <div class="settings-form">
-                                <div class="form-group">
-                                    <div class="toggle-switch-container">
-                                        <label class="toggle-switch">
-                                            <input type="checkbox" id="checkinEnabled" onchange="toggleCheckinConfig()">
-                                            <span class="toggle-slider"></span>
-                                        </label>
-                                        <div class="toggle-label-text">
-                                            <strong>启用网页签到功能</strong>
-                                            <span class="form-hint">开启后，用户仪表盘会显示签到卡片</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="form-group">
-                                    <div class="toggle-switch-container">
-                                        <label class="toggle-switch">
-                                            <input type="checkbox" id="checkinBotEnabled">
-                                            <span class="toggle-slider"></span>
-                                        </label>
-                                        <div class="toggle-label-text">
-                                            <strong>启用BOT签到功能</strong>
-                                            <span class="form-hint">开启后，用户可以在Telegram BOT处使用 /checkin 命令签到</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div id="checkinConfigDetails" style="display: none;">
-                                    <div class="form-group">
-                                        <label for="coinName">货币名称</label>
-                                        <input type="text" id="coinName" placeholder="积分" class="form-input"
-                                            maxlength="10">
-                                        <span class="form-hint">积分的显示名称，例如：积分、金币、豆子等</span>
-                                    </div>
-
-                                    <div class="form-row">
-                                        <div class="form-group">
-                                            <label for="coinMin">最少获得</label>
-                                            <input type="number" id="coinMin" placeholder="1" class="form-input" min="1"
-                                                max="100">
-                                            <span class="form-hint">签到最少获得的积分数</span>
-                                        </div>
-
-                                        <div class="form-group">
-                                            <label for="coinMax">最多获得</label>
-                                            <input type="number" id="coinMax" placeholder="10" class="form-input"
-                                                min="1" max="100">
-                                            <span class="form-hint">签到最多获得的积分数</span>
-                                        </div>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label>兑换套餐配置</label>
-                                        <div id="exchangePlansContainer" class="exchange-plans-container">
-                                            <!-- 动态生成的兑换套餐配置项 -->
-                                        </div>
-                                        <button type="button" class="btn-secondary btn-sm"
-                                            onclick="openPlanSelectModal()" style="margin-top: 10px;">
-                                            <span>➕</span> 添加套餐
-                                        </button>
-                                        <span class="form-hint">配置用户可以用积分兑换的订阅套餐</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="settings-actions">
-                                <button class="btn-primary" onclick="saveCheckinConfig()">
-                                    <span>💾</span> 保存配置
-                                </button>
-                                <button class="btn-secondary" onclick="loadCheckinConfig()">
-                                    <span>🔄</span> 重新加载
-                                </button>
-                            </div>
-
-                            <div class="settings-tips">
-                                <h4>📌 配置说明</h4>
-                                <ul>
-                                    <li>签到功能关闭时，用户仪表盘不会显示签到卡片</li>
-                                    <li>每个用户每天只能签到一次，签到获得的积分数在配置范围内随机</li>
-                                    <li>连续签到可以累计天数，断签后重新计算</li>
-                                    <li>用户可以使用积分兑换配置的订阅套餐，兑换后订阅时间会自动延长</li>
-                                    <li>管理员可以在用户管理界面手动赠送或扣除用户积分</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 求片限制配置 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
-                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
-                            <div class="header-left">
-                                <span class="collapse-icon">▶</span>
-                                <h3>🎯 求片限制配置</h3>
-                            </div>
-                        </div>
-                        <div class="settings-card-body collapsible-content">
-                            <p class="settings-desc">配置不同等级用户的每日求片次数限制。</p>
-
-                            <div class="settings-form">
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="limitLevelA">A级（白名单用户）</label>
-                                        <input type="number" id="limitLevelA" placeholder="3" class="form-input" min="0"
-                                            max="99">
-                                        <span class="form-hint">白名单用户每日求片次数</span>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="limitLevelB">B级（注册用户）</label>
-                                        <input type="number" id="limitLevelB" placeholder="1" class="form-input" min="0"
-                                            max="99">
-                                        <span class="form-hint">普通注册用户每日求片次数</span>
-                                    </div>
-                                </div>
-
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="limitLevelC">C级（已禁用）</label>
-                                        <input type="number" id="limitLevelC" placeholder="0" class="form-input" min="0"
-                                            max="99">
-                                        <span class="form-hint">被禁用用户每日求片次数（通常为0）</span>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="limitLevelD">D级（无账号）</label>
-                                        <input type="number" id="limitLevelD" placeholder="0" class="form-input" min="0"
-                                            max="99">
-                                        <span class="form-hint">未绑定账号用户每日求片次数</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="settings-actions">
-                                <button class="btn-primary" onclick="saveRequestLimitConfig()">
-                                    <span>💾</span> 保存配置
-                                </button>
-                            </div>
-
-                            <div class="settings-tips">
-                                <h4>📌 配置说明</h4>
-                                <ul>
-                                    <li><strong>A级</strong>：白名单用户，拥有最高求片权限</li>
-                                    <li><strong>B级</strong>：普通注册用户</li>
-                                    <li><strong>C级</strong>：被禁用的用户，建议设为 0</li>
-                                    <li><strong>D级</strong>：未绑定 Emby 账号的用户，建议设为 0</li>
-                                    <li>配置保存后<strong>无需重启服务</strong>，立即生效</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- 操作日志 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
+                    <div class="settings-card collapsible collapsed" data-settings-group="advanced">
                         <div class="settings-card-header" onclick="toggleSettingsCard(this)">
                             <div class="header-left">
                                 <span class="collapse-icon">▶</span>
@@ -2606,7 +2581,7 @@
                     </div>
 
                     <!-- 系统信息 - 可折叠 -->
-                    <div class="settings-card collapsible collapsed">
+                    <div class="settings-card collapsible collapsed" data-settings-group="advanced">
                         <div class="settings-card-header" onclick="toggleSettingsCard(this)">
                             <div class="header-left">
                                 <span class="collapse-icon">▶</span>
@@ -2630,6 +2605,7 @@
                             </div>
                         </div>
                     </div>
+
                 </section>
             </div>
         </main>
@@ -2982,6 +2958,7 @@
                     <button class="tab-btn" onclick="switchUserDetailTab('subscriptions')">💎 订阅记录</button>
                     <button class="tab-btn" onclick="switchUserDetailTab('devices')">📱 设备列表</button>
                     <button class="tab-btn" onclick="switchUserDetailTab('requests')">🎬 求片记录</button>
+                    <button class="tab-btn" onclick="switchUserDetailTab('invite_reward')">🎁 邀请返利</button>
                 </div>
 
                 <!-- 基本信息 -->
@@ -3028,6 +3005,13 @@
                 <!-- 求片记录 -->
                 <div class="tab-content" id="tab-requests">
                     <div class="requests-list" id="requestsContent">
+                        <div class="info-loading">加载中...</div>
+                    </div>
+                </div>
+
+                <!-- 邀请返利 -->
+                <div class="tab-content" id="tab-invite_reward">
+                    <div id="inviteRewardContent">
                         <div class="info-loading">加载中...</div>
                     </div>
                 </div>

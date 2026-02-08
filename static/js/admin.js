@@ -96,6 +96,36 @@ let currentRequestId = null;
             card.classList.toggle('collapsed');
         }
     }
+
+    // ==================== 设置页面分组切换 ====================
+    // 当前选中的设置分组
+    let _currentSettingsGroup = 'basic';
+    
+    function switchSettingsGroup(group, btn) {
+        _currentSettingsGroup = group;
+        
+        // 更新 Tab 激活状态
+        document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+        
+        // 显示/隐藏对应分组的卡片
+        document.querySelectorAll('.settings-card[data-settings-group]').forEach(card => {
+            if (card.dataset.settingsGroup === group) {
+                card.classList.add('settings-group-visible');
+            } else {
+                card.classList.remove('settings-group-visible');
+            }
+        });
+    }
+    
+    // 页面加载时初始化默认分组
+    document.addEventListener('DOMContentLoaded', function() {
+        // 延迟执行确保 DOM 已就绪
+        setTimeout(function() {
+            const defaultTab = document.querySelector('.settings-tab[data-group="basic"]');
+            if (defaultTab) switchSettingsGroup('basic', defaultTab);
+        }, 100);
+    });
         
     // ==================== 图表初始化 ====================
     async function initCharts() {
@@ -1497,6 +1527,9 @@ function switchAdminSection(section, event, updateHash = true) {
             loadKnowledge();
             break;
         case 'settings':
+            // 初始化设置分组 Tab（显示当前选中的分组）
+            const activeTab = document.querySelector('.settings-tab.active') || document.querySelector('.settings-tab[data-group="basic"]');
+            if (activeTab) switchSettingsGroup(activeTab.dataset.group, activeTab);
             loadSiteConfig();
             loadPaymentConfig();
             loadDownloadConfig();
@@ -2206,21 +2239,43 @@ function renderInviteRecords(records) {
     if (!tbody) return;
     
     if (records.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">暂无邀请记录</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">暂无邀请记录</td></tr>';
         return;
     }
     
-    tbody.innerHTML = records.map(record => `
-        <tr>
-            <td data-label="邀请人">${record.inviter_name || record.inviter_tg || '-'}</td>
-            <td data-label="被邀请人">${record.invitee_name || record.invitee_tg || '-'}</td>
-            <td data-label="邀请码"><code>${record.invite_code || '-'}</code></td>
-            <td data-label="奖励类型">${record.reward_type || '-'}</td>
-            <td data-label="奖励金额">¥${(record.reward_value || 0).toFixed(2)}</td>
-            <td data-label="状态"><span class="status-badge ${record.reward_claimed ? 'paid' : 'pending'}">${record.reward_claimed ? '已领取' : '待领取'}</span></td>
-            <td data-label="时间">${record.created_at ? new Date(record.created_at).toLocaleString() : '-'}</td>
-        </tr>
-    `).join('');
+    tbody.innerHTML = records.map(record => {
+        // 状态徽标
+        let statusClass = 'pending';
+        let statusText = record.status_display || '等待购买';
+        if (record.status === 'approved') {
+            statusClass = 'paid';
+        } else if (record.status === 'pending') {
+            statusClass = 'processing';
+        }
+        
+        // 操作按钮
+        let actionHtml = '-';
+        if (record.status === 'pending' && record.pending_reward > 0) {
+            actionHtml = `
+                <button class="btn btn-sm btn-success" onclick="approveInviteReward(${record.id})" title="审核通过，发放奖励">✅ 通过</button>
+                <button class="btn btn-sm btn-danger" onclick="rejectInviteReward(${record.id})" title="拒绝发放奖励" style="margin-left:4px;">❌ 拒绝</button>
+            `;
+        }
+        
+        return `
+            <tr>
+                <td data-label="邀请人">${record.inviter_name || record.inviter_tg || '-'}</td>
+                <td data-label="被邀请人">${record.invitee_name || record.invitee_tg || '-'}</td>
+                <td data-label="邀请码"><code>${record.invite_code || '-'}</code></td>
+                <td data-label="奖励类型">${record.reward_type_display || record.reward_type || '-'}</td>
+                <td data-label="奖励金额">${record.reward_value ? record.reward_value.toFixed(1) + ' 天' : '-'}</td>
+                <td data-label="待审核">${record.pending_reward > 0 ? '<strong style="color:#f59e0b;">' + record.pending_reward.toFixed(1) + ' 天</strong>' : '-'}</td>
+                <td data-label="状态"><span class="status-badge ${statusClass}">${statusText}</span></td>
+                <td data-label="时间">${record.created_at ? new Date(record.created_at).toLocaleString() : '-'}</td>
+                <td data-label="操作">${actionHtml}</td>
+            </tr>
+        `;
+    }).join('');
 }
 
 function renderInviteRankList(rankings) {
@@ -2239,6 +2294,46 @@ function renderInviteRankList(rankings) {
             <span class="rank-count">${item.count || 0} 人</span>
         </div>
     `).join('');
+}
+
+// 审核通过邀请返利
+async function approveInviteReward(recordId) {
+    if (!confirm('确认通过此返利申请？奖励天数将发放到邀请人账户。')) return;
+    try {
+        const response = await fetch(`/api/admin/invite-reward/${recordId}/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('成功', data.message || '返利已发放', 'success');
+            loadInviteStats(); // 刷新邀请列表
+        } else {
+            showToast('错误', data.error || '操作失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', '网络错误: ' + error.message, 'error');
+    }
+}
+
+// 拒绝邀请返利
+async function rejectInviteReward(recordId) {
+    if (!confirm('确认拒绝此返利申请？待审核奖励将被清零。')) return;
+    try {
+        const response = await fetch(`/api/admin/invite-reward/${recordId}/reject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('成功', data.message || '已拒绝', 'success');
+            loadInviteStats(); // 刷新邀请列表
+        } else {
+            showToast('错误', data.error || '操作失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', '网络错误: ' + error.message, 'error');
+    }
 }
 
 function renderInviteTrendChart(trendData) {
@@ -3121,12 +3216,14 @@ async function loadSystemConfig() {
             const inviteRewardEnabled = document.getElementById('inviteRewardEnabled');
             const inviteRewardPercent = document.getElementById('inviteRewardPercent');
             const inviteRewardMinDays = document.getElementById('inviteRewardMinDays');
+            const inviteRewardMode = document.getElementById('inviteRewardMode');
             const inviteRewardStatus = document.getElementById('inviteRewardStatus');
             
             if (config.invite_reward) {
                 if (inviteRewardEnabled) inviteRewardEnabled.checked = config.invite_reward.enabled !== false;
                 if (inviteRewardPercent) inviteRewardPercent.value = config.invite_reward.reward_percent ?? 10;
                 if (inviteRewardMinDays) inviteRewardMinDays.value = config.invite_reward.min_reward_days ?? 1;
+                if (inviteRewardMode) inviteRewardMode.value = config.invite_reward.reward_mode || 'recurring';
                 if (inviteRewardStatus) {
                     inviteRewardStatus.textContent = config.invite_reward.enabled !== false ? '已开启' : '已关闭';
                     inviteRewardStatus.className = 'status-badge ' + (config.invite_reward.enabled !== false ? 'status-active' : 'status-inactive');
@@ -3135,6 +3232,7 @@ async function loadSystemConfig() {
                 if (inviteRewardEnabled) inviteRewardEnabled.checked = true;
                 if (inviteRewardPercent) inviteRewardPercent.value = 10;
                 if (inviteRewardMinDays) inviteRewardMinDays.value = 1;
+                if (inviteRewardMode) inviteRewardMode.value = 'recurring';
                 if (inviteRewardStatus) {
                     inviteRewardStatus.textContent = '已开启';
                     inviteRewardStatus.className = 'status-badge status-active';
@@ -3227,6 +3325,7 @@ async function saveInviteRewardConfig() {
     const enabled = document.getElementById('inviteRewardEnabled').checked;
     const rewardPercent = parseFloat(document.getElementById('inviteRewardPercent').value) || 10;
     const minRewardDays = parseInt(document.getElementById('inviteRewardMinDays').value) || 1;
+    const rewardMode = document.getElementById('inviteRewardMode').value || 'recurring';
     
     if (rewardPercent < 0 || rewardPercent > 100) {
         showToast('提示', '返利比例需在 0~100 之间', 'warning');
@@ -3241,7 +3340,8 @@ async function saveInviteRewardConfig() {
                 invite_reward: {
                     enabled: enabled,
                     reward_percent: rewardPercent,
-                    min_reward_days: minRewardDays
+                    min_reward_days: minRewardDays,
+                    reward_mode: rewardMode
                 }
             })
         });
@@ -6349,16 +6449,18 @@ function closeUserDetailModal() {
 
 function switchUserDetailTab(tabName) {
     // 切换标签按钮状态
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('#userDetailModal .tab-btn').forEach(btn => btn.classList.remove('active'));
     event.target.classList.add('active');
     
     // 切换内容区域
-    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+    document.querySelectorAll('#userDetailModal .tab-content').forEach(content => content.classList.remove('active'));
     document.getElementById(`tab-${tabName}`).classList.add('active');
     
     // 根据标签加载数据
     if (tabName === 'activity' && currentDetailUserId) {
         loadUserActivityLogs();
+    } else if (tabName === 'invite_reward' && currentDetailUserId) {
+        renderInviteRewardTab(currentDetailUserId);
     }
 }
 
@@ -6371,6 +6473,9 @@ async function loadUserDetails(userId) {
             showToast('加载失败', result.error, 'error');
             return;
         }
+        
+        // 缓存用户详情数据
+        _cachedUserDetailData = result;
         
         const user = result.user;
         document.getElementById('userDetailTitle').textContent = `用户详情 - ${user.name}`;
@@ -6502,6 +6607,173 @@ async function loadUserDetails(userId) {
     } catch (error) {
         console.error('加载用户详情失败:', error);
         showToast('网络错误', '请检查网络连接', 'error');
+    }
+}
+
+// 缓存用户详情数据供邀请返利标签页使用
+let _cachedUserDetailData = null;
+
+// 渲染邀请返利标签页
+async function renderInviteRewardTab(userId) {
+    const container = document.getElementById('inviteRewardContent');
+    container.innerHTML = '<div class="info-loading">加载中...</div>';
+    
+    try {
+        // 如果没有缓存或缓存的用户不匹配，重新加载
+        if (!_cachedUserDetailData || _cachedUserDetailData.user.id !== userId) {
+            const response = await fetch(`/api/admin/users/${userId}/details`);
+            const result = await response.json();
+            if (!result.success) {
+                container.innerHTML = '<div class="list-empty">加载失败</div>';
+                return;
+            }
+            _cachedUserDetailData = result;
+        }
+        
+        const data = _cachedUserDetailData;
+        const invites = data.invites || [];
+        const invitedBy = data.invited_by;
+        
+        // 获取第一条邀请记录的个性化配置（所有记录应该一致）
+        const firstInvite = invites.length > 0 ? invites[0] : null;
+        const currentMode = firstInvite ? (firstInvite.reward_mode || '') : '';
+        const currentPercent = firstInvite ? (firstInvite.custom_reward_percent !== null ? firstInvite.custom_reward_percent : '') : '';
+        
+        let html = '';
+        
+        // 该用户被谁邀请的
+        html += `<div style="margin-bottom: 20px;">
+            <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #8b949e;">📥 被邀请信息</h4>`;
+        if (invitedBy) {
+            html += `<div class="user-info-grid" style="grid-template-columns: repeat(2, 1fr);">
+                <div class="info-item">
+                    <div class="label">邀请人</div>
+                    <div class="value">${invitedBy.inviter_name} (ID: ${invitedBy.inviter_tg})</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">返利状态</div>
+                    <div class="value">${invitedBy.status_display || (invitedBy.reward_claimed ? '✅ 已发放' : '⏳ 待审核')} | 累计返利: ${invitedBy.reward_value || 0} 天${invitedBy.pending_reward > 0 ? ' | 待审核: ' + invitedBy.pending_reward + ' 天' : ''}</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">返利模式</div>
+                    <div class="value">${invitedBy.reward_mode === 'once' ? '一次性' : invitedBy.reward_mode === 'recurring' ? '循环' : '跟随全局'}</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">返利比例</div>
+                    <div class="value">${invitedBy.custom_reward_percent !== null ? invitedBy.custom_reward_percent + '%' : '跟随全局'}</div>
+                </div>
+            </div>`;
+        } else {
+            html += '<div class="list-empty" style="padding: 10px;">该用户不是通过邀请注册的</div>';
+        }
+        html += '</div>';
+        
+        // 该用户邀请了谁（作为邀请人）
+        html += `<div style="margin-bottom: 20px;">
+            <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #8b949e;">📤 邀请记录 (${invites.length}人)</h4>`;
+        if (invites.length > 0) {
+            html += '<div style="max-height: 200px; overflow-y: auto;">';
+            for (const inv of invites) {
+                const modeLabel = inv.reward_mode === 'once' ? '一次性' : inv.reward_mode === 'recurring' ? '循环' : '全局';
+                const pctLabel = inv.custom_reward_percent !== null ? inv.custom_reward_percent + '%' : '全局';
+                const statusLabel = inv.status === 'pending' ? '⏳ 待审核(' + (inv.pending_reward || 0) + '天)' : 
+                                   inv.status === 'approved' ? '✅ 已发放' : '🕐 等待购买';
+                const badgeClass = inv.status === 'approved' ? 'active' : 'pending';
+                html += `<div class="list-item" style="padding: 8px 12px;">
+                    <div class="list-item-main">
+                        <div class="list-item-title">${inv.invitee_name || '未知'} (ID: ${inv.invitee_tg})</div>
+                        <div class="list-item-subtitle">
+                            模式: ${modeLabel} | 比例: ${pctLabel} | 累计返利: ${inv.reward_value || 0}天 | 
+                            ${inv.created_at ? new Date(inv.created_at).toLocaleDateString('zh-CN') : ''}
+                        </div>
+                    </div>
+                    <span class="list-item-badge ${badgeClass}">${statusLabel}</span>
+                </div>`;
+            }
+            html += '</div>';
+        } else {
+            html += '<div class="list-empty" style="padding: 10px;">该用户还没有邀请任何人</div>';
+        }
+        html += '</div>';
+        
+        // 个性化返利设置（仅当用户有邀请记录时显示）
+        if (invites.length > 0) {
+            html += `<div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 16px;">
+                <h4 style="margin: 0 0 12px 0; font-size: 14px; color: #8b949e;">⚙️ 该用户的邀请人返利设置</h4>
+                <p style="font-size: 12px; color: #666; margin-bottom: 12px;">
+                    为该用户作为邀请人时设置个性化的返利配置，留空则跟随全局设置。
+                </p>
+                <div class="settings-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label style="font-size: 13px;">返利模式</label>
+                        <select id="userInviteRewardMode" class="form-input" style="margin-top: 4px;">
+                            <option value="" ${currentMode === '' ? 'selected' : ''}>跟随全局默认</option>
+                            <option value="recurring" ${currentMode === 'recurring' ? 'selected' : ''}>🔄 循环返利</option>
+                            <option value="once" ${currentMode === 'once' ? 'selected' : ''}>1️⃣ 一次性返利</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label style="font-size: 13px;">返利比例（%）</label>
+                        <input type="number" id="userInviteRewardPercent" class="form-input" style="margin-top: 4px;"
+                            placeholder="留空跟随全局" min="0" max="100" step="1" value="${currentPercent}">
+                    </div>
+                </div>
+                <div style="margin-top: 12px;">
+                    <button class="btn-primary btn-sm" onclick="saveUserInviteRewardConfig(${userId})">
+                        💾 保存该用户配置
+                    </button>
+                </div>
+            </div>`;
+        }
+        
+        container.innerHTML = html;
+    } catch (error) {
+        console.error('加载邀请返利信息失败:', error);
+        container.innerHTML = '<div class="list-empty">加载失败</div>';
+    }
+}
+
+// 保存单个用户的邀请返利配置
+async function saveUserInviteRewardConfig(userId) {
+    const modeEl = document.getElementById('userInviteRewardMode');
+    const pctEl = document.getElementById('userInviteRewardPercent');
+    
+    if (!modeEl || !pctEl) {
+        showToast('错误', '配置元素未找到', 'error');
+        return;
+    }
+    
+    const rewardMode = modeEl.value;  // '' = 跟随全局
+    const customPercent = pctEl.value.trim();  // '' = 跟随全局
+    
+    if (customPercent !== '' && (parseFloat(customPercent) < 0 || parseFloat(customPercent) > 100)) {
+        showToast('提示', '返利比例需在 0~100 之间', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/admin/users/${userId}/invite-reward-config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                reward_mode: rewardMode,
+                custom_reward_percent: customPercent === '' ? null : parseFloat(customPercent)
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast('成功', result.message, 'success');
+            // 清除缓存并重新加载
+            _cachedUserDetailData = null;
+            renderInviteRewardTab(userId);
+        } else {
+            showToast('失败', result.error || '保存失败', 'error');
+        }
+    } catch (error) {
+        console.error('保存用户返利配置失败:', error);
+        showToast('错误', '保存失败: ' + error.message, 'error');
     }
 }
 

@@ -1179,7 +1179,8 @@ DEFAULT_SYSTEM_CONFIG = {
     'invite_reward': {
         'enabled': True,             # 是否启用邀请返利
         'reward_percent': 10,        # 返利百分比（如10表示10%）
-        'min_reward_days': 1         # 最低返利天数
+        'min_reward_days': 1,        # 最低返利天数
+        'reward_mode': 'recurring'   # 默认返利模式: once=一次性, recurring=循环(每次购买都返利)
     }
 }
 
@@ -1337,7 +1338,8 @@ def get_default_system_config():
         'invite_reward': {
             'enabled': True,
             'reward_percent': 10,
-            'min_reward_days': 1
+            'min_reward_days': 1,
+            'reward_mode': 'recurring'
         }
     }
     config['telegram']['templates'] = DEFAULT_SYSTEM_CONFIG['telegram']['templates'].copy()
@@ -3825,9 +3827,12 @@ class InviteRecord(db.Model):
     invite_code = db.Column(db.String(32), nullable=False)  # 邀请码（移除 unique 约束，同一个邀请码可以被多人使用）
     reward_type = db.Column(db.String(50))  # days, discount, credits, pending
     reward_value = db.Column(db.Float)  # 奖励数值
-    reward_claimed = db.Column(db.Boolean, default=False)  # 奖励是否已领取
+    reward_claimed = db.Column(db.Boolean, default=False)  # 奖励是否已发放
+    reward_mode = db.Column(db.String(20), nullable=True)  # once=一次性, recurring=循环, null=跟随全局
+    custom_reward_percent = db.Column(db.Float, nullable=True)  # 个性化返利比例(0-100), null=跟随全局
+    pending_reward = db.Column(db.Float, default=0)  # 待审核的返利天数
     created_at = db.Column(db.DateTime, default=lambda: datetime.now())
-    claimed_at = db.Column(db.DateTime)  # 领取时间
+    claimed_at = db.Column(db.DateTime)  # 发放时间
     
     def to_dict(self):
         # 安全获取邀请人信息
@@ -3837,6 +3842,17 @@ class InviteRecord(db.Model):
         # 安全获取被邀请人信息
         invitee = db.session.get(User, self.invitee_tg) if self.invitee_tg else None
         invitee_name = invitee.name if invitee else '未知用户'
+        
+        # 状态判断
+        if self.pending_reward and self.pending_reward > 0:
+            status = 'pending'
+            status_display = '待审核'
+        elif self.reward_claimed:
+            status = 'approved'
+            status_display = '已发放'
+        else:
+            status = 'waiting'
+            status_display = '等待购买'
         
         return {
             'id': self.id,
@@ -3854,9 +3870,82 @@ class InviteRecord(db.Model):
             }.get(self.reward_type, self.reward_type),
             'reward_value': self.reward_value,
             'reward_claimed': self.reward_claimed,
+            'pending_reward': self.pending_reward or 0,
+            'status': status,
+            'status_display': status_display,
+            'reward_mode': self.reward_mode,
+            'custom_reward_percent': self.custom_reward_percent,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'claimed_at': self.claimed_at.isoformat() if self.claimed_at else None
         }
+
+
+def process_invite_reward(user, purchased_days, source='purchase'):
+    """统一处理邀请返利逻辑
+    
+    购买后不直接到账，而是记录为"待审核"，管理员在后台确认后才发放到邀请人账户。
+    
+    Args:
+        user: 被邀请人 User 对象
+        purchased_days: 购买/兑换的天数
+        source: 来源标识（purchase/redeem/manual 等），用于日志
+    
+    Returns:
+        dict: {'success': bool, 'reward_days': int, 'status': 'pending'} 或 None
+    """
+    try:
+        _invite_cfg = get_system_config().get('invite_reward', {})
+        _invite_enabled = _invite_cfg.get('enabled', True)
+        if not _invite_enabled:
+            return None
+        
+        invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first()
+        if not invite_record:
+            return None
+        
+        # 确定返利模式：个性化 > 全局
+        record_mode = invite_record.reward_mode  # once / recurring / None(跟随全局)
+        global_mode = _invite_cfg.get('reward_mode', 'recurring')
+        effective_mode = record_mode if record_mode else global_mode
+        
+        # 一次性模式：如果已经发放过（reward_claimed=True），跳过
+        if effective_mode == 'once' and invite_record.reward_claimed:
+            return None
+        
+        inviter = db.session.get(User, invite_record.inviter_tg)
+        if not inviter:
+            return None
+        
+        # 确定返利比例：个性化 > 全局
+        custom_pct = invite_record.custom_reward_percent
+        global_pct = _invite_cfg.get('reward_percent', 10)
+        effective_pct = custom_pct if custom_pct is not None else global_pct
+        _reward_pct = effective_pct / 100.0
+        _min_reward = _invite_cfg.get('min_reward_days', 1)
+        
+        # 计算返利天数
+        reward_days = max(_min_reward, int(purchased_days * _reward_pct))
+        
+        # 不直接到账，记录为待审核
+        invite_record.reward_type = 'days'
+        invite_record.pending_reward = (invite_record.pending_reward or 0) + reward_days
+        
+        app.logger.info(
+            f'邀请返利待审核({source}): 邀请人={inviter.name}, 被邀请人={user.name}, '
+            f'待审核天数={reward_days}(比例{effective_pct}%, 模式={effective_mode})'
+        )
+        
+        return {
+            'success': True,
+            'inviter_name': inviter.name,
+            'reward_days': reward_days,
+            'effective_pct': effective_pct,
+            'effective_mode': effective_mode,
+            'status': 'pending'
+        }
+    except Exception as e:
+        app.logger.error(f'邀请返利处理异常({source}): {e}')
+        return None
 
 
 class RedeemCode(db.Model):
@@ -5922,10 +6011,14 @@ def register_page():
     if register_mode == 'invite' and not invite_code:
         return redirect('/login?error=' + quote('注册需要邀请码'))
     
+    sys_cfg = get_system_config()
+    invite_reward_enabled = sys_cfg.get('invite_reward', {}).get('enabled', True)
+    
     return render_template('register.html', 
                          invite_code=invite_code, 
                          site_config=site_config,
-                         register_mode=register_mode)
+                         register_mode=register_mode,
+                         invite_reward_enabled=invite_reward_enabled)
 
 
 @app.route('/api/register', methods=['POST'])
@@ -6967,6 +7060,11 @@ def dashboard():
     else:
         tmdb_image_base = 'https://image.tmdb.org/t/p/w500'
     
+    # 获取邀请返利开关状态
+    _invite_cfg = get_system_config().get('invite_reward', {})
+    invite_reward_enabled = _invite_cfg.get('enabled', True)
+    invite_reward_percent = _invite_cfg.get('reward_percent', 10)
+    
     return render_template('dashboard.html', 
                          user=user, 
                          today_count=today_count, 
@@ -6984,6 +7082,8 @@ def dashboard():
                          is_banned=is_banned,
                          now=datetime.now(),
                          site_config=site_config,
+                         invite_reward_enabled=invite_reward_enabled,
+                         invite_reward_percent=invite_reward_percent,
                          app_version=APP_VERSION)
 
 
@@ -14328,29 +14428,7 @@ def use_redeem_code():
         app.logger.info(f'更新用户订阅状态: lv={user.lv}, ex={user.ex}')
         
         # 邀请返利：检查是否有邀请人，给邀请人返利
-        _invite_cfg = get_system_config().get('invite_reward', {})
-        _invite_enabled = _invite_cfg.get('enabled', True)
-        _reward_pct = _invite_cfg.get('reward_percent', 10) / 100.0
-        _min_reward = _invite_cfg.get('min_reward_days', 1)
-        invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first() if _invite_enabled else None
-        if invite_record:
-            inviter = db.session.get(User, invite_record.inviter_tg)
-            if inviter:
-                # 计算返利天数：兑换天数的配置百分比
-                reward_days = max(_min_reward, int(redeem.duration_days * _reward_pct))
-                
-                # 给邀请人增加天数
-                if inviter.ex and inviter.ex > datetime.now():
-                    inviter.ex = inviter.ex + timedelta(days=reward_days)
-                else:
-                    inviter.ex = datetime.now() + timedelta(days=reward_days)
-                
-                # 更新邀请记录
-                invite_record.reward_type = 'days'
-                invite_record.reward_value = (invite_record.reward_value or 0) + reward_days
-                invite_record.reward_claimed = True
-                
-                app.logger.info(f'邀请返利(兑换码): 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}')
+        process_invite_reward(user, redeem.duration_days, source='兑换码')
         
         db.session.commit()
         
@@ -14602,30 +14680,7 @@ def payment_notify():
                     app.logger.info(f'用户 {user.name} 续费成功，已恢复Emby账号')
             
             # 邀请返利：检查是否有邀请人，给邀请人返利
-            _invite_cfg = get_system_config().get('invite_reward', {})
-            _invite_enabled = _invite_cfg.get('enabled', True)
-            _reward_pct = _invite_cfg.get('reward_percent', 10) / 100.0
-            _min_reward = _invite_cfg.get('min_reward_days', 1)
-            invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first() if _invite_enabled else None
-            if invite_record:
-                inviter = db.session.get(User, invite_record.inviter_tg)
-                if inviter:
-                    # 计算返利天数：购买天数的配置百分比
-                    purchased_days = order.duration_months * 30
-                    reward_days = max(_min_reward, int(purchased_days * _reward_pct))
-                    
-                    # 给邀请人增加天数
-                    if inviter.ex and inviter.ex > datetime.now():
-                        inviter.ex = inviter.ex + timedelta(days=reward_days)
-                    else:
-                        inviter.ex = datetime.now() + timedelta(days=reward_days)
-                    
-                    # 更新邀请记录
-                    invite_record.reward_type = 'days'
-                    invite_record.reward_value = (invite_record.reward_value or 0) + reward_days
-                    invite_record.reward_claimed = True
-                    
-                    app.logger.info(f'邀请返利: 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}(比例{_invite_cfg.get("reward_percent", 10)}%)')
+            process_invite_reward(user, order.duration_months * 30, source='易支付通知')
         
         db.session.commit()
         app.logger.info(f'易支付成功: 订单={out_trade_no}, 交易号={trade_no}')
@@ -14699,30 +14754,7 @@ def payment_callback():
                     user.lv = 'b'
                 
                 # 邀请返利：检查是否有邀请人，给邀请人返利
-                _invite_cfg = get_system_config().get('invite_reward', {})
-                _invite_enabled = _invite_cfg.get('enabled', True)
-                _reward_pct = _invite_cfg.get('reward_percent', 10) / 100.0
-                _min_reward = _invite_cfg.get('min_reward_days', 1)
-                invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first() if _invite_enabled else None
-                if invite_record:
-                    inviter = db.session.get(User, invite_record.inviter_tg)
-                    if inviter:
-                        # 计算返利天数：购买天数的配置百分比
-                        purchased_days = order.duration_months * 30
-                        reward_days = max(_min_reward, int(purchased_days * _reward_pct))
-                        
-                        # 给邀请人增加天数
-                        if inviter.ex and inviter.ex > datetime.now():
-                            inviter.ex = inviter.ex + timedelta(days=reward_days)
-                        else:
-                            inviter.ex = datetime.now() + timedelta(days=reward_days)
-                        
-                        # 更新邀请记录
-                        invite_record.reward_type = 'days'
-                        invite_record.reward_value = (invite_record.reward_value or 0) + reward_days
-                        invite_record.reward_claimed = True
-                        
-                        app.logger.info(f'邀请返利: 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}(比例{_invite_cfg.get("reward_percent", 10)}%)')
+                process_invite_reward(user, order.duration_months * 30, source='支付回调')
                 
                 # 恢复Emby账号（如果之前因过期被禁用）
                 if user.embyid and emby_client.is_enabled():
@@ -14827,29 +14859,7 @@ def query_payment():
                                 app.logger.info(f'用户 {user.name} 轮询确认支付成功，已恢复Emby账号')
                         
                         # 邀请返利：检查是否有邀请人，给邀请人返利
-                        _invite_cfg = get_system_config().get('invite_reward', {})
-                        _invite_enabled = _invite_cfg.get('enabled', True)
-                        _reward_pct = _invite_cfg.get('reward_percent', 10) / 100.0
-                        _min_reward = _invite_cfg.get('min_reward_days', 1)
-                        invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first() if _invite_enabled else None
-                        if invite_record:
-                            inviter = db.session.get(User, invite_record.inviter_tg)
-                            if inviter:
-                                # 计算返利天数：购买天数的配置百分比
-                                reward_days = max(_min_reward, int(purchased_days * _reward_pct))
-                                
-                                # 给邀请人增加天数
-                                if inviter.ex and inviter.ex > datetime.now():
-                                    inviter.ex = inviter.ex + timedelta(days=reward_days)
-                                else:
-                                    inviter.ex = datetime.now() + timedelta(days=reward_days)
-                                
-                                # 更新邀请记录
-                                invite_record.reward_type = 'days'
-                                invite_record.reward_value = (invite_record.reward_value or 0) + reward_days
-                                invite_record.reward_claimed = True
-                                
-                                app.logger.info(f'邀请返利(轮询确认): 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}')
+                        process_invite_reward(user, purchased_days, source='轮询确认')
                     
                     db.session.commit()
                     
@@ -15523,7 +15533,8 @@ def get_system_config_api():
             'invite_reward': {
                 'enabled': config.get('invite_reward', {}).get('enabled', True),
                 'reward_percent': config.get('invite_reward', {}).get('reward_percent', 10),
-                'min_reward_days': config.get('invite_reward', {}).get('min_reward_days', 1)
+                'min_reward_days': config.get('invite_reward', {}).get('min_reward_days', 1),
+                'reward_mode': config.get('invite_reward', {}).get('reward_mode', 'recurring')
             }
         }
     }), 200
@@ -15662,6 +15673,10 @@ def save_system_config_api():
                 current_config['invite_reward']['reward_percent'] = max(0, min(100, pct))
             if 'min_reward_days' in invite_rw:
                 current_config['invite_reward']['min_reward_days'] = max(0, int(invite_rw['min_reward_days']))
+            if 'reward_mode' in invite_rw:
+                mode = invite_rw['reward_mode']
+                if mode in ('once', 'recurring'):
+                    current_config['invite_reward']['reward_mode'] = mode
         
         # 保存到文件
         if save_system_config(current_config):
@@ -16616,6 +16631,14 @@ def get_invite_code():
             InviteRecord.reward_claimed == True
         ).scalar() or 0
         
+        # 计算待审核奖励
+        pending_rewards = db.session.query(
+            func.sum(InviteRecord.pending_reward)
+        ).filter(
+            InviteRecord.inviter_tg == user.tg,
+            InviteRecord.pending_reward > 0
+        ).scalar() or 0
+        
         # 邀请链接指向注册页面
         invite_url = f'{request.host_url}register?invite={invite_code}'
         
@@ -16625,7 +16648,8 @@ def get_invite_code():
             'invite_url': invite_url,
             'total_invites': total_invites,
             'successful_invites': successful_invites,
-            'total_rewards': total_rewards
+            'total_rewards': total_rewards,
+            'pending_rewards': pending_rewards
         }), 200
         
     except Exception as e:
@@ -19029,10 +19053,23 @@ def admin_get_user_details(user_id):
             'invites': [{
                 'id': i.id,
                 'invitee_tg': i.invitee_tg,
+                'invitee_name': (db.session.get(User, i.invitee_tg) or type('', (), {'name': '未知'})()).name,
                 'reward_type': i.reward_type,
                 'reward_value': i.reward_value,
+                'reward_claimed': i.reward_claimed,
+                'reward_mode': i.reward_mode,
+                'custom_reward_percent': i.custom_reward_percent,
                 'created_at': i.created_at.isoformat() if i.created_at else None
-            } for i in invite_records]
+            } for i in invite_records],
+            # 该用户作为被邀请人的邀请记录（谁邀请了他）
+            'invited_by': (lambda r: {
+                'inviter_tg': r.inviter_tg,
+                'inviter_name': (db.session.get(User, r.inviter_tg) or type('', (), {'name': '未知'})()).name,
+                'reward_mode': r.reward_mode,
+                'custom_reward_percent': r.custom_reward_percent,
+                'reward_value': r.reward_value,
+                'reward_claimed': r.reward_claimed
+            } if r else None)(InviteRecord.query.filter_by(invitee_tg=user.tg).first())
         }), 200
     except Exception as e:
         app.logger.error(f'获取用户详情失败: {e}')
@@ -19079,6 +19116,158 @@ def admin_get_user_activity_logs(user_id):
         }), 200
     except Exception as e:
         app.logger.error(f'获取用户操作日志失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/invite-reward-config', methods=['POST'])
+@admin_required
+def admin_set_user_invite_reward_config(user_id):
+    """管理员设置单个用户的邀请返利配置（个性化返利比例和模式）"""
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        data = request.json
+        if not data:
+            return jsonify({'success': False, 'error': '请求数据为空'}), 400
+        
+        # 查找该用户作为邀请人的所有邀请记录
+        invite_records = InviteRecord.query.filter_by(inviter_tg=user.tg).all()
+        
+        if not invite_records:
+            return jsonify({'success': False, 'error': '该用户没有邀请记录，无法设置返利配置'}), 400
+        
+        # 获取配置参数
+        reward_mode = data.get('reward_mode')  # 'once', 'recurring', '' (空=跟随全局)
+        custom_percent = data.get('custom_reward_percent')  # number 或 null/'' (跟随全局)
+        
+        # 验证模式
+        if reward_mode and reward_mode not in ('once', 'recurring'):
+            return jsonify({'success': False, 'error': '返利模式只能是 once 或 recurring'}), 400
+        
+        # 验证比例
+        if custom_percent is not None and custom_percent != '':
+            try:
+                custom_percent = float(custom_percent)
+                if custom_percent < 0 or custom_percent > 100:
+                    return jsonify({'success': False, 'error': '返利比例需在 0~100 之间'}), 400
+            except (ValueError, TypeError):
+                return jsonify({'success': False, 'error': '返利比例必须是数字'}), 400
+        else:
+            custom_percent = None  # 跟随全局
+        
+        # 空字符串表示跟随全局
+        if reward_mode == '':
+            reward_mode = None
+        
+        # 更新该邀请人的所有邀请记录
+        updated_count = 0
+        for record in invite_records:
+            record.reward_mode = reward_mode
+            record.custom_reward_percent = custom_percent
+            updated_count += 1
+        
+        db.session.commit()
+        
+        app.logger.info(
+            f'管理员设置用户邀请返利配置: 用户={user.name}(tg={user.tg}), '
+            f'模式={reward_mode or "跟随全局"}, 比例={custom_percent if custom_percent is not None else "跟随全局"}%, '
+            f'更新了 {updated_count} 条邀请记录'
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': f'已更新 {updated_count} 条邀请记录的返利配置',
+            'config': {
+                'reward_mode': reward_mode,
+                'custom_reward_percent': custom_percent
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'设置用户邀请返利配置失败: {e}')
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/invite-reward/<int:record_id>/approve', methods=['POST'])
+@admin_required
+def admin_approve_invite_reward(record_id):
+    """管理员审核通过邀请返利，将待审核的天数发放到邀请人账户"""
+    try:
+        record = db.session.get(InviteRecord, record_id)
+        if not record:
+            return jsonify({'success': False, 'error': '记录不存在'}), 404
+        
+        pending = record.pending_reward or 0
+        if pending <= 0:
+            return jsonify({'success': False, 'error': '没有待审核的返利'}), 400
+        
+        inviter = db.session.get(User, record.inviter_tg)
+        if not inviter:
+            return jsonify({'success': False, 'error': '邀请人不存在'}), 404
+        
+        # 发放天数到邀请人账户
+        reward_days = int(pending)
+        if inviter.ex and inviter.ex > datetime.now():
+            inviter.ex = inviter.ex + timedelta(days=reward_days)
+        else:
+            inviter.ex = datetime.now() + timedelta(days=reward_days)
+        
+        # 如果邀请人是无账号/封禁状态，升级为普通用户
+        if inviter.lv not in ['a', 'b']:
+            inviter.lv = 'b'
+        
+        # 更新记录
+        record.reward_value = (record.reward_value or 0) + reward_days
+        record.pending_reward = 0
+        record.reward_claimed = True
+        record.claimed_at = datetime.now()
+        
+        db.session.commit()
+        
+        app.logger.info(f'管理员审核通过邀请返利: 邀请人={inviter.name}, 发放天数={reward_days}, 记录ID={record_id}')
+        
+        return jsonify({
+            'success': True,
+            'message': f'已发放 {reward_days} 天到 {inviter.name} 的账户'
+        }), 200
+    except Exception as e:
+        app.logger.error(f'审核邀请返利失败: {e}')
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/invite-reward/<int:record_id>/reject', methods=['POST'])
+@admin_required
+def admin_reject_invite_reward(record_id):
+    """管理员驳回邀请返利，清除待审核的天数"""
+    try:
+        record = db.session.get(InviteRecord, record_id)
+        if not record:
+            return jsonify({'success': False, 'error': '记录不存在'}), 404
+        
+        pending = record.pending_reward or 0
+        if pending <= 0:
+            return jsonify({'success': False, 'error': '没有待审核的返利'}), 400
+        
+        # 清除待审核天数
+        record.pending_reward = 0
+        
+        db.session.commit()
+        
+        inviter = db.session.get(User, record.inviter_tg)
+        inviter_name = inviter.name if inviter else '未知'
+        
+        app.logger.info(f'管理员驳回邀请返利: 邀请人={inviter_name}, 驳回天数={pending}, 记录ID={record_id}')
+        
+        return jsonify({
+            'success': True,
+            'message': f'已驳回 {int(pending)} 天返利'
+        }), 200
+    except Exception as e:
+        app.logger.error(f'驳回邀请返利失败: {e}')
+        db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -19214,30 +19403,7 @@ def admin_mark_order_paid(order_no):
             user.lv = 'b'
         
         # 邀请返利：检查是否有邀请人，给邀请人返利
-        _invite_cfg = get_system_config().get('invite_reward', {})
-        _invite_enabled = _invite_cfg.get('enabled', True)
-        _reward_pct = _invite_cfg.get('reward_percent', 10) / 100.0
-        _min_reward = _invite_cfg.get('min_reward_days', 1)
-        invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first() if _invite_enabled else None
-        if invite_record and not invite_record.reward_claimed:
-            inviter = db.session.get(User, invite_record.inviter_tg)
-            if inviter:
-                # 计算返利天数：购买天数的配置百分比
-                purchased_days = duration_months * 30
-                reward_days = max(_min_reward, int(purchased_days * _reward_pct))
-                
-                # 给邀请人增加天数
-                if inviter.ex and inviter.ex > datetime.now():
-                    inviter.ex = inviter.ex + timedelta(days=reward_days)
-                else:
-                    inviter.ex = datetime.now() + timedelta(days=reward_days)
-                
-                # 更新邀请记录
-                invite_record.reward_type = 'days'
-                invite_record.reward_value = (invite_record.reward_value or 0) + reward_days
-                invite_record.reward_claimed = True
-                
-                app.logger.info(f'手工标记付款-邀请返利: 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}')
+        process_invite_reward(user, duration_months * 30, source='手工标记付款')
         
         db.session.commit()
         
@@ -19617,6 +19783,10 @@ def migrate_database():
         ('subscriptions', 'source', "VARCHAR(20) DEFAULT 'purchase'"),
         # Emby用户名独立字段（与网站用户名分离）
         ('emby', 'emby_name', 'VARCHAR(255) NULL'),
+        # 邀请记录表：返利模式和个性化返利比例
+        ('invite_records', 'reward_mode', 'VARCHAR(20) NULL'),
+        ('invite_records', 'custom_reward_percent', 'FLOAT NULL'),
+        ('invite_records', 'pending_reward', 'FLOAT DEFAULT 0'),
     ]
     
     app.logger.info('开始检查数据库迁移...')
