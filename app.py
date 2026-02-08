@@ -21055,10 +21055,10 @@ def debug_stream_limit():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/api/admin/debug/stream-limit/sync', methods=['POST'])
+@app.route('/api/admin/debug/stream-limit/sync', methods=['GET', 'POST'])
 @admin_required
 def debug_stream_limit_sync():
-    """调试：手动触发同步播放限制到所有 Emby 用户"""
+    """调试：手动触发同步播放限制到所有 Emby 用户（支持 GET/POST）"""
     try:
         config = load_system_config()
         max_streams = config.get('telegram', {}).get('max_streams', 0)
@@ -21073,6 +21073,91 @@ def debug_stream_limit_sync():
             'max_streams': max_streams,
             'sync_result': sync_result,
             'message': f'已同步 max_streams={max_streams} 到 {sync_result["success"]}/{sync_result["total"]} 个用户'
+        }), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/debug/stream-limit/sessions', methods=['GET'])
+@admin_required
+def debug_stream_limit_sessions():
+    """调试：查看当前所有正在播放的 Emby 会话
+    
+    用于确认 Webhook 限流逻辑是否正常工作：
+    - 如果有4个会话在播放而 max_streams=2，说明 Webhook 没有触发
+    - 检查 Emby 是否正确配置了 playback Webhook
+    """
+    try:
+        if not emby_client.is_enabled():
+            return jsonify({'success': False, 'error': 'Emby 未启用'}), 400
+        
+        config = load_system_config()
+        max_streams = config.get('telegram', {}).get('max_streams', 0)
+        
+        # 获取所有活跃会话
+        url = f"{emby_client.base_url}/Sessions"
+        params = {'api_key': emby_client.api_key}
+        response = emby_client.session.get(url, params=params, timeout=10)
+        
+        if response.status_code != 200:
+            return jsonify({'success': False, 'error': f'Emby API 返回 {response.status_code}'}), 500
+        
+        sessions = response.json()
+        playing = []
+        idle = []
+        
+        for s in sessions:
+            info = {
+                'session_id': s.get('Id'),
+                'user_name': s.get('UserName', '未知'),
+                'user_id': s.get('UserId', ''),
+                'device_name': s.get('DeviceName', '未知'),
+                'client': s.get('Client', '未知'),
+                'last_activity': s.get('LastActivityDate', ''),
+                'remote_ip': s.get('RemoteEndPoint', ''),
+            }
+            now_playing = s.get('NowPlayingItem')
+            if now_playing:
+                info['now_playing'] = now_playing.get('Name', '未知')
+                info['play_state'] = s.get('PlayState', {})
+                playing.append(info)
+            else:
+                idle.append(info)
+        
+        # 按用户分组统计正在播放数
+        user_playing_count = {}
+        for p in playing:
+            uid = p['user_id']
+            uname = p['user_name']
+            if uid not in user_playing_count:
+                user_playing_count[uid] = {'name': uname, 'count': 0, 'sessions': []}
+            user_playing_count[uid]['count'] += 1
+            user_playing_count[uid]['sessions'].append(f"{p['device_name']}({p['client']})")
+        
+        # 找出超限用户
+        over_limit = []
+        if max_streams > 0:
+            for uid, info in user_playing_count.items():
+                if info['count'] > max_streams:
+                    over_limit.append({
+                        'user': info['name'],
+                        'playing': info['count'],
+                        'limit': max_streams,
+                        'devices': info['sessions']
+                    })
+        
+        return jsonify({
+            'success': True,
+            'config_max_streams': max_streams,
+            'total_sessions': len(sessions),
+            'playing_count': len(playing),
+            'idle_count': len(idle),
+            'playing_sessions': playing,
+            'user_summary': user_playing_count,
+            'over_limit_users': over_limit,
+            'webhook_hint': '如果有用户超限但没有被限流，说明 Emby 的 playback Webhook 没有正确配置。'
+                           '请确保 Emby 通知中添加了 Webhook，URL 为 /api/webhook/emby/playback，'
+                           '事件类型勾选了 Playback Start 和 Playback Progress。'
         }), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
