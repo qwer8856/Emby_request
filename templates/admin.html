@@ -1164,17 +1164,34 @@
                             <p class="default-benefits-tip">配置未订阅用户和白名单用户在"我的订阅"页面显示的权益（最多8个）</p>
                         </div>
 
-                        <div class="default-benefits-section">
-                            <h4>👤 未订阅用户权益</h4>
-                            <div class="benefits-config-list" id="unsubscribedBenefitsList"></div>
-                            <button class="btn-secondary btn-xs" onclick="addDefaultBenefit('unsubscribed')">➕
-                                添加</button>
+                        <!-- 未订阅用户权益 - 折叠卡片 -->
+                        <div class="benefit-collapsible-card" data-benefit-type="unsubscribed">
+                            <div class="benefit-collapsible-header" onclick="toggleBenefitCard('unsubscribed')">
+                                <div class="benefit-header-left">
+                                    <span class="collapse-icon">▶</span>
+                                    <span class="benefit-card-title">👤 未订阅用户权益</span>
+                                </div>
+                                <span class="benefit-count-badge" id="unsubscribedBenefitCount">0 项</span>
+                            </div>
+                            <div class="benefit-collapsible-body">
+                                <div class="benefits-config-list" id="unsubscribedBenefitsList"></div>
+                                <button class="btn-secondary btn-xs" onclick="addDefaultBenefit('unsubscribed')">➕ 添加</button>
+                            </div>
                         </div>
 
-                        <div class="default-benefits-section">
-                            <h4>👑 白名单用户权益</h4>
-                            <div class="benefits-config-list" id="whitelistBenefitsList"></div>
-                            <button class="btn-secondary btn-xs" onclick="addDefaultBenefit('whitelist')">➕ 添加</button>
+                        <!-- 白名单用户权益 - 折叠卡片 -->
+                        <div class="benefit-collapsible-card" data-benefit-type="whitelist">
+                            <div class="benefit-collapsible-header" onclick="toggleBenefitCard('whitelist')">
+                                <div class="benefit-header-left">
+                                    <span class="collapse-icon">▶</span>
+                                    <span class="benefit-card-title">👑 白名单用户权益</span>
+                                </div>
+                                <span class="benefit-count-badge" id="whitelistBenefitCount">0 项</span>
+                            </div>
+                            <div class="benefit-collapsible-body">
+                                <div class="benefits-config-list" id="whitelistBenefitsList"></div>
+                                <button class="btn-secondary btn-xs" onclick="addDefaultBenefit('whitelist')">➕ 添加</button>
+                            </div>
                         </div>
 
                         <div class="default-benefits-actions">

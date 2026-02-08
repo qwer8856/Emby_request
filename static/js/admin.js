@@ -4384,6 +4384,25 @@ let defaultBenefitsData = {
     whitelist: []
 };
 
+// 切换默认权益折叠卡片
+function toggleBenefitCard(type) {
+    const card = document.querySelector(`.benefit-collapsible-card[data-benefit-type="${type}"]`);
+    if (card) {
+        card.classList.toggle('expanded');
+    }
+}
+
+// 更新权益数量徽标
+function updateBenefitCountBadge(type) {
+    const benefits = defaultBenefitsData[type] || [];
+    const validCount = benefits.filter(b => b.icon && b.text).length;
+    const badgeId = type === 'whitelist' ? 'whitelistBenefitCount' : 'unsubscribedBenefitCount';
+    const badge = document.getElementById(badgeId);
+    if (badge) {
+        badge.textContent = validCount + ' 项';
+    }
+}
+
 async function loadDefaultBenefits() {
     try {
         const response = await fetch('/api/admin/default-benefits');
@@ -4405,6 +4424,7 @@ function renderDefaultBenefits(type) {
     if (!container) return;
     
     const benefits = defaultBenefitsData[type] || [];
+    updateBenefitCountBadge(type);
     
     if (benefits.length === 0) {
         container.innerHTML = `<div class="benefits-empty-hint">暂无配置</div>`;
@@ -4442,6 +4462,11 @@ function addDefaultBenefit(type) {
     }
     defaultBenefitsData[type].push({ icon: '✨', text: '' });
     renderDefaultBenefits(type);
+    // 确保卡片展开
+    const card = document.querySelector(`.benefit-collapsible-card[data-benefit-type="${type}"]`);
+    if (card && !card.classList.contains('expanded')) {
+        card.classList.add('expanded');
+    }
 }
 
 function updateDefaultBenefit(type, index, field, value) {
