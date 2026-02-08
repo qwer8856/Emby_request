@@ -8262,7 +8262,8 @@ def admin_dynamic_entry(secret_path):
         return redirect('/admin')
     
     # 显示管理员登录页面
-    return render_template('admin_login.html')
+    site_config = get_site_config()
+    return render_template('admin_login.html', site_config=site_config)
 
 
 @app.route('/api/admin-login', methods=['POST'])
@@ -8311,7 +8312,8 @@ def admin_setup_page():
     if admin_config.get('initialized', False):
         return redirect('/admin')
     
-    return render_template('admin_setup.html')
+    site_config = get_site_config()
+    return render_template('admin_setup.html', site_config=site_config)
 
 
 @app.route('/api/admin/setup', methods=['POST'])

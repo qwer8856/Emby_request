@@ -4,7 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>管理面板 - Emby管理系统</title>
+    <title>管理面板 - {{ site_config.site_title or 'Emby管理系统' }}</title>
+    {% if site_config and site_config.site_logo %}
+    <link rel="icon" href="{{ site_config.site_logo }}" type="image/png">
+    {% endif %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}?v=23">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=20">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-checkin.css') }}?v=2">
