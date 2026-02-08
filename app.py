@@ -11579,43 +11579,15 @@ def edit_telegram_message(chat_id, message_id, text, reply_markup=None):
 
 
 def _update_gift_message_claimed(gift_data, claimed_user_id, claimed_username, is_renew=False):
-    """更新群组中的赠送消息为已领取状态
-    
-    Args:
-        is_renew: True=已有账号续期, False=新注册
-    """
-    from html import escape as html_escape
+    """领取赠送后删除群组中的赠送消息（自动撤回）"""
     group_chat_id = gift_data.get('group_chat_id')
     group_message_id = gift_data.get('group_message_id')
     if not group_chat_id or not group_message_id:
         return
     
-    # 构建领取人显示
-    claimed_display_name = html_escape(str(claimed_username or claimed_user_id))
-    claimed_display = f'<a href="tg://user?id={claimed_user_id}">{claimed_display_name}</a>'
-    
-    # 构建赠送人显示
-    from_user_id = gift_data.get('from_user_id')
-    from_username = gift_data.get('from_username', '管理员')
-    if from_user_id:
-        operator_display = f'<a href="tg://user?id={from_user_id}">{html_escape(str(from_username))}</a>'
-    else:
-        operator_display = f'<b>{html_escape(str(from_username))}</b>'
-    
-    days = gift_data.get('days', 0)
-    claim_type = '续期' if is_renew else '注册'
-    
-    claimed_message = (
-        f"· 🎟️ <b>赠送码{claim_type}</b> - "
-        f"{claimed_display} "
-        f"[<code>{claimed_user_id}</code>] "
-        f"已领取 {operator_display} 赠送的资格\n"
-        f"· 📅 领取时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    )
-    
-    # 编辑群组消息为已领取状态（移除领取按钮）
-    edit_telegram_message(group_chat_id, group_message_id, claimed_message)
-    app.logger.info(f'[Gift] 已更新群组赠送消息为已领取({claim_type}): chat={group_chat_id}, msg={group_message_id}, claimed_by={claimed_user_id}')
+    claim_type = '续期' if is_renew else '新注册'
+    delete_telegram_message(group_chat_id, group_message_id)
+    app.logger.info(f'[Gift] 已删除群组赠送消息({claim_type}): chat={group_chat_id}, msg={group_message_id}, claimed_by={claimed_user_id}')
 
 
 def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
