@@ -617,6 +617,7 @@ CONFIG_KEY_PLANS = 'plans'
 CONFIG_KEY_PROXY = 'proxy'
 CONFIG_KEY_CHECKIN = 'checkin'
 CONFIG_KEY_SUBSCRIPTION_EXPIRE = 'subscription_expire'
+CONFIG_KEY_INVITE_REWARD = 'invite_reward'
 
 # 易支付配置（支持环境变量或配置文件）
 EPAY_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'epay_config.json')
@@ -1299,6 +1300,10 @@ def load_system_config():
             if db_subscription_expire:
                 config['subscription_expire'] = db_subscription_expire
             
+            db_invite_reward = get_db_config(CONFIG_KEY_INVITE_REWARD)
+            if db_invite_reward:
+                config['invite_reward'] = db_invite_reward
+            
             # 如果数据库有配置，直接返回
             if db_admin or db_emby or db_telegram:
                 return config
@@ -1421,6 +1426,9 @@ def save_system_config(config):
             if 'subscription_expire' in config:
                 if not set_db_config(CONFIG_KEY_SUBSCRIPTION_EXPIRE, config['subscription_expire'], '订阅过期管理配置'):
                     print(f"[WARNING] 保存 subscription_expire 配置失败")
+            if 'invite_reward' in config:
+                if not set_db_config(CONFIG_KEY_INVITE_REWARD, config['invite_reward'], '邀请返利配置'):
+                    print(f"[WARNING] 保存 invite_reward 配置失败")
             
             if db_success:
                 print("[CONFIG] 配置已保存到数据库")
@@ -19059,6 +19067,9 @@ def admin_get_user_details(user_id):
                 'reward_claimed': i.reward_claimed,
                 'reward_mode': i.reward_mode,
                 'custom_reward_percent': i.custom_reward_percent,
+                'pending_reward': i.pending_reward or 0,
+                'status': 'pending' if (i.pending_reward and i.pending_reward > 0) else ('approved' if i.reward_claimed else 'waiting'),
+                'status_display': '待审核' if (i.pending_reward and i.pending_reward > 0) else ('已发放' if i.reward_claimed else '等待购买'),
                 'created_at': i.created_at.isoformat() if i.created_at else None
             } for i in invite_records],
             # 该用户作为被邀请人的邀请记录（谁邀请了他）
@@ -19068,7 +19079,9 @@ def admin_get_user_details(user_id):
                 'reward_mode': r.reward_mode,
                 'custom_reward_percent': r.custom_reward_percent,
                 'reward_value': r.reward_value,
-                'reward_claimed': r.reward_claimed
+                'reward_claimed': r.reward_claimed,
+                'pending_reward': r.pending_reward or 0,
+                'status_display': '待审核' if (r.pending_reward and r.pending_reward > 0) else ('已发放' if r.reward_claimed else '等待购买')
             } if r else None)(InviteRecord.query.filter_by(invitee_tg=user.tg).first())
         }), 200
     except Exception as e:
