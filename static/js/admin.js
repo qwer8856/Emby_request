@@ -6658,13 +6658,41 @@ async function renderInviteRewardTab(userId) {
         const data = _cachedUserDetailData;
         const invites = data.invites || [];
         const invitedBy = data.invited_by;
+        const user = data.user;
         
-        // 获取第一条邀请记录的个性化配置（所有记录应该一致）
-        const firstInvite = invites.length > 0 ? invites[0] : null;
-        const currentMode = firstInvite ? (firstInvite.reward_mode || '') : '';
-        const currentPercent = firstInvite ? (firstInvite.custom_reward_percent !== null ? firstInvite.custom_reward_percent : '') : '';
+        // 从 User 对象读取个性化配置（不再依赖邀请记录）
+        const currentMode = user.invite_reward_mode || '';
+        const currentPercent = user.invite_reward_percent !== null && user.invite_reward_percent !== undefined ? user.invite_reward_percent : '';
         
         let html = '';
+        
+        // 个性化返利设置（始终显示，不依赖邀请记录）
+        html += `<div style="margin-bottom: 20px; padding: 16px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;">
+            <h4 style="margin: 0 0 12px 0; font-size: 14px; color: #334155;">⚙️ 该用户的个性化返利设置</h4>
+            <p style="font-size: 12px; color: #64748b; margin-bottom: 12px;">
+                为该用户作为邀请人时设置个性化的返利配置，留空则跟随全局设置。
+            </p>
+            <div class="settings-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 13px;">返利模式</label>
+                    <select id="userInviteRewardMode" class="form-input" style="margin-top: 4px;">
+                        <option value="" ${currentMode === '' ? 'selected' : ''}>跟随全局默认</option>
+                        <option value="recurring" ${currentMode === 'recurring' ? 'selected' : ''}>🔄 循环返利</option>
+                        <option value="once" ${currentMode === 'once' ? 'selected' : ''}>1️⃣ 一次性返利</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 13px;">返利比例（%）</label>
+                    <input type="number" id="userInviteRewardPercent" class="form-input" style="margin-top: 4px;"
+                        placeholder="留空跟随全局" min="0" max="100" step="1" value="${currentPercent}">
+                </div>
+            </div>
+            <div style="margin-top: 12px;">
+                <button class="btn-primary btn-sm" onclick="saveUserInviteRewardConfig(${user.id})">
+                    💾 保存该用户配置
+                </button>
+            </div>
+        </div>`;
         
         // 该用户被谁邀请的
         html += `<div style="margin-bottom: 20px;">
@@ -6720,36 +6748,6 @@ async function renderInviteRewardTab(userId) {
             html += '<div class="list-empty" style="padding: 10px;">该用户还没有邀请任何人</div>';
         }
         html += '</div>';
-        
-        // 个性化返利设置（仅当用户有邀请记录时显示）
-        if (invites.length > 0) {
-            html += `<div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 16px;">
-                <h4 style="margin: 0 0 12px 0; font-size: 14px; color: #8b949e;">⚙️ 该用户的邀请人返利设置</h4>
-                <p style="font-size: 12px; color: #666; margin-bottom: 12px;">
-                    为该用户作为邀请人时设置个性化的返利配置，留空则跟随全局设置。
-                </p>
-                <div class="settings-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label style="font-size: 13px;">返利模式</label>
-                        <select id="userInviteRewardMode" class="form-input" style="margin-top: 4px;">
-                            <option value="" ${currentMode === '' ? 'selected' : ''}>跟随全局默认</option>
-                            <option value="recurring" ${currentMode === 'recurring' ? 'selected' : ''}>🔄 循环返利</option>
-                            <option value="once" ${currentMode === 'once' ? 'selected' : ''}>1️⃣ 一次性返利</option>
-                        </select>
-                    </div>
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label style="font-size: 13px;">返利比例（%）</label>
-                        <input type="number" id="userInviteRewardPercent" class="form-input" style="margin-top: 4px;"
-                            placeholder="留空跟随全局" min="0" max="100" step="1" value="${currentPercent}">
-                    </div>
-                </div>
-                <div style="margin-top: 12px;">
-                    <button class="btn-primary btn-sm" onclick="saveUserInviteRewardConfig(${userId})">
-                        💾 保存该用户配置
-                    </button>
-                </div>
-            </div>`;
-        }
         
         container.innerHTML = html;
     } catch (error) {

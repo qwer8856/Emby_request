@@ -3559,6 +3559,10 @@ class User(db.Model):
     ch = db.Column(db.DateTime, nullable=True)  # 签到时间
     coins = db.Column(db.Integer, default=0)  # 签到积分（货币）
     
+    # 个性化邀请返利配置（管理员可为每个用户单独设置）
+    invite_reward_mode = db.Column(db.String(20), nullable=True)  # once/recurring/None(跟随全局)
+    invite_reward_percent = db.Column(db.Float, nullable=True)  # 0-100, None=跟随全局
+    
     # 封禁前状态备份（用于解除封禁时恢复）
     ban_prev_lv = db.Column(db.String(1), nullable=True)  # 封禁前的等级
     ban_prev_ex = db.Column(db.DateTime, nullable=True)  # 封禁前的到期时间
@@ -3911,23 +3915,23 @@ def process_invite_reward(user, purchased_days, source='purchase'):
         if not invite_record:
             return None
         
-        # 确定返利模式：个性化 > 全局
-        record_mode = invite_record.reward_mode  # once / recurring / None(跟随全局)
+        inviter = db.session.get(User, invite_record.inviter_tg)
+        if not inviter:
+            return None
+        
+        # 确定返利模式：User表 > InviteRecord > 全局
         global_mode = _invite_cfg.get('reward_mode', 'recurring')
-        effective_mode = record_mode if record_mode else global_mode
+        effective_mode = inviter.invite_reward_mode or invite_record.reward_mode or global_mode
         
         # 一次性模式：如果已经发放过（reward_claimed=True），跳过
         if effective_mode == 'once' and invite_record.reward_claimed:
             return None
         
-        inviter = db.session.get(User, invite_record.inviter_tg)
-        if not inviter:
-            return None
-        
-        # 确定返利比例：个性化 > 全局
-        custom_pct = invite_record.custom_reward_percent
+        # 确定返利比例：User表 > InviteRecord > 全局
         global_pct = _invite_cfg.get('reward_percent', 10)
-        effective_pct = custom_pct if custom_pct is not None else global_pct
+        user_pct = inviter.invite_reward_percent
+        record_pct = invite_record.custom_reward_percent
+        effective_pct = user_pct if user_pct is not None else (record_pct if record_pct is not None else global_pct)
         _reward_pct = effective_pct / 100.0
         _min_reward = _invite_cfg.get('min_reward_days', 1)
         
@@ -19035,6 +19039,8 @@ def admin_get_user_details(user_id):
                 'expires_at': user.ex.isoformat() if user.ex else None,
                 'created_at': user.cr.isoformat() if user.cr else None,
                 'invite_count': user.iv or 0,
+                'invite_reward_mode': user.invite_reward_mode,
+                'invite_reward_percent': user.invite_reward_percent,
                 'ban_time': user.ban_time.isoformat() if user.ban_time else None,
                 'ban_reason': user.ban_reason,
                 'ban_prev_lv': user.ban_prev_lv,
@@ -19145,12 +19151,6 @@ def admin_set_user_invite_reward_config(user_id):
         if not data:
             return jsonify({'success': False, 'error': '请求数据为空'}), 400
         
-        # 查找该用户作为邀请人的所有邀请记录
-        invite_records = InviteRecord.query.filter_by(inviter_tg=user.tg).all()
-        
-        if not invite_records:
-            return jsonify({'success': False, 'error': '该用户没有邀请记录，无法设置返利配置'}), 400
-        
         # 获取配置参数
         reward_mode = data.get('reward_mode')  # 'once', 'recurring', '' (空=跟随全局)
         custom_percent = data.get('custom_reward_percent')  # number 或 null/'' (跟随全局)
@@ -19174,7 +19174,12 @@ def admin_set_user_invite_reward_config(user_id):
         if reward_mode == '':
             reward_mode = None
         
-        # 更新该邀请人的所有邀请记录
+        # 保存到 User 表（主要存储位置）
+        user.invite_reward_mode = reward_mode
+        user.invite_reward_percent = custom_percent
+        
+        # 同时同步到该用户作为邀请人的所有邀请记录（兼容旧逻辑）
+        invite_records = InviteRecord.query.filter_by(inviter_tg=user.tg).all()
         updated_count = 0
         for record in invite_records:
             record.reward_mode = reward_mode
@@ -19800,6 +19805,9 @@ def migrate_database():
         ('invite_records', 'reward_mode', 'VARCHAR(20) NULL'),
         ('invite_records', 'custom_reward_percent', 'FLOAT NULL'),
         ('invite_records', 'pending_reward', 'FLOAT DEFAULT 0'),
+        # User表个性化返利配置
+        ('emby', 'invite_reward_mode', 'VARCHAR(20) NULL'),
+        ('emby', 'invite_reward_percent', 'FLOAT NULL'),
     ]
     
     app.logger.info('开始检查数据库迁移...')
