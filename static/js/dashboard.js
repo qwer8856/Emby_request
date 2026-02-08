@@ -222,8 +222,8 @@ async function submitEmbyBind(event) {
     const errorEl = document.getElementById('bindError');
     const btn = document.getElementById('bindSubmitBtn');
     
-    if (!username || !password) {
-        errorEl.textContent = '请输入用户名和密码';
+    if (!username) {
+        errorEl.textContent = '请输入用户名';
         return;
     }
     
@@ -275,23 +275,18 @@ async function submitEmbyCreate(event) {
     const btn = document.getElementById('createSubmitBtn');
     
     // 验证
-    if (!username || !password || !passwordConfirm) {
-        errorEl.textContent = '请填写所有字段';
+    if (!username) {
+        errorEl.textContent = '请填写用户名';
         return;
     }
     
-    if (username.length < 3 || username.length > 20) {
-        errorEl.textContent = '用户名长度必须在3-20个字符之间';
+    if (username.length < 1 || username.length > 20) {
+        errorEl.textContent = '用户名长度必须在1-20个字符之间';
         return;
     }
     
-    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-        errorEl.textContent = '用户名只能包含字母、数字、下划线';
-        return;
-    }
-    
-    if (password.length < 6) {
-        errorEl.textContent = '密码至少需要6个字符';
+    if (!/^[a-zA-Z0-9_\u4e00-\u9fff]+$/.test(username)) {
+        errorEl.textContent = '用户名只能包含中文、字母、数字、下划线';
         return;
     }
     

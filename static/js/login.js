@@ -56,8 +56,8 @@
             const submitBtn = document.querySelector('.submit-btn');
             
             // 验证输入
-            if (!username || !password) {
-                showToast('输入错误', '请输入用户名和密码', 'error');
+            if (!username) {
+                showToast('输入错误', '请输入用户名', 'error');
                 return;
             }
             

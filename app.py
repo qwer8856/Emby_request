@@ -3765,6 +3765,14 @@ class DownloadTask(db.Model):
         }
 
 
+def generate_next_user_id():
+    """生成下一个可用的正整数用户 ID（从 1000 开始递增）"""
+    max_tg = db.session.query(db.func.max(User.tg)).scalar()
+    if max_tg is None or max_tg < 1000:
+        return 1000
+    return max_tg + 1
+
+
 class Subscription(db.Model):
     """订阅套餐表"""
     __tablename__ = 'subscriptions'
@@ -6146,17 +6154,17 @@ def register():
         if register_mode == 'invite' and not invite_code:
             return jsonify({'success': False, 'error': '仅邀请注册模式，必须提供邀请码'}), 403
         
-        # 验证用户名
-        if not username or len(username) < 3 or len(username) > 20:
-            return jsonify({'success': False, 'error': '用户名长度必须在3-20个字符之间'}), 400
+        # 验证用户名（支持中文、字母、数字、下划线）
+        if not username or len(username) < 1 or len(username) > 20:
+            return jsonify({'success': False, 'error': '用户名长度必须在1-20个字符之间'}), 400
         
         import re
-        if not re.match(r'^[a-zA-Z0-9_]+$', username):
-            return jsonify({'success': False, 'error': '用户名只能包含字母、数字、下划线'}), 400
+        if not re.match(r'^[a-zA-Z0-9_\u4e00-\u9fff]+$', username):
+            return jsonify({'success': False, 'error': '用户名只能包含中文、字母、数字、下划线'}), 400
         
-        # 验证密码
-        if not password or len(password) < 6 or len(password) > 32:
-            return jsonify({'success': False, 'error': '密码长度必须在6-32个字符之间'}), 400
+        # 验证密码（允许为空，不为空时长度不超过32）
+        if password and len(password) > 32:
+            return jsonify({'success': False, 'error': '密码长度不能超过32个字符'}), 400
         
         # 检查用户名是否已存在
         existing_user = User.query.filter_by(name=username).first()
@@ -6200,13 +6208,8 @@ def register():
                 # 验证通过，清除验证码
                 del EMAIL_VERIFY_CODES[cache_key]
         
-        # 生成唯一的 tg ID（使用时间戳 + 随机数）
-        import random
-        new_tg = int(datetime.now().timestamp() * 1000) + random.randint(1000, 9999)
-        
-        # 确保 tg ID 不重复
-        while db.session.get(User, new_tg):
-            new_tg = int(datetime.now().timestamp() * 1000) + random.randint(1000, 9999)
+        # 生成唯一的正整数用户 ID（从 1000 开始递增）
+        new_tg = generate_next_user_id()
         
         # 处理邀请码
         inviter = None
@@ -6293,13 +6296,13 @@ def login():
     if request.method == 'POST':
         data = request.get_json()
         username = data.get('username')
-        password = data.get('password')
+        password = data.get('password', '') or ''  # 允许空密码
         
         # 通过name字段查找用户
         user = User.query.filter_by(name=username).first()
         
-        # 验证密码（只验证网站密码pwd，不验证Emby密码pwd2）
-        if user and user.pwd == password:
+        # 验证密码（只验证网站密码pwd，不验证Emby密码pwd2；空密码也可匹配）
+        if user and (user.pwd or '') == password:
             # 检查用户是否被封禁（只拦截 C 级禁用用户，其他等级都允许登录）
             # 注意：登录 ≠ 有Emby使用权，新注册用户(B级无订阅)和D级用户也应能登录网站
             if user.lv == 'c':
@@ -6380,21 +6383,18 @@ def change_password():
     """修改用户密码"""
     try:
         data = request.get_json()
-        current_password = data.get('current_password', '').strip()
-        new_password = data.get('new_password', '').strip()
+        current_password = data.get('current_password', '') or ''
+        new_password = data.get('new_password', '') or ''
         
-        if not current_password or not new_password:
-            return jsonify({'success': False, 'error': '请填写完整的密码信息'}), 400
-        
-        if len(new_password) < 6:
-            return jsonify({'success': False, 'error': '新密码至少需要6个字符'}), 400
+        if new_password and len(new_password) > 32:
+            return jsonify({'success': False, 'error': '新密码长度不能超过32个字符'}), 400
         
         user = db.session.get(User, session['user_id'])
         if not user:
             return jsonify({'success': False, 'error': '用户不存在'}), 404
         
-        # 验证当前密码
-        if user.pwd != current_password and user.pwd2 != current_password:
+        # 验证当前密码（兼容空密码）
+        if (user.pwd or '') != current_password and (user.pwd2 or '') != current_password:
             return jsonify({'success': False, 'error': '当前密码不正确'}), 400
         
         # 更新密码和session_token
@@ -7042,8 +7042,8 @@ def check_emby_username():
         if not username:
             return jsonify({'success': False, 'error': '请输入用户名'}), 400
         
-        if len(username) < 3 or len(username) > 20:
-            return jsonify({'success': False, 'error': '用户名长度必须在3-20个字符之间'}), 400
+        if len(username) < 1 or len(username) > 20:
+            return jsonify({'success': False, 'error': '用户名长度必须在1-20个字符之间'}), 400
         
         current_user_id = session.get('user_id')
         
@@ -7086,8 +7086,8 @@ def bind_emby_account():
         username = data.get('username', '').strip()
         password = data.get('password', '').strip()
         
-        if not username or not password:
-            return jsonify({'success': False, 'error': '请输入用户名和密码'}), 400
+        if not username:
+            return jsonify({'success': False, 'error': '请输入用户名'}), 400
         
         user = db.session.get(User, session['user_id'])
         if not user:
@@ -7308,18 +7308,15 @@ def create_emby_account():
         username = data.get('username', '').strip()
         password = data.get('password', '').strip()
         
-        if not username or not password:
-            return jsonify({'success': False, 'error': '请输入用户名和密码'}), 400
+        if not username:
+            return jsonify({'success': False, 'error': '请输入用户名'}), 400
         
-        if len(username) < 3 or len(username) > 20:
-            return jsonify({'success': False, 'error': '用户名长度必须在3-20个字符之间'}), 400
-        
-        if len(password) < 6:
-            return jsonify({'success': False, 'error': '密码至少需要6个字符'}), 400
+        if len(username) < 1 or len(username) > 20:
+            return jsonify({'success': False, 'error': '用户名长度必须在1-20个字符之间'}), 400
         
         import re
-        if not re.match(r'^[a-zA-Z0-9_]+$', username):
-            return jsonify({'success': False, 'error': '用户名只能包含字母、数字、下划线'}), 400
+        if not re.match(r'^[a-zA-Z0-9_\u4e00-\u9fff]+$', username):
+            return jsonify({'success': False, 'error': '用户名只能包含中文、字母、数字、下划线'}), 400
         
         user = db.session.get(User, session['user_id'])
         if not user:
@@ -11060,8 +11057,8 @@ def telegram_webhook():
         custom_username = parts[1].strip()
         
         # 验证用户名格式
-        if len(custom_username) < 3:
-            send_telegram_reply(chat_id, "❌ 用户名至少需要 3 个字符")
+        if len(custom_username) < 1:
+            send_telegram_reply(chat_id, "❌ 用户名至少需要 1 个字符")
             return jsonify({'ok': True})
         
         if len(custom_username) > 20:
@@ -11745,23 +11742,23 @@ def handle_registration_input(chat_id, telegram_user_id, text):
     username = parts[0].strip()
     password = parts[1].strip()
     
-    # 验证用户名: 3-20个字符，只支持字母、数字、下划线
-    if not re.match(r'^[a-zA-Z0-9_]+$', username):
+    # 验证用户名: 1-20个字符，支持中文、字母、数字、下划线
+    if not re.match(r'^[a-zA-Z0-9_\u4e00-\u9fff]+$', username):
         send_telegram_reply(chat_id, """❌ 用户名格式错误
 
-用户名只支持字母、数字、下划线
+用户名支持中文、字母、数字、下划线
 请重新输入：[用户名][空格][密码]""")
         return jsonify({'ok': True})
     
-    if len(username) < 3 or len(username) > 20:
-        send_telegram_reply(chat_id, "❌ 用户名长度应在3-20个字符之间")
+    if len(username) < 1 or len(username) > 20:
+        send_telegram_reply(chat_id, "❌ 用户名长度应在1-20个字符之间")
         return jsonify({'ok': True})
     
-    # 验证密码: 6-32个字符，支持字母、数字、特殊字符
-    if len(password) < 6 or len(password) > 32:
-        send_telegram_reply(chat_id, """❌ 密码长度错误
+    # 验证密码: 不超过32个字符（允许短密码）
+    if len(password) > 32:
+        send_telegram_reply(chat_id, """❌ 密码过长
 
-密码应为6-32个字符
+密码不能超过32个字符
 请重新输入：[用户名][空格][密码]""")
         return jsonify({'ok': True})
     
@@ -11786,8 +11783,9 @@ def handle_registration_input(chat_id, telegram_user_id, text):
         inviter_text = f'<b>{from_username}</b>'
     
     try:
+        new_tg = generate_next_user_id()
         new_user = User(
-            tg=telegram_user_id,
+            tg=new_tg,
             telegram_id=telegram_user_id,
             name=username,
             pwd=password,
@@ -12645,8 +12643,9 @@ def create_gift_account(chat_id, telegram_user_id, username, gift_code, gift_dat
     
     try:
         # 创建新用户
+        new_tg = generate_next_user_id()
         new_user = User(
-            tg=telegram_user_id,  # 使用 Telegram ID 作为主键
+            tg=new_tg,  # 系统自增正整数 ID
             telegram_id=telegram_user_id,
             name=username,
             pwd=password,

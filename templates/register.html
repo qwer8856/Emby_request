@@ -524,9 +524,9 @@
                     <div class="input-wrapper">
                         <span class="input-icon">👤</span>
                         <input type="text" id="username" name="username" placeholder="请输入用户名" required 
-                               minlength="3" maxlength="20" oninput="validateUsername()">
+                               minlength="1" maxlength="20" oninput="validateUsername()">
                     </div>
-                    <div class="hint">3-20个字符，支持字母、数字、下划线</div>
+                    <div class="hint">1-20个字符，支持中文、字母、数字、下划线</div>
                     <div class="error-text" id="usernameError"></div>
                 </div>
                 
@@ -534,20 +534,20 @@
                     <label for="password">密码</label>
                     <div class="input-wrapper">
                         <span class="input-icon">🔒</span>
-                        <input type="password" id="password" name="password" placeholder="请输入密码" required
-                               minlength="6" maxlength="32" oninput="checkPasswordStrength()">
+                        <input type="password" id="password" name="password" placeholder="请输入密码"
+                               maxlength="32" oninput="checkPasswordStrength()">
                     </div>
                     <div class="password-strength" id="passwordStrength">
                         <div class="bar"></div>
                     </div>
-                    <div class="hint">6-32个字符，建议包含字母和数字</div>
+                    <div class="hint">密码可为空，最长32个字符</div>
                 </div>
                 
                 <div class="form-group">
                     <label for="confirmPassword">确认密码</label>
                     <div class="input-wrapper">
                         <span class="input-icon">🔐</span>
-                        <input type="password" id="confirmPassword" name="confirmPassword" placeholder="请再次输入密码" required
+                        <input type="password" id="confirmPassword" name="confirmPassword" placeholder="请再次输入密码"
                                oninput="validateConfirmPassword()">
                     </div>
                     <div class="error-text" id="confirmPasswordError"></div>
@@ -611,28 +611,28 @@
             const error = document.getElementById('usernameError');
             const value = input.value.trim();
             
-            if (value.length > 0 && value.length < 3) {
-                error.textContent = '用户名至少3个字符';
+            if (value.length > 0 && value.length < 1) {
+                error.textContent = '用户名至少1个字符';
                 input.classList.add('error');
                 return false;
             }
             
-            if (value.length > 0 && !/^[a-zA-Z0-9_]+$/.test(value)) {
-                error.textContent = '用户名只能包含字母、数字、下划线';
+            if (value.length > 0 && !/^[a-zA-Z0-9_\u4e00-\u9fff]+$/.test(value)) {
+                error.textContent = '用户名只能包含中文、字母、数字、下划线';
                 input.classList.add('error');
                 return false;
             }
             
             error.textContent = '';
             input.classList.remove('error');
-            return value.length >= 3;
+            return value.length >= 1;
         }
         
         function checkPasswordStrength() {
             const password = document.getElementById('password').value;
             const strength = document.getElementById('passwordStrength');
             
-            if (password.length < 6) {
+            if (password.length === 0) {
                 strength.className = 'password-strength';
                 return;
             }
@@ -657,7 +657,7 @@
             const confirm = document.getElementById('confirmPassword');
             const error = document.getElementById('confirmPasswordError');
             
-            if (confirm.value.length > 0 && confirm.value !== password) {
+            if (confirm.value !== password) {
                 error.textContent = '两次输入的密码不一致';
                 confirm.classList.add('error');
                 return false;
@@ -665,7 +665,7 @@
             
             error.textContent = '';
             confirm.classList.remove('error');
-            return confirm.value === password && confirm.value.length > 0;
+            return confirm.value === password;
         }
         
         async function handleRegister(e) {

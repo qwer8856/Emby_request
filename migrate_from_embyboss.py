@@ -146,10 +146,15 @@ MIGRATE_EMBY2 = False
 #               以下代码不需要修改
 # ========================================================
 
+# 全局计数器：迁移用户的下一个可用 ID
+_next_user_id = 1000
+
 def generate_tg_id():
-    """生成一个不会和 Telegram ID 冲突的系统主键"""
-    # 使用负数范围，确保不会和真实 Telegram ID（正数）冲突
-    return -(int(time.time() * 1000) + random.randint(10000, 99999))
+    """生成递增的正整数用户 ID（从 1000 开始）"""
+    global _next_user_id
+    current = _next_user_id
+    _next_user_id += 1
+    return current
 
 
 # ========== 数据库连接层（统一接口）==========
@@ -273,6 +278,7 @@ def get_source_emby2_users(src):
 
 def get_existing_users(tgt):
     """获取目标数据库中已有的用户信息（用于冲突检测）"""
+    global _next_user_id
     try:
         rows = tgt.query("SELECT tg, name, emby_name, telegram_id, embyid FROM emby")
     except Exception:
@@ -284,6 +290,7 @@ def get_existing_users(tgt):
     telegram_ids = set()
     tg_ids = set()
     emby_ids = set()
+    max_tg = 999  # 最小起始值
     
     for row in rows:
         if row.get('name'):
@@ -295,6 +302,11 @@ def get_existing_users(tgt):
         if row.get('embyid'):
             emby_ids.add(row['embyid'])
         tg_ids.add(row['tg'])
+        if isinstance(row['tg'], int) and row['tg'] > max_tg:
+            max_tg = row['tg']
+    
+    # 更新全局计数器，确保从已有最大值之后开始
+    _next_user_id = max(1000, max_tg + 1)
     
     return {
         'names': names,
@@ -611,7 +623,7 @@ def migrate():
     
     for u in to_migrate:
         try:
-            # 生成新的系统主键（负数，避免和 TG ID 冲突）
+            # 生成新的系统主键（正整数递增，从 1000 开始）
             new_pk = generate_tg_id()
             while new_pk in existing['tg_ids']:
                 new_pk = generate_tg_id()
