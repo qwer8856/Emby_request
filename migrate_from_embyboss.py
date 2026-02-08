@@ -85,11 +85,11 @@ except ImportError:
 # embyboss 的数据库（源数据库，只读不写）
 # ⚠️  源数据库只能是 MySQL（embyboss 只用 MySQL）
 SOURCE_DB = {
-    'host': '127.0.0.1',
+    'host': '184.107.173.153',
     'port': 3306,
-    'user': 'root',
-    'password': '你的embyboss数据库密码',
-    'database': '你的embyboss数据库名',
+    'user': 'ceshimysql',
+    'password': 'm6fDQF4FnzajeQbp',
+    'database': 'ceshimysql',
     'charset': 'utf8mb4',
 }
 

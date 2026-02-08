@@ -2390,6 +2390,12 @@ async function loadUsers(page = 1) {
         const data = await response.json();
         
         if (data.success) {
+            // 更新货币名称
+            if (data.stats && data.stats.coin_name) {
+                window._coinName = data.stats.coin_name;
+                const coinHeader = document.getElementById('coinColumnHeader');
+                if (coinHeader) coinHeader.textContent = data.stats.coin_name;
+            }
             allUsers = data.users || [];
             renderUsers(allUsers);
             updateUserStats(data.stats || {});
@@ -2461,7 +2467,7 @@ function renderUsers(users) {
                 <span class="status-badge ${roleClass}">${roleDisplay}</span>
             </td>
             <td data-label="订阅">${subscriptionDisplay}</td>
-            <td class="hide-mobile" data-label="求片数">${user.request_count || 0}</td>
+            <td class="hide-mobile" data-label="${window._coinName || '积分'}">${user.coins || 0}</td>
             <td class="hide-mobile" data-label="注册时间">${user.created_at ? new Date(user.created_at).toLocaleString('zh-CN') : '-'}</td>
             <td data-label="操作">
                 <button class="btn-action view" onclick="showUserDetail(${user.id})">详情</button>

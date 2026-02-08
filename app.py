@@ -19236,12 +19236,13 @@ def admin_get_users():
         end_idx = start_idx + per_page
         paginated_users = all_filtered_users[start_idx:end_idx]
         
+        # 获取货币名称配置
+        checkin_config = get_db_config('checkin', {})
+        coin_name = checkin_config.get('coin_name', '积分')
+        
         # 用户数据
         user_list = []
         for user in paginated_users:
-            # 获取该用户的求片数
-            request_count = MovieRequest.query.filter_by(user_tg=user.tg).count()
-            
             # 订阅状态逻辑：
             # 1. 白名单用户永远视为已订阅
             # 2. 有有效到期时间的用户视为已订阅
@@ -19266,7 +19267,7 @@ def admin_get_users():
                 'level': user.lv,
                 'subscription_status': subscription_status,
                 'subscription_end': subscription_end,
-                'request_count': request_count,
+                'coins': user.coins or 0,
                 'created_at': user.cr.isoformat() if user.cr else None
             })
         
@@ -19284,7 +19285,8 @@ def admin_get_users():
             'stats': {
                 'total': total_users,
                 'admins': admin_users,
-                'subscribed': subscribed_users
+                'subscribed': subscribed_users,
+                'coin_name': coin_name
             }
         }), 200
     except Exception as e:
