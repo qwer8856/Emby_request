@@ -9786,6 +9786,11 @@ def telegram_webhook():
     if callback_query:
         return handle_callback_query(callback_query)
     
+    # 处理 chat_member 事件（用户退群/被踢 → 硬删除账号）
+    chat_member_update = data.get('chat_member')
+    if chat_member_update:
+        return handle_chat_member_update(chat_member_update)
+    
     # 处理消息
     message = data.get('message', {})
     if not message:
@@ -10582,7 +10587,7 @@ def telegram_webhook():
             'inline_keyboard': [
                 [
                     {'text': '🎁 赠送资格', 'callback_data': f'kk_gift_{target_user_id}'},
-                    {'text': '🚫 踢出并封禁', 'callback_data': f'kk_kick_{target_user_id}'}
+                    {'text': '🚫 踢出并删除', 'callback_data': f'kk_kick_{target_user_id}'}
                 ],
                 [
                     {'text': '🗑️ 删除消息', 'callback_data': 'kk_delete_0'}
@@ -11474,7 +11479,7 @@ def handle_reject_reason_input(chat_id, admin_id, text):
 
 
 def handle_kk_kick(callback_id, chat_id, message_id, target_user_id, target_username, operator_name):
-    """处理踢出并封禁回调"""
+    """处理踢出并硬删除回调：踢出群组 + 删除 Emby 账号 + 删除网站账号"""
     
     if not target_user_id:
         answer_callback_query(callback_id, "❌ 无法识别目标用户（需要用户 ID）", show_alert=True)
@@ -11484,28 +11489,23 @@ def handle_kk_kick(callback_id, chat_id, message_id, target_user_id, target_user
     display_name = f"@{html_escape(target_username)}" if target_username else str(target_user_id)
     safe_operator_name = html_escape(str(operator_name)) if operator_name else '未知'
     
-    # 1. 在数据库中封禁用户
-    existing_user = User.query.filter_by(telegram_id=target_user_id).first()
-    if not existing_user:
-        # 兼容：telegram_id 未绑定的用户，尝试用 tg 主键查找
-        existing_user = db.session.get(User, target_user_id)
-    if existing_user:
-        existing_user.ban_prev_lv = existing_user.lv
-        existing_user.ban_prev_ex = existing_user.ex
-        existing_user.ban_time = datetime.now()
-        existing_user.ban_reason = f'被管理员 {operator_name} 通过 /kk 踢出封禁'
-        existing_user.lv = 'c'  # 封禁状态
-        # 禁用Emby账号
-        if existing_user.embyid and emby_client.is_enabled():
-            emby_client.disable_user(existing_user.embyid)
-        db.session.commit()
-        app.logger.info(f'[/kk kick] 已封禁用户 {existing_user.emby_name or existing_user.name} (tg_id={target_user_id})')
-    
-    # 2. 从群组踢出用户
+    # 1. 从群组踢出用户
     kick_result = kick_chat_member(TELEGRAM_CHAT_ID, target_user_id)
     
+    # 2. 硬删除：删除 Emby 账号 + 删除网站账号及所有关联数据
+    delete_result = hard_delete_user_data(target_user_id, reason=f'被管理员 {operator_name} 通过 /kk 踢出删除')
+    
     # 3. 更新消息显示结果
-    result_message = f"""🚫 <b>用户已被处理</b>
+    if delete_result['found']:
+        account_status = f"✅ 已删除（用户: {html_escape(delete_result['user_name'])}）"
+        if delete_result['emby_deleted']:
+            account_status += '\n• Emby 账号: ✅ 已删除'
+        emby_line = f"\n• Emby 账号: {'✅ 已删除' if delete_result['emby_deleted'] else '⚠️ 无 Emby 账号或删除失败'}"
+    else:
+        account_status = '⚠️ 该用户无网站账号'
+        emby_line = ''
+    
+    result_message = f"""🚫 <b>用户已被踢出并删除</b>
 
 用户: {display_name}
 TG ID: <code>{target_user_id}</code>
@@ -11513,12 +11513,172 @@ TG ID: <code>{target_user_id}</code>
 
 状态:
 • 群组踢出: {'✅ 成功' if kick_result else '❌ 失败（可能已不在群中或权限不足）'}
-• 账号封禁: {'✅ 已封禁' if existing_user else '⚠️ 该用户无网站账号'}"""
+• 网站账号: {account_status}{emby_line}"""
     
     edit_telegram_message(chat_id, message_id, result_message, None)
     
-    answer_callback_query(callback_id, "✅ 用户已被踢出并封禁")
-    app.logger.info(f'[/kk kick] 管理员 {operator_name} 踢出并封禁 {display_name}')
+    answer_callback_query(callback_id, "✅ 用户已被踢出并删除")
+    app.logger.info(f'[/kk kick] 管理员 {operator_name} 踢出并删除 {display_name}, 结果: {delete_result}')
+    
+    return jsonify({'ok': True})
+
+
+def hard_delete_user_data(user_tg_id, reason='未知'):
+    """硬删除用户：删除 Emby 账号 + 删除网站账号及所有关联数据
+    
+    Args:
+        user_tg_id: 用户的 Telegram ID（也是数据库主键 tg）
+        reason: 删除原因（用于日志）
+        
+    Returns:
+        dict: {'found': bool, 'user_name': str, 'emby_deleted': bool, 'db_deleted': bool}
+    """
+    result = {'found': False, 'user_name': '', 'emby_deleted': False, 'db_deleted': False}
+    
+    try:
+        # 查找用户
+        user = User.query.filter_by(telegram_id=user_tg_id).first()
+        if not user:
+            user = db.session.get(User, user_tg_id)
+        if not user:
+            app.logger.info(f'[硬删除] 未找到用户 tg_id={user_tg_id}，跳过')
+            return result
+        
+        result['found'] = True
+        result['user_name'] = user.emby_name or user.name or str(user_tg_id)
+        user_tg = user.tg  # 数据库主键
+        emby_id = user.embyid
+        
+        # 防止删除管理员
+        if user.is_admin:
+            app.logger.warning(f'[硬删除] 拒绝删除管理员 {result["user_name"]} (tg={user_tg})')
+            result['found'] = False  # 标记为不处理
+            return result
+        
+        # 1. 删除 Emby 服务器上的账号
+        if emby_id and emby_client.is_enabled():
+            try:
+                result['emby_deleted'] = emby_client.delete_user(emby_id)
+                if result['emby_deleted']:
+                    app.logger.info(f'[硬删除] Emby 账号已删除: {emby_id}')
+                else:
+                    app.logger.warning(f'[硬删除] Emby 账号删除失败: {emby_id}')
+            except Exception as e:
+                app.logger.error(f'[硬删除] 删除 Emby 账号异常: {e}')
+        
+        # 2. 删除所有关联数据
+        try:
+            PlaybackRecord.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+            UserDevice.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+            Subscription.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+            Order.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+            # 下载任务（有外键引用 movie_requests）
+            request_ids = [r.id for r in MovieRequest.query.filter_by(user_tg=user_tg).all()]
+            if request_ids:
+                DownloadTask.query.filter(DownloadTask.request_id.in_(request_ids)).delete(synchronize_session=False)
+            MovieRequest.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+            # 工单（先删消息）
+            ticket_ids = [t.id for t in SupportTicket.query.filter_by(user_tg=user_tg).all()]
+            if ticket_ids:
+                TicketMessage.query.filter(TicketMessage.ticket_id.in_(ticket_ids)).delete(synchronize_session=False)
+            SupportTicket.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+            InviteRecord.query.filter((InviteRecord.inviter_tg == user_tg) | (InviteRecord.invitee_tg == user_tg)).delete(synchronize_session=False)
+            UserActivityLog.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+            CheckInRecord.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+            CoinTransaction.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+            ExchangeRecord.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
+            RedeemCode.query.filter_by(used_by=user_tg).update({'used_by': None}, synchronize_session=False)
+            
+            # 删除用户本身
+            db.session.delete(user)
+            db.session.commit()
+            result['db_deleted'] = True
+            app.logger.info(f'[硬删除] 用户数据已删除: {result["user_name"]} (tg={user_tg}), 原因: {reason}')
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f'[硬删除] 删除用户数据失败: {e}')
+    except Exception as e:
+        app.logger.error(f'[硬删除] 处理异常: user_tg_id={user_tg_id}, error={e}')
+    
+    return result
+
+
+def handle_chat_member_update(chat_member_update):
+    """处理 chat_member 事件：用户退群或被踢时自动硬删除账号
+    
+    Telegram 推送格式:
+    {
+        "chat": {"id": ..., "type": "supergroup"},
+        "from": {"id": ...},  // 操作者（退群时是用户自己，被踢时是管理员）
+        "date": ...,
+        "old_chat_member": {"user": {"id": ...}, "status": "member"},
+        "new_chat_member": {"user": {"id": ...}, "status": "left"/"kicked"}
+    }
+    """
+    try:
+        chat = chat_member_update.get('chat', {})
+        chat_id = chat.get('id')
+        
+        # 只处理授权群组的事件
+        if TELEGRAM_CHAT_ID and str(chat_id) != str(TELEGRAM_CHAT_ID):
+            return jsonify({'ok': True})
+        
+        old_member = chat_member_update.get('old_chat_member', {})
+        new_member = chat_member_update.get('new_chat_member', {})
+        
+        old_status = old_member.get('status', '')
+        new_status = new_member.get('status', '')
+        
+        target_user = new_member.get('user', {})
+        target_user_id = target_user.get('id')
+        target_first_name = target_user.get('first_name', '')
+        target_username = target_user.get('username', '')
+        
+        from_user = chat_member_update.get('from', {})
+        from_user_id = from_user.get('id')
+        from_first_name = from_user.get('first_name', '')
+        
+        if not target_user_id:
+            return jsonify({'ok': True})
+        
+        # 判断是否是离开/被踢事件
+        # old_status 为 member/administrator/restricted 且 new_status 为 left/kicked
+        is_leaving = (old_status in ('member', 'administrator', 'restricted', 'creator') 
+                      and new_status in ('left', 'kicked'))
+        
+        if not is_leaving:
+            return jsonify({'ok': True})
+        
+        # 判断是主动退群还是被踢
+        is_self_leave = (from_user_id == target_user_id)
+        
+        if is_self_leave:
+            reason = '用户主动退群'
+            app.logger.info(f'[退群删号] 用户 {target_first_name}({target_user_id}) 主动退出群组，开始硬删除...')
+        else:
+            reason = f'被管理员 {from_first_name}({from_user_id}) 踢出群组'
+            app.logger.info(f'[退群删号] 用户 {target_first_name}({target_user_id}) 被踢出群组，开始硬删除...')
+        
+        # 执行硬删除
+        delete_result = hard_delete_user_data(target_user_id, reason=reason)
+        
+        display_name = f"@{target_username}" if target_username else target_first_name or str(target_user_id)
+        
+        # 在群组中发送通知
+        if delete_result['found'] and delete_result['db_deleted']:
+            emby_info = '，Emby 账号已删除' if delete_result['emby_deleted'] else ''
+            notice = f"✅ <b>{display_name}</b> 已离开群组，其网站账号已删除{emby_info}"
+            send_telegram_reply(chat_id, notice)
+            app.logger.info(f'[退群删号] 已处理: {display_name}, 结果: {delete_result}')
+        elif delete_result['found'] and not delete_result['db_deleted']:
+            notice = f"⚠️ <b>{display_name}</b> 已离开群组，但账号删除失败，请管理员手动检查"
+            send_telegram_reply(chat_id, notice)
+            app.logger.warning(f'[退群删号] 删除失败: {display_name}, 结果: {delete_result}')
+        else:
+            app.logger.info(f'[退群删号] 用户 {display_name} 离开群组，但无网站账号，无需处理')
+        
+    except Exception as e:
+        app.logger.error(f'[退群删号] 处理 chat_member 事件异常: {e}')
     
     return jsonify({'ok': True})
 
@@ -12495,7 +12655,7 @@ def setup_telegram_webhook():
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
             payload = {
                 'url': webhook_url,
-                'allowed_updates': ['message', 'callback_query'],
+                'allowed_updates': ['message', 'callback_query', 'chat_member'],
                 'drop_pending_updates': True
             }
             app.logger.info(f'[Webhook模式] 发送设置请求 - payload: {payload}')
@@ -18525,7 +18685,7 @@ def admin_reset_user_password(user_id):
 @app.route('/api/admin/users/<int:user_id>/delete', methods=['DELETE'])
 @admin_required
 def admin_delete_user(user_id):
-    """管理员删除用户账号"""
+    """管理员删除用户账号（复用 hard_delete_user_data）"""
     try:
         user = db.session.get(User, user_id)
         if not user:
@@ -18536,61 +18696,19 @@ def admin_delete_user(user_id):
             return jsonify({'success': False, 'error': '不能删除管理员账户'}), 400
         
         user_name = user.name
-        user_tg = user.tg
-        emby_id = user.embyid
         
-        # 先删除 Emby 账号（如果有）
-        emby_deleted = False
-        if emby_id and emby_client.is_enabled():
-            try:
-                emby_deleted = emby_client.delete_user(emby_id)
-            except Exception as e:
-                app.logger.warning(f'删除Emby账号失败: {e}')
+        # 调用通用硬删除函数
+        result = hard_delete_user_data(user_id, reason='管理员手动删除')
         
-        # 删除相关记录
-        # 先删除播放记录（有外键引用 user_devices 和 emby）
-        PlaybackRecord.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
-        # 删除用户设备
-        UserDevice.query.filter_by(user_tg=user_tg).delete()
-        # 删除用户订阅
-        Subscription.query.filter_by(user_tg=user_tg).delete()
-        # 删除用户订单
-        Order.query.filter_by(user_tg=user_tg).delete()
-        # 删除下载任务（先删除，因为有外键引用 movie_requests）
-        request_ids = [r.id for r in MovieRequest.query.filter_by(user_tg=user_tg).all()]
-        if request_ids:
-            DownloadTask.query.filter(DownloadTask.request_id.in_(request_ids)).delete(synchronize_session=False)
-        # 删除用户求片记录
-        MovieRequest.query.filter_by(user_tg=user_tg).delete()
-        # 删除用户工单（先删除工单消息）
-        ticket_ids = [t.id for t in SupportTicket.query.filter_by(user_tg=user_tg).all()]
-        if ticket_ids:
-            TicketMessage.query.filter(TicketMessage.ticket_id.in_(ticket_ids)).delete(synchronize_session=False)
-        SupportTicket.query.filter_by(user_tg=user_tg).delete()
-        # 删除邀请记录（作为邀请人和被邀请人）
-        InviteRecord.query.filter((InviteRecord.inviter_tg == user_tg) | (InviteRecord.invitee_tg == user_tg)).delete(synchronize_session=False)
-        # 删除用户活动日志
-        UserActivityLog.query.filter_by(user_tg=user_tg).delete()
-        # 删除签到记录
-        CheckInRecord.query.filter_by(user_tg=user_tg).delete()
-        # 删除积分交易记录
-        CoinTransaction.query.filter_by(user_tg=user_tg).delete()
-        # 删除兑换记录
-        ExchangeRecord.query.filter_by(user_tg=user_tg).delete()
-        # 清除兑换码使用者引用（不删除兑换码本身）
-        RedeemCode.query.filter_by(used_by=user_tg).update({'used_by': None}, synchronize_session=False)
-        
-        # 最后删除用户
-        db.session.delete(user)
-        db.session.commit()
-        
-        app.logger.info(f'管理员删除用户账号: {user_name} (tg={user_tg}, emby_deleted={emby_deleted})')
-        
-        return jsonify({
-            'success': True,
-            'message': f'用户 {user_name} 已删除',
-            'emby_deleted': emby_deleted
-        }), 200
+        if result['db_deleted']:
+            app.logger.info(f'管理员删除用户账号: {user_name} (tg={user_id}, emby_deleted={result["emby_deleted"]})')
+            return jsonify({
+                'success': True,
+                'message': f'用户 {user_name} 已删除',
+                'emby_deleted': result['emby_deleted']
+            }), 200
+        else:
+            return jsonify({'success': False, 'error': '删除用户数据失败，请查看日志'}), 500
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'删除用户账号失败: {e}')
