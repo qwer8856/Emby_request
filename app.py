@@ -11479,7 +11479,12 @@ def handle_reject_reason_input(chat_id, admin_id, text):
 
 
 def handle_kk_kick(callback_id, chat_id, message_id, target_user_id, target_username, operator_name):
-    """处理踢出并硬删除回调：踢出群组 + 删除 Emby 账号 + 删除网站账号"""
+    """处理踢出并硬删除回调：删除账号 + 踢出群组
+    
+    注意：必须先硬删除再踢出，因为踢出(banChatMember)会触发 chat_member 事件，
+    如果先踢再删，chat_member 事件处理器可能抢先执行导致重复操作。
+    先删除后，chat_member 事件触发时用户已不存在，会自然跳过。
+    """
     
     if not target_user_id:
         answer_callback_query(callback_id, "❌ 无法识别目标用户（需要用户 ID）", show_alert=True)
@@ -11489,20 +11494,20 @@ def handle_kk_kick(callback_id, chat_id, message_id, target_user_id, target_user
     display_name = f"@{html_escape(target_username)}" if target_username else str(target_user_id)
     safe_operator_name = html_escape(str(operator_name)) if operator_name else '未知'
     
-    # 1. 从群组踢出用户
-    kick_result = kick_chat_member(TELEGRAM_CHAT_ID, target_user_id)
-    
-    # 2. 硬删除：删除 Emby 账号 + 删除网站账号及所有关联数据
+    # 1. 先硬删除：删除 Emby 账号 + 删除网站账号及所有关联数据
     delete_result = hard_delete_user_data(target_user_id, reason=f'被管理员 {operator_name} 通过 /kk 踢出删除')
+    
+    # 2. 再从群组踢出用户（踢出会触发 chat_member 事件，但此时用户已被删除，事件处理器会自然跳过）
+    kick_result = kick_chat_member(TELEGRAM_CHAT_ID, target_user_id)
     
     # 3. 更新消息显示结果
     if delete_result['found']:
-        account_status = f"✅ 已删除（用户: {html_escape(delete_result['user_name'])}）"
-        if delete_result['emby_deleted']:
-            account_status += '\n• Emby 账号: ✅ 已删除'
-        emby_line = f"\n• Emby 账号: {'✅ 已删除' if delete_result['emby_deleted'] else '⚠️ 无 Emby 账号或删除失败'}"
+        safe_user_name = html_escape(delete_result['user_name'])
+        emby_status = '✅ 已删除' if delete_result['emby_deleted'] else '⚠️ 无 Emby 账号或删除失败'
+        account_line = f"✅ 已删除（用户: {safe_user_name}）"
+        emby_line = f"\n• Emby 账号: {emby_status}"
     else:
-        account_status = '⚠️ 该用户无网站账号'
+        account_line = '⚠️ 该用户无网站账号'
         emby_line = ''
     
     result_message = f"""🚫 <b>用户已被踢出并删除</b>
@@ -11513,7 +11518,7 @@ TG ID: <code>{target_user_id}</code>
 
 状态:
 • 群组踢出: {'✅ 成功' if kick_result else '❌ 失败（可能已不在群中或权限不足）'}
-• 网站账号: {account_status}{emby_line}"""
+• 网站账号: {account_line}{emby_line}"""
     
     edit_telegram_message(chat_id, message_id, result_message, None)
     
@@ -11662,7 +11667,10 @@ def handle_chat_member_update(chat_member_update):
         # 执行硬删除
         delete_result = hard_delete_user_data(target_user_id, reason=reason)
         
-        display_name = f"@{target_username}" if target_username else target_first_name or str(target_user_id)
+        from html import escape as html_escape
+        safe_first_name = html_escape(target_first_name) if target_first_name else ''
+        safe_username = html_escape(target_username) if target_username else ''
+        display_name = f"@{safe_username}" if safe_username else safe_first_name or str(target_user_id)
         
         # 在群组中发送通知
         if delete_result['found'] and delete_result['db_deleted']:
@@ -13144,58 +13152,12 @@ def batch_users():
                     emby_client.enable_user(user.embyid)
                 success_count += 1
             elif action == 'delete':
-                # 防止删除管理员
-                if user.is_admin:
+                # 复用通用硬删除函数
+                del_result = hard_delete_user_data(uid, reason='管理员批量删除')
+                if del_result['db_deleted']:
+                    success_count += 1
+                else:
                     fail_count += 1
-                    continue
-                
-                user_tg = user.tg
-                
-                # 先删除 Emby 账号（如果有）
-                if user.embyid and emby_client.is_enabled():
-                    try:
-                        emby_client.delete_user(user.embyid)
-                    except Exception as emby_err:
-                        app.logger.warning(f'批量删除: Emby账号删除失败 user={user.name}, err={emby_err}')
-                
-                # 删除所有关联数据（与单个删除保持一致）
-                # 1. 播放记录（有外键引用 emby.tg）
-                PlaybackRecord.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
-                # 2. 用户设备
-                UserDevice.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
-                # 3. 订阅记录
-                Subscription.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
-                # 4. 订单记录
-                Order.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
-                # 5. 下载任务（有外键引用 movie_requests.id，必须先删）
-                request_ids = [r.id for r in MovieRequest.query.filter_by(user_tg=user_tg).all()]
-                if request_ids:
-                    DownloadTask.query.filter(DownloadTask.request_id.in_(request_ids)).delete(synchronize_session=False)
-                # 6. 求片记录
-                MovieRequest.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
-                # 7. 工单消息和工单
-                ticket_ids = [t.id for t in SupportTicket.query.filter_by(user_tg=user_tg).all()]
-                if ticket_ids:
-                    TicketMessage.query.filter(TicketMessage.ticket_id.in_(ticket_ids)).delete(synchronize_session=False)
-                SupportTicket.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
-                # 8. 邀请记录
-                InviteRecord.query.filter(
-                    (InviteRecord.inviter_tg == user_tg) | (InviteRecord.invitee_tg == user_tg)
-                ).delete(synchronize_session=False)
-                # 9. 用户活动日志
-                UserActivityLog.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
-                # 10. 签到记录
-                CheckInRecord.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
-                # 11. 积分交易记录
-                CoinTransaction.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
-                # 12. 兑换记录
-                ExchangeRecord.query.filter_by(user_tg=user_tg).delete(synchronize_session=False)
-                # 13. 清除兑换码使用者引用
-                RedeemCode.query.filter_by(used_by=user_tg).update({'used_by': None}, synchronize_session=False)
-                
-                # 最后删除用户
-                db.session.delete(user)
-                success_count += 1
             elif action == 'gift':
                 # 批量赠送订阅
                 gift_days = int(days) if days else 30
