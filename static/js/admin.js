@@ -6550,6 +6550,22 @@ async function loadUserDetails(userId) {
                 <div class="value">${user.name}</div>
             </div>
             <div class="info-item">
+                <div class="label">网站密码</div>
+                <div class="value" style="display:flex;align-items:center;gap:6px;">
+                    <span id="pwdMask_${userId}">••••••</span>
+                    <span id="pwdReal_${userId}" style="display:none;">${user.pwd || '<span style="color:#999;">空</span>'}</span>
+                    <button onclick="togglePwd('${userId}')" style="background:none;border:none;cursor:pointer;font-size:16px;padding:0;line-height:1;" title="查看密码">👁</button>
+                </div>
+            </div>
+            <div class="info-item">
+                <div class="label">Emby 密码</div>
+                <div class="value" style="display:flex;align-items:center;gap:6px;">
+                    <span id="pwd2Mask_${userId}">••••••</span>
+                    <span id="pwd2Real_${userId}" style="display:none;">${user.pwd2 || '<span style="color:#999;">空</span>'}</span>
+                    <button onclick="togglePwd2('${userId}')" style="background:none;border:none;cursor:pointer;font-size:16px;padding:0;line-height:1;" title="查看密码">👁</button>
+                </div>
+            </div>
+            <div class="info-item">
                 <div class="label">Telegram ID</div>
                 <div class="value">${user.telegram_id ? user.telegram_id : '<span style="color:#999;">未绑定</span>'}</div>
             </div>
@@ -6838,6 +6854,32 @@ async function saveUserInviteRewardConfig(userId) {
     } catch (error) {
         console.error('保存用户返利配置失败:', error);
         showToast('错误', '保存失败: ' + error.message, 'error');
+    }
+}
+
+// 切换网站密码显示/隐藏
+function togglePwd(userId) {
+    const mask = document.getElementById('pwdMask_' + userId);
+    const real = document.getElementById('pwdReal_' + userId);
+    if (mask.style.display === 'none') {
+        mask.style.display = '';
+        real.style.display = 'none';
+    } else {
+        mask.style.display = 'none';
+        real.style.display = '';
+    }
+}
+
+// 切换 Emby 密码显示/隐藏
+function togglePwd2(userId) {
+    const mask = document.getElementById('pwd2Mask_' + userId);
+    const real = document.getElementById('pwd2Real_' + userId);
+    if (mask.style.display === 'none') {
+        mask.style.display = '';
+        real.style.display = 'none';
+    } else {
+        mask.style.display = 'none';
+        real.style.display = '';
     }
 }
 

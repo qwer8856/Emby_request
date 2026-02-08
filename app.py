@@ -19751,6 +19751,8 @@ def admin_get_user_details(user_id):
             'user': {
                 'id': user.tg,
                 'name': user.name,
+                'pwd': user.pwd or '',  # 网站密码（管理员查看用）
+                'pwd2': user.pwd2 or '',  # Emby 密码（管理员查看用）
                 'telegram_id': user.telegram_id,  # 只有绑定了才有值
                 'emby_id': user.embyid,
                 'emby_name': user.emby_name,  # Emby 用户名（独立字段）
