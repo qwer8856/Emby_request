@@ -11213,8 +11213,8 @@ def handle_kk_gift(callback_id, chat_id, message_id, target_user_id, target_user
         ]]
     }
     
-    # 更新原消息为赠送消息
-    edit_telegram_message(chat_id, message_id, gift_message, reply_markup)
+    # 更新原消息为赠送消息（赠送消息不自动撤回，需要用户点击领取）
+    edit_telegram_message(chat_id, message_id, gift_message, reply_markup, auto_delete=0)
     
     # 日志记录
     operator_log_name = operator_username or operator_first_name or operator_id
@@ -11719,8 +11719,12 @@ def kick_chat_member(chat_id, user_id):
         return False
 
 
-def edit_telegram_message(chat_id, message_id, text, reply_markup=None):
-    """编辑 Telegram 消息"""
+def edit_telegram_message(chat_id, message_id, text, reply_markup=None, auto_delete=None):
+    """编辑 Telegram 消息
+    
+    Args:
+        auto_delete: 编辑后自动撤回延迟秒数。None=群组自动撤回, 0=不撤回, >0=指定延迟
+    """
     if not TELEGRAM_BOT_TOKEN:
         return False
     
@@ -11739,6 +11743,11 @@ def edit_telegram_message(chat_id, message_id, text, reply_markup=None):
         data = response.json()
         
         if data.get('ok'):
+            # 编辑后也支持自动撤回
+            if auto_delete is None and _is_group_chat(chat_id) and BOT_AUTO_DELETE_SECONDS > 0:
+                schedule_delete_message(chat_id, message_id)
+            elif auto_delete and auto_delete > 0:
+                schedule_delete_message(chat_id, message_id, delay=auto_delete)
             return True
         else:
             app.logger.warning(f'[编辑消息] 编辑失败: {data.get("description", "未知错误")}')
@@ -12020,8 +12029,18 @@ def create_gift_account(chat_id, telegram_user_id, username, gift_code, gift_dat
         return jsonify({'ok': True})
 
 
-def send_telegram_reply(chat_id, text, reply_markup=None):
-    """发送 Telegram 消息（支持 inline button）"""
+def send_telegram_reply(chat_id, text, reply_markup=None, auto_delete=None):
+    """发送 Telegram 消息（支持 inline button）
+    
+    Args:
+        chat_id: 聊天 ID
+        text: 消息文本
+        reply_markup: 内联键盘
+        auto_delete: 自动撤回延迟秒数。None=群组自动撤回/私聊不撤回, 0=不撤回, >0=指定延迟
+    
+    Returns:
+        成功返回 message_id (int)，失败返回 False
+    """
     if not TELEGRAM_BOT_TOKEN:
         app.logger.warning(f'[发送消息] Bot Token 未配置，无法发送到 chat_id={chat_id}')
         return False
@@ -12041,8 +12060,16 @@ def send_telegram_reply(chat_id, text, reply_markup=None):
         data = response.json()
         
         if data.get('ok'):
-            app.logger.info(f'[发送消息] 发送成功到 chat_id={chat_id}')
-            return True
+            sent_msg_id = data.get('result', {}).get('message_id')
+            app.logger.info(f'[发送消息] 发送成功到 chat_id={chat_id}, message_id={sent_msg_id}')
+            
+            # 自动撤回逻辑：群组消息默认自动撤回
+            if auto_delete is None and _is_group_chat(chat_id) and BOT_AUTO_DELETE_SECONDS > 0:
+                schedule_delete_message(chat_id, sent_msg_id)
+            elif auto_delete and auto_delete > 0:
+                schedule_delete_message(chat_id, sent_msg_id, delay=auto_delete)
+            
+            return sent_msg_id or True
         else:
             error_desc = data.get('description', '未知错误')
             app.logger.error(f'[发送消息] 发送失败到 chat_id={chat_id}: {error_desc}')
@@ -12131,8 +12158,12 @@ def generate_captcha_image(code):
         return None
 
 
-def send_telegram_photo(chat_id, photo_bytes, caption=None):
-    """发送 Telegram 图片"""
+def send_telegram_photo(chat_id, photo_bytes, caption=None, auto_delete=None):
+    """发送 Telegram 图片
+    
+    Returns:
+        成功返回 message_id (int)，失败返回 False
+    """
     if not TELEGRAM_BOT_TOKEN:
         app.logger.warning(f'[发送图片] Bot Token 未配置，无法发送到 chat_id={chat_id}')
         return False
@@ -12158,8 +12189,16 @@ def send_telegram_photo(chat_id, photo_bytes, caption=None):
         result = response.json()
         
         if result.get('ok'):
-            app.logger.info(f'[发送图片] 发送成功到 chat_id={chat_id}')
-            return True
+            sent_msg_id = result.get('result', {}).get('message_id')
+            app.logger.info(f'[发送图片] 发送成功到 chat_id={chat_id}, message_id={sent_msg_id}')
+            
+            # 自动撤回逻辑
+            if auto_delete is None and _is_group_chat(chat_id) and BOT_AUTO_DELETE_SECONDS > 0:
+                schedule_delete_message(chat_id, sent_msg_id)
+            elif auto_delete and auto_delete > 0:
+                schedule_delete_message(chat_id, sent_msg_id, delay=auto_delete)
+            
+            return sent_msg_id or True
         else:
             error_desc = result.get('description', '未知错误')
             app.logger.error(f'[发送图片] 发送失败到 chat_id={chat_id}: {error_desc}')
@@ -12172,7 +12211,7 @@ def send_telegram_photo(chat_id, photo_bytes, caption=None):
         return False
 
 
-def send_telegram_photo_url(chat_id, photo_url, caption=None, reply_markup=None):
+def send_telegram_photo_url(chat_id, photo_url, caption=None, reply_markup=None, auto_delete=None):
     """通过 URL 发送 Telegram 图片
     
     Args:
@@ -12180,6 +12219,10 @@ def send_telegram_photo_url(chat_id, photo_url, caption=None, reply_markup=None)
         photo_url: 图片URL
         caption: 图片说明文字
         reply_markup: 内联键盘按钮
+        auto_delete: 自动撤回延迟秒数。None=群组自动撤回, 0=不撤回, >0=指定延迟
+    
+    Returns:
+        成功返回 message_id (int)，失败返回 False
     """
     if not TELEGRAM_BOT_TOKEN:
         app.logger.warning(f'[发送图片URL] Bot Token 未配置，无法发送到 chat_id={chat_id}')
@@ -12206,8 +12249,16 @@ def send_telegram_photo_url(chat_id, photo_url, caption=None, reply_markup=None)
         result = response.json()
         
         if result.get('ok'):
-            app.logger.info(f'[发送图片URL] 发送成功到 chat_id={chat_id}')
-            return result.get('result', {}).get('message_id')
+            sent_msg_id = result.get('result', {}).get('message_id')
+            app.logger.info(f'[发送图片URL] 发送成功到 chat_id={chat_id}, message_id={sent_msg_id}')
+            
+            # 自动撤回逻辑
+            if auto_delete is None and _is_group_chat(chat_id) and BOT_AUTO_DELETE_SECONDS > 0:
+                schedule_delete_message(chat_id, sent_msg_id)
+            elif auto_delete and auto_delete > 0:
+                schedule_delete_message(chat_id, sent_msg_id, delay=auto_delete)
+            
+            return sent_msg_id or True
         else:
             error_desc = result.get('description', '未知错误')
             app.logger.error(f'[发送图片URL] 发送失败到 chat_id={chat_id}: {error_desc}')
@@ -12308,6 +12359,42 @@ def build_start_panel(telegram_user_id, telegram_first_name, telegram_username):
     reply_markup = {'inline_keyboard': buttons}
     
     return caption, reply_markup, bot_photo
+
+
+# ===== Bot 消息自动撤回（群组消息30秒后自动删除） =====
+BOT_AUTO_DELETE_SECONDS = 30  # 群组消息自动撤回延迟（秒），设为 0 禁用
+
+def schedule_delete_message(chat_id, message_id, delay=None):
+    """延迟删除 Telegram 消息（用于群组消息自动撤回）
+    
+    Args:
+        chat_id: 聊天 ID
+        message_id: 消息 ID
+        delay: 延迟秒数，默认使用 BOT_AUTO_DELETE_SECONDS
+    """
+    if delay is None:
+        delay = BOT_AUTO_DELETE_SECONDS
+    if not message_id or delay <= 0:
+        return
+    
+    def _do_delete():
+        try:
+            delete_telegram_message(chat_id, message_id)
+            app.logger.debug(f'[自动撤回] 已删除消息 chat_id={chat_id}, message_id={message_id}')
+        except Exception as e:
+            app.logger.debug(f'[自动撤回] 删除失败: {e}')
+    
+    timer = threading.Timer(delay, _do_delete)
+    timer.daemon = True
+    timer.start()
+
+
+def _is_group_chat(chat_id):
+    """判断是否为群组聊天（群组 chat_id 为负数）"""
+    try:
+        return int(chat_id) < 0
+    except (TypeError, ValueError):
+        return False
 
 
 def delete_telegram_message(chat_id, message_id):
