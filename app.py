@@ -1953,6 +1953,27 @@ class EmbyClient:
     def is_enabled(self) -> bool:
         return bool(self.base_url and self.api_key)
 
+    @staticmethod
+    def _clean_policy_readonly_fields(policy: dict):
+        """移除 Emby Policy 中的只读字段，避免 POST 回去时返回 400 Bad Request
+        
+        不同版本的 Emby 对 Policy 字段的处理不一致：
+        - 某些版本接受完整的 Policy 对象直接回传
+        - 某些版本会因为包含只读字段而返回 400
+        移除这些字段是最安全的做法，不影响功能。
+        """
+        readonly_fields = [
+            'AuthenticationProviderId',
+            'PasswordResetProviderId', 
+            'InvalidLoginAttemptCount',
+            'LoginAttemptsBeforeLockout',
+            'MaxActiveSessions',
+            'RemoteClientBitrateLimit',
+            'AuthenticatedFolders',
+        ]
+        for field in readonly_fields:
+            policy.pop(field, None)
+
     def search_by_tmdb_id(self, tmdb_id: str, media_type: str = 'movie', timeout: int = 3) -> Optional[dict]:
         """通过 TMDB ID 查询 Emby 库中是否存在（带缓存，快速超时）"""
         if not self.is_enabled():
@@ -2870,6 +2891,9 @@ class EmbyClient:
             policy = user_info.get('Policy', {})
             policy['IsDisabled'] = True
             
+            # 移除可能导致 400 错误的只读字段（不同 Emby 版本对这些字段敏感度不同）
+            self._clean_policy_readonly_fields(policy)
+            
             # 更新用户策略
             policy_url = f"{self.base_url}/Users/{emby_user_id}/Policy"
             response = self.session.post(
@@ -2884,7 +2908,8 @@ class EmbyClient:
                 app.logger.info(f'已禁用 Emby 用户: {emby_user_id}')
                 return True
             else:
-                app.logger.warning(f'禁用用户失败: {emby_user_id}, status={response.status_code}')
+                resp_text = response.text[:500] if response.text else ''
+                app.logger.warning(f'禁用用户失败: {emby_user_id}, status={response.status_code}, body={resp_text}')
                 return False
         except Exception as e:
             app.logger.error(f'禁用用户异常: {emby_user_id}, error={e}')
@@ -2953,6 +2978,9 @@ class EmbyClient:
             else:
                 policy.pop('SimultaneousStreamLimit', None)
             
+            # 移除可能导致 400 错误的只读字段
+            self._clean_policy_readonly_fields(policy)
+            
             # 更新用户策略
             policy_url = f"{self.base_url}/Users/{emby_user_id}/Policy"
             response = self.session.post(
@@ -2967,7 +2995,8 @@ class EmbyClient:
                 app.logger.info(f'已启用 Emby 用户: {emby_user_id}')
                 return True
             else:
-                app.logger.warning(f'启用用户失败: {emby_user_id}, status={response.status_code}')
+                resp_text = response.text[:500] if response.text else ''
+                app.logger.warning(f'启用用户失败: {emby_user_id}, status={response.status_code}, body={resp_text}')
                 return False
         except Exception as e:
             app.logger.error(f'启用用户异常: {emby_user_id}, error={e}')
@@ -3197,6 +3226,9 @@ class EmbyClient:
             # 最大同步视频流
             policy['SyncPlayAccess'] = 'CreateAndJoinGroups'
             
+            # 移除只读字段（防止某些 Emby 版本返回 400）
+            self._clean_policy_readonly_fields(policy)
+            
             # 更新用户策略
             policy_url = f"{self.base_url}/Users/{user_id}/Policy"
             response = self.session.post(
@@ -3257,6 +3289,9 @@ class EmbyClient:
                     else:
                         # 0表示不限制，移除限制
                         policy.pop('SimultaneousStreamLimit', None)
+                    
+                    # 移除只读字段
+                    self._clean_policy_readonly_fields(policy)
                     
                     # 提交策略
                     policy_url = f"{self.base_url}/Users/{user.embyid}/Policy"
