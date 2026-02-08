@@ -628,6 +628,7 @@ CONFIG_KEY_PROXY = 'proxy'
 CONFIG_KEY_CHECKIN = 'checkin'
 CONFIG_KEY_SUBSCRIPTION_EXPIRE = 'subscription_expire'
 CONFIG_KEY_INVITE_REWARD = 'invite_reward'
+CONFIG_KEY_EMAIL = 'email'
 
 # 易支付配置（支持环境变量或配置文件）
 EPAY_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'epay_config.json')
@@ -1324,6 +1325,10 @@ def load_system_config():
             if db_invite_reward:
                 config['invite_reward'] = db_invite_reward
             
+            db_email = get_db_config(CONFIG_KEY_EMAIL)
+            if db_email:
+                config['email'] = db_email
+            
             # 如果数据库有配置，直接返回
             if db_admin or db_emby or db_telegram:
                 return config
@@ -1365,6 +1370,16 @@ def get_default_system_config():
             'reward_percent': 10,
             'min_reward_days': 1,
             'reward_mode': 'recurring'
+        },
+        'email': {
+            'enabled': False,
+            'smtp_host': '',
+            'smtp_port': 465,
+            'smtp_ssl': True,
+            'smtp_user': '',
+            'smtp_password': '',
+            'sender_name': 'Emby管理系统',
+            'require_email_register': False
         }
     }
     config['telegram']['templates'] = DEFAULT_SYSTEM_CONFIG['telegram']['templates'].copy()
@@ -1449,6 +1464,9 @@ def save_system_config(config):
             if 'invite_reward' in config:
                 if not set_db_config(CONFIG_KEY_INVITE_REWARD, config['invite_reward'], '邀请返利配置'):
                     print(f"[WARNING] 保存 invite_reward 配置失败")
+            if 'email' in config:
+                if not set_db_config(CONFIG_KEY_EMAIL, config['email'], '邮件SMTP配置'):
+                    print(f"[WARNING] 保存 email 配置失败")
             
             if db_success:
                 print("[CONFIG] 配置已保存到数据库")
