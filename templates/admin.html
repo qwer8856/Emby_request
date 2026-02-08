@@ -1898,6 +1898,73 @@
                         </div>
                     </div>
 
+                    <!-- 邀请返利配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🎁 邀请返利设置</h3>
+                            </div>
+                            <span class="status-badge" id="inviteRewardStatus">已开启</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置邀请返利比例，被邀请人每次购买/兑换时，邀请人将获得对应比例的天数奖励。邀请关系永久绑定。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label>启用邀请返利</label>
+                                    <div class="checkbox-group" style="margin-top: 8px;">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="inviteRewardEnabled" checked>
+                                            <span>开启邀请返利功能</span>
+                                        </label>
+                                    </div>
+                                    <span class="form-hint">关闭后，所有购买/兑换将不再触发邀请返利</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="inviteRewardPercent">返利比例（%）</label>
+                                    <div class="input-with-hint">
+                                        <input type="number" id="inviteRewardPercent" placeholder="10" class="form-input"
+                                            min="0" max="100" step="1" value="10">
+                                        <span class="unit-label">%</span>
+                                    </div>
+                                    <span class="form-hint">被邀请人购买/兑换天数 × 该比例 = 邀请人获得的返利天数（如购买30天 × 10% = 3天）</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="inviteRewardMinDays">最低返利天数</label>
+                                    <div class="input-with-hint">
+                                        <input type="number" id="inviteRewardMinDays" placeholder="1" class="form-input"
+                                            min="0" max="365" value="1">
+                                        <span class="unit-label">天</span>
+                                    </div>
+                                    <span class="form-hint">即使按比例计算不足该天数，也保证返利不低于此值；设为 0 则严格按比例（可能为0天）</span>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveInviteRewardConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="loadInviteRewardConfig()">
+                                    <span>🔄</span> 重新加载
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>邀请关系在注册时建立，永久绑定，不会解除</li>
+                                    <li>被邀请人每次购买套餐或使用兑换码，邀请人都会获得返利</li>
+                                    <li>返利以天数形式叠加到邀请人的订阅时间上</li>
+                                    <li>例：比例10%，被邀请人购买90天，邀请人获得9天</li>
+                                    <li>设为 0% 等同于关闭返利（但邀请关系仍会记录）</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Telegram BOT配置 - 可折叠 -->
                     <div class="settings-card collapsible collapsed">
                         <div class="settings-card-header" onclick="toggleSettingsCard(this)">

@@ -3116,6 +3116,30 @@ async function loadSystemConfig() {
                 if (expireDeleteDays) expireDeleteDays.value = 0;
                 if (expireDeleteWebAccount) expireDeleteWebAccount.checked = false;
             }
+            
+            // 填充邀请返利配置
+            const inviteRewardEnabled = document.getElementById('inviteRewardEnabled');
+            const inviteRewardPercent = document.getElementById('inviteRewardPercent');
+            const inviteRewardMinDays = document.getElementById('inviteRewardMinDays');
+            const inviteRewardStatus = document.getElementById('inviteRewardStatus');
+            
+            if (config.invite_reward) {
+                if (inviteRewardEnabled) inviteRewardEnabled.checked = config.invite_reward.enabled !== false;
+                if (inviteRewardPercent) inviteRewardPercent.value = config.invite_reward.reward_percent ?? 10;
+                if (inviteRewardMinDays) inviteRewardMinDays.value = config.invite_reward.min_reward_days ?? 1;
+                if (inviteRewardStatus) {
+                    inviteRewardStatus.textContent = config.invite_reward.enabled !== false ? '已开启' : '已关闭';
+                    inviteRewardStatus.className = 'status-badge ' + (config.invite_reward.enabled !== false ? 'status-active' : 'status-inactive');
+                }
+            } else {
+                if (inviteRewardEnabled) inviteRewardEnabled.checked = true;
+                if (inviteRewardPercent) inviteRewardPercent.value = 10;
+                if (inviteRewardMinDays) inviteRewardMinDays.value = 1;
+                if (inviteRewardStatus) {
+                    inviteRewardStatus.textContent = '已开启';
+                    inviteRewardStatus.className = 'status-badge status-active';
+                }
+            }
         }
     } catch (error) {
         console.error('加载系统配置失败:', error);
@@ -3194,6 +3218,51 @@ async function saveSubscriptionExpireConfig() {
 }
 
 function loadSubscriptionExpireConfig() {
+    loadSystemConfig();
+    showToast('成功', '已重新加载配置', 'success');
+}
+
+// 邀请返利配置
+async function saveInviteRewardConfig() {
+    const enabled = document.getElementById('inviteRewardEnabled').checked;
+    const rewardPercent = parseFloat(document.getElementById('inviteRewardPercent').value) || 10;
+    const minRewardDays = parseInt(document.getElementById('inviteRewardMinDays').value) || 1;
+    
+    if (rewardPercent < 0 || rewardPercent > 100) {
+        showToast('提示', '返利比例需在 0~100 之间', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/admin/system-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                invite_reward: {
+                    enabled: enabled,
+                    reward_percent: rewardPercent,
+                    min_reward_days: minRewardDays
+                }
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('成功', '邀请返利配置已保存', 'success');
+            setTimeout(() => {
+                loadSystemConfig();
+            }, 500);
+        } else {
+            showToast('失败', data.error || '保存失败', 'error');
+        }
+    } catch (error) {
+        console.error('保存邀请返利配置失败:', error);
+        showToast('错误', '保存失败: ' + error.message, 'error');
+    }
+}
+
+function loadInviteRewardConfig() {
     loadSystemConfig();
     showToast('成功', '已重新加载配置', 'success');
 }

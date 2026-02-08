@@ -1175,7 +1175,12 @@ DEFAULT_SYSTEM_CONFIG = {
         'level_c': 0,    # C级(已禁用)
         'level_d': 0     # D级(无账号)
     },
-    'category': DEFAULT_CATEGORY_CONFIG  # 二级分类策略
+    'category': DEFAULT_CATEGORY_CONFIG,  # 二级分类策略
+    'invite_reward': {
+        'enabled': True,             # 是否启用邀请返利
+        'reward_percent': 10,        # 返利百分比（如10表示10%）
+        'min_reward_days': 1         # 最低返利天数
+    }
 }
 
 
@@ -1328,6 +1333,11 @@ def get_default_system_config():
             'auto_disable': True,
             'delete_days': 0,
             'delete_web_account': False
+        },
+        'invite_reward': {
+            'enabled': True,
+            'reward_percent': 10,
+            'min_reward_days': 1
         }
     }
     config['telegram']['templates'] = DEFAULT_SYSTEM_CONFIG['telegram']['templates'].copy()
@@ -14317,6 +14327,31 @@ def use_redeem_code():
         
         app.logger.info(f'更新用户订阅状态: lv={user.lv}, ex={user.ex}')
         
+        # 邀请返利：检查是否有邀请人，给邀请人返利
+        _invite_cfg = get_system_config().get('invite_reward', {})
+        _invite_enabled = _invite_cfg.get('enabled', True)
+        _reward_pct = _invite_cfg.get('reward_percent', 10) / 100.0
+        _min_reward = _invite_cfg.get('min_reward_days', 1)
+        invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first() if _invite_enabled else None
+        if invite_record:
+            inviter = db.session.get(User, invite_record.inviter_tg)
+            if inviter:
+                # 计算返利天数：兑换天数的配置百分比
+                reward_days = max(_min_reward, int(redeem.duration_days * _reward_pct))
+                
+                # 给邀请人增加天数
+                if inviter.ex and inviter.ex > datetime.now():
+                    inviter.ex = inviter.ex + timedelta(days=reward_days)
+                else:
+                    inviter.ex = datetime.now() + timedelta(days=reward_days)
+                
+                # 更新邀请记录
+                invite_record.reward_type = 'days'
+                invite_record.reward_value = (invite_record.reward_value or 0) + reward_days
+                invite_record.reward_claimed = True
+                
+                app.logger.info(f'邀请返利(兑换码): 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}')
+        
         db.session.commit()
         
         app.logger.info(f'兑换码使用成功: {code}, 用户: {user.name}(tg={user.tg}), 类型: {redeem.code_type}, 套餐: {plan_name}, 天数: {redeem.duration_days}')
@@ -14566,14 +14601,18 @@ def payment_notify():
                 if emby_client.enable_user(user.embyid):
                     app.logger.info(f'用户 {user.name} 续费成功，已恢复Emby账号')
             
-            # 邀请返利：检查是否有邀请人，给邀请人返利购买金额10%的天数
-            invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first()
+            # 邀请返利：检查是否有邀请人，给邀请人返利
+            _invite_cfg = get_system_config().get('invite_reward', {})
+            _invite_enabled = _invite_cfg.get('enabled', True)
+            _reward_pct = _invite_cfg.get('reward_percent', 10) / 100.0
+            _min_reward = _invite_cfg.get('min_reward_days', 1)
+            invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first() if _invite_enabled else None
             if invite_record:
                 inviter = db.session.get(User, invite_record.inviter_tg)
                 if inviter:
-                    # 计算返利天数：购买天数的10%
+                    # 计算返利天数：购买天数的配置百分比
                     purchased_days = order.duration_months * 30
-                    reward_days = max(1, int(purchased_days * 0.1))  # 至少1天
+                    reward_days = max(_min_reward, int(purchased_days * _reward_pct))
                     
                     # 给邀请人增加天数
                     if inviter.ex and inviter.ex > datetime.now():
@@ -14586,7 +14625,7 @@ def payment_notify():
                     invite_record.reward_value = (invite_record.reward_value or 0) + reward_days
                     invite_record.reward_claimed = True
                     
-                    app.logger.info(f'邀请返利: 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}')
+                    app.logger.info(f'邀请返利: 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}(比例{_invite_cfg.get("reward_percent", 10)}%)')
         
         db.session.commit()
         app.logger.info(f'易支付成功: 订单={out_trade_no}, 交易号={trade_no}')
@@ -14659,14 +14698,18 @@ def payment_callback():
                 if user.lv not in ['a', 'b']:  # 只升级访客(d)/封禁(c)用户，不降级白名单
                     user.lv = 'b'
                 
-                # 邀请返利：检查是否有邀请人，给邀请人返利购买金额10%的天数
-                invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first()
+                # 邀请返利：检查是否有邀请人，给邀请人返利
+                _invite_cfg = get_system_config().get('invite_reward', {})
+                _invite_enabled = _invite_cfg.get('enabled', True)
+                _reward_pct = _invite_cfg.get('reward_percent', 10) / 100.0
+                _min_reward = _invite_cfg.get('min_reward_days', 1)
+                invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first() if _invite_enabled else None
                 if invite_record:
                     inviter = db.session.get(User, invite_record.inviter_tg)
                     if inviter:
-                        # 计算返利天数：购买天数的10%
+                        # 计算返利天数：购买天数的配置百分比
                         purchased_days = order.duration_months * 30
-                        reward_days = max(1, int(purchased_days * 0.1))  # 至少1天
+                        reward_days = max(_min_reward, int(purchased_days * _reward_pct))
                         
                         # 给邀请人增加天数
                         if inviter.ex and inviter.ex > datetime.now():
@@ -14679,7 +14722,7 @@ def payment_callback():
                         invite_record.reward_value = (invite_record.reward_value or 0) + reward_days
                         invite_record.reward_claimed = True
                         
-                        app.logger.info(f'邀请返利: 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}')
+                        app.logger.info(f'邀请返利: 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}(比例{_invite_cfg.get("reward_percent", 10)}%)')
                 
                 # 恢复Emby账号（如果之前因过期被禁用）
                 if user.embyid and emby_client.is_enabled():
@@ -14782,6 +14825,31 @@ def query_payment():
                         if user.embyid and emby_client.is_enabled():
                             if emby_client.enable_user(user.embyid):
                                 app.logger.info(f'用户 {user.name} 轮询确认支付成功，已恢复Emby账号')
+                        
+                        # 邀请返利：检查是否有邀请人，给邀请人返利
+                        _invite_cfg = get_system_config().get('invite_reward', {})
+                        _invite_enabled = _invite_cfg.get('enabled', True)
+                        _reward_pct = _invite_cfg.get('reward_percent', 10) / 100.0
+                        _min_reward = _invite_cfg.get('min_reward_days', 1)
+                        invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first() if _invite_enabled else None
+                        if invite_record:
+                            inviter = db.session.get(User, invite_record.inviter_tg)
+                            if inviter:
+                                # 计算返利天数：购买天数的配置百分比
+                                reward_days = max(_min_reward, int(purchased_days * _reward_pct))
+                                
+                                # 给邀请人增加天数
+                                if inviter.ex and inviter.ex > datetime.now():
+                                    inviter.ex = inviter.ex + timedelta(days=reward_days)
+                                else:
+                                    inviter.ex = datetime.now() + timedelta(days=reward_days)
+                                
+                                # 更新邀请记录
+                                invite_record.reward_type = 'days'
+                                invite_record.reward_value = (invite_record.reward_value or 0) + reward_days
+                                invite_record.reward_claimed = True
+                                
+                                app.logger.info(f'邀请返利(轮询确认): 邀请人={inviter.name}, 被邀请人={user.name}, 返利天数={reward_days}')
                     
                     db.session.commit()
                     
@@ -15451,6 +15519,11 @@ def get_system_config_api():
                 'auto_disable': config.get('subscription_expire', {}).get('auto_disable', True),
                 'delete_days': config.get('subscription_expire', {}).get('delete_days', 0),
                 'delete_web_account': config.get('subscription_expire', {}).get('delete_web_account', False)
+            },
+            'invite_reward': {
+                'enabled': config.get('invite_reward', {}).get('enabled', True),
+                'reward_percent': config.get('invite_reward', {}).get('reward_percent', 10),
+                'min_reward_days': config.get('invite_reward', {}).get('min_reward_days', 1)
             }
         }
     }), 200
@@ -15576,6 +15649,19 @@ def save_system_config_api():
                 current_config['subscription_expire']['delete_days'] = int(expire['delete_days'])
             if 'delete_web_account' in expire:
                 current_config['subscription_expire']['delete_web_account'] = bool(expire['delete_web_account'])
+        
+        # 更新邀请返利配置
+        if 'invite_reward' in data:
+            invite_rw = data['invite_reward']
+            if 'invite_reward' not in current_config:
+                current_config['invite_reward'] = {}
+            if 'enabled' in invite_rw:
+                current_config['invite_reward']['enabled'] = bool(invite_rw['enabled'])
+            if 'reward_percent' in invite_rw:
+                pct = float(invite_rw['reward_percent'])
+                current_config['invite_reward']['reward_percent'] = max(0, min(100, pct))
+            if 'min_reward_days' in invite_rw:
+                current_config['invite_reward']['min_reward_days'] = max(0, int(invite_rw['min_reward_days']))
         
         # 保存到文件
         if save_system_config(current_config):
@@ -19127,14 +19213,18 @@ def admin_mark_order_paid(order_no):
         if user.lv not in ['a', 'b']:
             user.lv = 'b'
         
-        # 邀请返利：检查是否有邀请人，给邀请人返利购买金额10%的天数
-        invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first()
+        # 邀请返利：检查是否有邀请人，给邀请人返利
+        _invite_cfg = get_system_config().get('invite_reward', {})
+        _invite_enabled = _invite_cfg.get('enabled', True)
+        _reward_pct = _invite_cfg.get('reward_percent', 10) / 100.0
+        _min_reward = _invite_cfg.get('min_reward_days', 1)
+        invite_record = InviteRecord.query.filter_by(invitee_tg=user.tg).first() if _invite_enabled else None
         if invite_record and not invite_record.reward_claimed:
             inviter = db.session.get(User, invite_record.inviter_tg)
             if inviter:
-                # 计算返利天数：购买天数的10%
+                # 计算返利天数：购买天数的配置百分比
                 purchased_days = duration_months * 30
-                reward_days = max(1, int(purchased_days * 0.1))  # 至少1天
+                reward_days = max(_min_reward, int(purchased_days * _reward_pct))
                 
                 # 给邀请人增加天数
                 if inviter.ex and inviter.ex > datetime.now():
