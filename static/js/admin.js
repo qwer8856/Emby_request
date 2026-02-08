@@ -2379,14 +2379,15 @@ let userCurrentPage = 1;
 let userTotalPages = 1;
 let userSearchTimeout = null;
 
-async function loadUsers(page = 1) {
+async function loadUsers(page = 1, perPage = 20) {
     const role = document.getElementById('userRoleFilter')?.value || '';
     const status = document.getElementById('userStatusFilter')?.value || '';
     const search = document.getElementById('userSearch')?.value || '';
     userCurrentPage = page;
+    window._userPerPage = perPage;
     
     try {
-        const response = await fetch(`/api/admin/users?role=${role}&status=${status}&search=${encodeURIComponent(search)}&page=${page}&per_page=20`);
+        const response = await fetch(`/api/admin/users?role=${role}&status=${status}&search=${encodeURIComponent(search)}&page=${page}&per_page=${perPage}`);
         const data = await response.json();
         
         if (data.success) {
@@ -2446,13 +2447,12 @@ function renderUsers(users) {
             roleClass = '';
         }
         
-        // 订阅状态显示（包含到期时间）
+        // 订阅状态显示
         let subscriptionDisplay;
         if (isWhitelist) {
             subscriptionDisplay = '<span class="status-badge active">永久有效</span>';
-        } else if (hasSubscription && user.subscription_end) {
-            const endDate = new Date(user.subscription_end).toLocaleDateString('zh-CN');
-            subscriptionDisplay = `<span class="status-badge active">已订阅</span><br><small style="color:#666;">${endDate}到期</small>`;
+        } else if (hasSubscription) {
+            subscriptionDisplay = '<span class="status-badge active">已订阅</span>';
         } else {
             subscriptionDisplay = '<span class="status-badge expired">未订阅</span>';
         }
@@ -2468,7 +2468,7 @@ function renderUsers(users) {
             </td>
             <td data-label="订阅">${subscriptionDisplay}</td>
             <td class="hide-mobile" data-label="${window._coinName || '积分'}">${user.coins || 0}</td>
-            <td class="hide-mobile" data-label="注册时间">${user.created_at ? new Date(user.created_at).toLocaleString('zh-CN') : '-'}</td>
+            <td class="hide-mobile" data-label="到期时间">${user.level === 'a' ? '永久' : (user.subscription_end ? new Date(user.subscription_end).toLocaleDateString('zh-CN') : '-')}</td>
             <td data-label="操作">
                 <button class="btn-action view" onclick="showUserDetail(${user.id})">详情</button>
                 <select class="level-select" onchange="setUserType(${user.id}, this.value, '${currentType}')">
@@ -2500,43 +2500,47 @@ function renderUserPagination(pagination) {
         }
     }
     
-    if (userTotalPages <= 1) {
-        paginationContainer.innerHTML = '';
-        return;
-    }
-    
     let html = '';
     
-    // 上一页
-    if (pagination.has_prev) {
-        html += `<button class="page-btn" onclick="loadUsers(${userCurrentPage - 1})">上一页</button>`;
-    }
-    
-    // 页码
-    const startPage = Math.max(1, userCurrentPage - 2);
-    const endPage = Math.min(userTotalPages, userCurrentPage + 2);
-    
-    if (startPage > 1) {
-        html += `<button class="page-btn" onclick="loadUsers(1)">1</button>`;
-        if (startPage > 2) {
-            html += `<span class="page-ellipsis">...</span>`;
+    if (userTotalPages > 1) {
+        // 上一页
+        if (pagination.has_prev) {
+            html += `<button class="page-btn" onclick="loadUsers(${userCurrentPage - 1})">上一页</button>`;
+        }
+        
+        // 页码
+        const startPage = Math.max(1, userCurrentPage - 2);
+        const endPage = Math.min(userTotalPages, userCurrentPage + 2);
+        
+        if (startPage > 1) {
+            html += `<button class="page-btn" onclick="loadUsers(1)">1</button>`;
+            if (startPage > 2) {
+                html += `<span class="page-ellipsis">...</span>`;
+            }
+        }
+        
+        for (let i = startPage; i <= endPage; i++) {
+            html += `<button class="page-btn ${i === userCurrentPage ? 'active' : ''}" onclick="loadUsers(${i})">${i}</button>`;
+        }
+        
+        if (endPage < userTotalPages) {
+            if (endPage < userTotalPages - 1) {
+                html += `<span class="page-ellipsis">...</span>`;
+            }
+            html += `<button class="page-btn" onclick="loadUsers(${userTotalPages})">${userTotalPages}</button>`;
+        }
+        
+        // 下一页
+        if (pagination.has_next) {
+            html += `<button class="page-btn" onclick="loadUsers(${userCurrentPage + 1})">下一页</button>`;
         }
     }
     
-    for (let i = startPage; i <= endPage; i++) {
-        html += `<button class="page-btn ${i === userCurrentPage ? 'active' : ''}" onclick="loadUsers(${i})">${i}</button>`;
-    }
-    
-    if (endPage < userTotalPages) {
-        if (endPage < userTotalPages - 1) {
-            html += `<span class="page-ellipsis">...</span>`;
-        }
-        html += `<button class="page-btn" onclick="loadUsers(${userTotalPages})">${userTotalPages}</button>`;
-    }
-    
-    // 下一页
-    if (pagination.has_next) {
-        html += `<button class="page-btn" onclick="loadUsers(${userCurrentPage + 1})">下一页</button>`;
+    // 显示全部 / 分页显示 按钮
+    if (window._userPerPage === 99999) {
+        html += `<button class="page-btn" onclick="loadUsers(1, 20)" style="margin-left:10px;">分页显示</button>`;
+    } else {
+        html += `<button class="page-btn" onclick="loadUsers(1, 99999)" style="margin-left:10px;">显示全部</button>`;
     }
     
     // 显示总数信息
@@ -5723,11 +5727,14 @@ async function loadAdminSessions() {
 }
 
 async function loadAdminDevices(page = 1) {
+    if (page === -1) { window._devicesShowAll = true; page = 1; }
+    else if (page >= 1 && window._devicesShowAll) { window._devicesShowAll = false; }
+    const devPerPage = window._devicesShowAll ? 99999 : 6;
     adminDevicesPage = page;
     const search = document.getElementById('deviceSearchInput')?.value || '';
     
     try {
-        const response = await fetch(`/api/admin/playback/devices?page=${page}&per_page=6&search=${encodeURIComponent(search)}`);
+        const response = await fetch(`/api/admin/playback/devices?page=${page}&per_page=${devPerPage}&search=${encodeURIComponent(search)}`);
         const data = await response.json();
         
         if (!data.success) {
@@ -5777,7 +5784,7 @@ async function loadAdminDevices(page = 1) {
         }).join('');
         
         // 渲染分页
-        renderPagination('devicesPagination', data.current_page, data.pages, 'loadAdminDevices');
+        renderPagination('devicesPagination', data.current_page, data.pages, 'loadAdminDevices', {showAllFunc: 'loadAdminDevices', showAll: window._devicesShowAll});
         
     } catch (error) {
         console.error('加载设备失败:', error);
@@ -5844,11 +5851,14 @@ async function deleteAdminDevice(deviceId) {
 }
 
 async function loadAdminHistory(page = 1) {
+    if (page === -1) { window._historyShowAll = true; page = 1; }
+    else if (page >= 1 && window._historyShowAll) { window._historyShowAll = false; }
+    const histPerPage = window._historyShowAll ? 99999 : 6;
     adminHistoryPage = page;
     const search = document.getElementById('historySearchInput')?.value || '';
     
     try {
-        const response = await fetch(`/api/admin/playback/history?page=${page}&per_page=6&search=${encodeURIComponent(search)}`);
+        const response = await fetch(`/api/admin/playback/history?page=${page}&per_page=${histPerPage}&search=${encodeURIComponent(search)}`);
         const data = await response.json();
         
         if (!data.success) {
@@ -5892,7 +5902,7 @@ async function loadAdminHistory(page = 1) {
         }).join('');
         
         // 渲染分页
-        renderPagination('historyPagination', data.current_page, data.pages, 'loadAdminHistory');
+        renderPagination('historyPagination', data.current_page, data.pages, 'loadAdminHistory', {showAllFunc: 'loadAdminHistory', showAll: window._historyShowAll});
         
     } catch (error) {
         console.error('加载播放历史失败:', error);
@@ -5908,29 +5918,43 @@ function searchAdminHistory() {
     }, 300);
 }
 
-function renderPagination(containerId, currentPage, totalPages, loadFunc) {
+function renderPagination(containerId, currentPage, totalPages, loadFunc, extra) {
     const container = document.getElementById(containerId);
-    if (!container || totalPages <= 1) {
-        if (container) container.innerHTML = '';
+    if (!container) return;
+    
+    // 如果只有1页且不是显示全部模式，隐藏分页
+    if (totalPages <= 1 && !(extra && extra.showAll)) {
+        container.innerHTML = '';
         return;
     }
     
     let html = '<div class="pagination-controls">';
     
-    // 上一页
-    html += `<button class="page-btn" onclick="${loadFunc}(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>上一页</button>`;
-    
-    // 页码
-    for (let i = 1; i <= totalPages; i++) {
-        if (totalPages <= 7 || i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
-            html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="${loadFunc}(${i})">${i}</button>`;
-        } else if (i === currentPage - 2 || i === currentPage + 2) {
-            html += '<span class="page-ellipsis">...</span>';
+    if (totalPages > 1) {
+        // 上一页
+        html += `<button class="page-btn" onclick="${loadFunc}(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>上一页</button>`;
+        
+        // 页码
+        for (let i = 1; i <= totalPages; i++) {
+            if (totalPages <= 7 || i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
+                html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="${loadFunc}(${i})">${i}</button>`;
+            } else if (i === currentPage - 2 || i === currentPage + 2) {
+                html += '<span class="page-ellipsis">...</span>';
+            }
         }
+        
+        // 下一页
+        html += `<button class="page-btn" onclick="${loadFunc}(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>下一页</button>`;
     }
     
-    // 下一页
-    html += `<button class="page-btn" onclick="${loadFunc}(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>下一页</button>`;
+    // 显示全部 / 分页显示 按钮
+    if (extra && extra.showAllFunc) {
+        if (extra.showAll) {
+            html += `<button class="page-btn" onclick="${extra.showAllFunc}(1)" style="margin-left:10px;">分页显示</button>`;
+        } else {
+            html += `<button class="page-btn" onclick="${extra.showAllFunc}(-1)" style="margin-left:10px;">显示全部</button>`;
+        }
+    }
     
     html += '</div>';
     container.innerHTML = html;
@@ -7170,7 +7194,8 @@ async function loadAllActivityLogs(page = 1) {
     container.innerHTML = '<div class="loading-cell">加载中...</div>';
     
     try {
-        const response = await fetch(`/api/admin/activity-logs?page=${page}&per_page=30&action_type=${actionType}&user_name=${encodeURIComponent(userName)}&status=${status}`);
+        const logsPerPage = window._logsShowAll ? 99999 : 30;
+        const response = await fetch(`/api/admin/activity-logs?page=${page}&per_page=${logsPerPage}&action_type=${actionType}&user_name=${encodeURIComponent(userName)}&status=${status}`);
         const result = await response.json();
         
         if (!result.success) {
@@ -7251,6 +7276,11 @@ function renderAllLogsPagination(pagination) {
     html += `<button class="page-btn" ${page <= 1 ? 'disabled' : ''} onclick="loadAllActivityLogs(${page - 1})">上一页</button>`;
     html += `<span class="page-info">第 ${page} / ${total_pages} 页</span>`;
     html += `<button class="page-btn" ${page >= total_pages ? 'disabled' : ''} onclick="loadAllActivityLogs(${page + 1})">下一页</button>`;
+    if (!window._logsShowAll) {
+        html += `<button class="page-btn" onclick="window._logsShowAll=true;loadAllActivityLogs(1)" style="margin-left:10px;">显示全部</button>`;
+    } else {
+        html += `<button class="page-btn" onclick="window._logsShowAll=false;loadAllActivityLogs(1)" style="margin-left:10px;">分页显示</button>`;
+    }
     
     container.innerHTML = html;
 }

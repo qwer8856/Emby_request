@@ -19274,6 +19274,8 @@ def admin_get_users():
             elif user.ex and user.ex > now:
                 subscription_status = 'active'
                 subscription_end = user.ex.isoformat()
+            elif user.ex:
+                subscription_end = user.ex.isoformat()  # 已过期也返回到期时间
 
             user_list.append({
                 'id': user.tg,  # 使用 tg 作为用户 ID
