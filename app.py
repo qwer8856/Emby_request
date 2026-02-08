@@ -272,6 +272,12 @@ load_dotenv()
 
 app = Flask(__name__)
 
+# 注册支持负数的 int 转换器（Telegram 用户 ID 为负数）
+from werkzeug.routing import IntegerConverter
+class SignedIntConverter(IntegerConverter):
+    regex = r'-?\d+'
+app.url_map.converters['int'] = SignedIntConverter
+
 # 从环境变量读取配置
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
 
