@@ -6060,3 +6060,108 @@ async function unbindTelegramId() {
             html += '</div>';
             container.innerHTML = html;
         }
+
+
+        // ==================== 邮箱绑定功能 ====================
+        let emailCountdown = 0;
+        let emailCountdownTimer = null;
+
+        async function sendEmailBindCode() {
+            const emailInput = document.getElementById('bindEmailAddr');
+            const btn = document.getElementById('sendEmailCodeBtn');
+            const email = emailInput?.value?.trim();
+            
+            if (!email) {
+                showMessage('请输入邮箱地址', 'warning');
+                emailInput?.focus();
+                return;
+            }
+            
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '发送中...';
+            
+            try {
+                const response = await fetch('/api/account/bind-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage(data.message, 'success');
+                    document.getElementById('emailCodeGroup').style.display = 'block';
+                    document.getElementById('bindEmailCode')?.focus();
+                    
+                    // 60秒倒计时
+                    emailCountdown = 60;
+                    btn.innerHTML = emailCountdown + 's 后重试';
+                    emailCountdownTimer = setInterval(() => {
+                        emailCountdown--;
+                        if (emailCountdown <= 0) {
+                            clearInterval(emailCountdownTimer);
+                            btn.disabled = false;
+                            btn.innerHTML = '重新发送';
+                        } else {
+                            btn.innerHTML = emailCountdown + 's 后重试';
+                        }
+                    }, 1000);
+                } else {
+                    showMessage(data.error || '发送失败', 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            } catch (error) {
+                showMessage('发送失败，请稍后重试', 'error');
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
+
+        async function confirmBindEmail() {
+            const code = document.getElementById('bindEmailCode')?.value?.trim();
+            if (!code) {
+                showMessage('请输入验证码', 'warning');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/account/verify-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('🎉 邮箱绑定成功！', 'success');
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    showMessage(data.error || '绑定失败', 'error');
+                }
+            } catch (error) {
+                showMessage('绑定失败，请稍后重试', 'error');
+            }
+        }
+
+        async function unbindEmail() {
+            if (!confirm('确定要解绑邮箱吗？解绑后将无法通过邮箱找回密码。')) return;
+            
+            try {
+                const response = await fetch('/api/account/unbind-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('邮箱已解绑', 'success');
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    showMessage(data.error || '操作失败', 'error');
+                }
+            } catch (error) {
+                showMessage('操作失败', 'error');
+            }
+        }

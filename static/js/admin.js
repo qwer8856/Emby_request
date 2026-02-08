@@ -3238,6 +3238,43 @@ async function loadSystemConfig() {
                     inviteRewardStatus.className = 'status-badge status-active';
                 }
             }
+            
+            // 填充邮件配置
+            if (config.email) {
+                const emailEnabled = document.getElementById('emailEnabled');
+                const smtpHost = document.getElementById('smtpHost');
+                const smtpPort = document.getElementById('smtpPort');
+                const smtpSsl = document.getElementById('smtpSsl');
+                const smtpUser = document.getElementById('smtpUser');
+                const smtpPassword = document.getElementById('smtpPassword');
+                const emailSenderName = document.getElementById('emailSenderName');
+                const requireEmailRegister = document.getElementById('requireEmailRegister');
+                const emailStatusBadge = document.getElementById('emailStatus');
+                
+                if (emailEnabled) emailEnabled.checked = config.email.enabled === true;
+                if (smtpHost) smtpHost.value = config.email.smtp_host || '';
+                if (smtpPort) smtpPort.value = config.email.smtp_port || 465;
+                if (smtpSsl) smtpSsl.checked = config.email.smtp_ssl !== false;
+                if (smtpUser) smtpUser.value = config.email.smtp_user || '';
+                if (smtpPassword) smtpPassword.value = config.email.smtp_password || '';
+                if (emailSenderName) emailSenderName.value = config.email.sender_name || 'Emby管理系统';
+                if (requireEmailRegister) requireEmailRegister.checked = config.email.require_email_register === true;
+                
+                if (emailStatusBadge) {
+                    if (config.email.enabled && config.email.smtp_host && config.email.smtp_user) {
+                        emailStatusBadge.textContent = '已配置';
+                        emailStatusBadge.classList.add('configured');
+                    } else {
+                        emailStatusBadge.textContent = '未配置';
+                        emailStatusBadge.classList.remove('configured');
+                    }
+                }
+                
+                toggleEmailFields();
+            }
+            
+            // 加载邮箱统计
+            loadEmailStats();
         }
     } catch (error) {
         console.error('加载系统配置失败:', error);
@@ -7714,5 +7751,148 @@ async function saveCategories() {
     } catch (error) {
         console.error('保存分类失败:', error);
         showToast('错误', '保存失败', 'error');
+    }
+}
+
+
+// ==================== 邮件功能 ====================
+
+function toggleEmailFields() {
+    const enabled = document.getElementById('emailEnabled')?.checked;
+    const fields = document.getElementById('emailConfigFields');
+    if (fields) {
+        fields.style.opacity = enabled ? '1' : '0.5';
+        fields.style.pointerEvents = enabled ? 'auto' : 'none';
+    }
+}
+
+function toggleCustomEmails() {
+    const target = document.getElementById('broadcastTarget')?.value;
+    const group = document.getElementById('customEmailsGroup');
+    if (group) group.style.display = target === 'custom' ? 'block' : 'none';
+}
+
+async function saveEmailConfig() {
+    try {
+        const config = {
+            email: {
+                enabled: document.getElementById('emailEnabled')?.checked || false,
+                smtp_host: document.getElementById('smtpHost')?.value?.trim() || '',
+                smtp_port: parseInt(document.getElementById('smtpPort')?.value) || 465,
+                smtp_ssl: document.getElementById('smtpSsl')?.checked || false,
+                smtp_user: document.getElementById('smtpUser')?.value?.trim() || '',
+                smtp_password: document.getElementById('smtpPassword')?.value?.trim() || '',
+                sender_name: document.getElementById('emailSenderName')?.value?.trim() || 'Emby管理系统',
+                require_email_register: document.getElementById('requireEmailRegister')?.checked || false
+            }
+        };
+        
+        const response = await fetch('/api/admin/system-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('成功', '邮件配置已保存', 'success');
+            const badge = document.getElementById('emailStatus');
+            if (badge) {
+                if (config.email.enabled && config.email.smtp_host && config.email.smtp_user) {
+                    badge.textContent = '已配置';
+                    badge.classList.add('configured');
+                } else {
+                    badge.textContent = '未配置';
+                    badge.classList.remove('configured');
+                }
+            }
+        } else {
+            showToast('错误', data.error || '保存失败', 'error');
+        }
+    } catch (error) {
+        console.error('保存邮件配置失败:', error);
+        showToast('错误', '保存失败', 'error');
+    }
+}
+
+async function testEmailConfig() {
+    const testEmail = prompt('请输入测试收件邮箱地址:');
+    if (!testEmail) return;
+    
+    showToast('发送中', '正在发送测试邮件...', 'info');
+    
+    try {
+        await saveEmailConfig();
+        
+        const response = await fetch('/api/admin/email/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ test_email: testEmail })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('成功', data.message, 'success');
+        } else {
+            showToast('错误', data.error || '测试失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', '测试请求失败', 'error');
+    }
+}
+
+async function loadEmailStats() {
+    try {
+        const response = await fetch('/api/admin/email/stats');
+        const data = await response.json();
+        
+        if (data.success) {
+            const bound = document.getElementById('statBoundUsers');
+            const active = document.getElementById('statActiveBound');
+            if (bound) bound.textContent = data.bound_users || 0;
+            if (active) active.textContent = data.active_bound || 0;
+        }
+    } catch (error) {
+        console.error('加载邮箱统计失败:', error);
+    }
+}
+
+async function sendBroadcastEmail() {
+    const subject = document.getElementById('broadcastSubject')?.value?.trim();
+    const content = document.getElementById('broadcastContent')?.value?.trim();
+    const target = document.getElementById('broadcastTarget')?.value || 'all';
+    
+    if (!subject) { showToast('提示', '请输入邮件标题', 'warning'); return; }
+    if (!content) { showToast('提示', '请输入邮件内容', 'warning'); return; }
+    
+    let custom_emails = [];
+    if (target === 'custom') {
+        const raw = document.getElementById('customEmails')?.value || '';
+        custom_emails = raw.split('\n').map(e => e.trim()).filter(e => e);
+        if (!custom_emails.length) { showToast('提示', '请输入收件地址', 'warning'); return; }
+    }
+    
+    const targetNames = { all: '所有已绑定邮箱的用户', active: '活跃用户', custom: custom_emails.length + ' 个地址' };
+    if (!confirm('确认向「' + targetNames[target] + '」发送邮件？\n\n标题: ' + subject)) return;
+    
+    showToast('发送中', '正在群发邮件，请稍候...', 'info');
+    
+    try {
+        const response = await fetch('/api/admin/email/broadcast', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subject, content, target, custom_emails })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('成功', data.message, 'success');
+            document.getElementById('broadcastSubject').value = '';
+            document.getElementById('broadcastContent').value = '';
+        } else {
+            showToast('错误', data.error || '发送失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', '发送请求失败', 'error');
     }
 }

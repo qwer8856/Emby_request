@@ -854,6 +854,53 @@
                         </div>
                     </div>
                     
+                    <!-- 邮箱绑定 -->
+                    {% if email_enabled %}
+                    <div class="feature-card-v2">
+                        <div class="feature-card-header-v2">
+                            <span class="feature-icon-v2">📧</span>
+                            <span class="feature-title-v2">绑定邮箱</span>
+                            {% if user.email %}
+                            <span class="feature-badge success">已绑定</span>
+                            {% else %}
+                            <span class="feature-badge warning">未绑定</span>
+                            {% endif %}
+                        </div>
+                        <div class="feature-card-content-v2">
+                            {% if user.email %}
+                            <div class="emby-info-list">
+                                <div class="emby-info-row">
+                                    <span class="info-key">邮箱</span>
+                                    <span class="info-val">{{ user.email }}</span>
+                                </div>
+                            </div>
+                            <p class="emby-bindtip">💡 邮箱可用于找回密码、接收系统通知</p>
+                            <button class="btn-v2 btn-secondary-v2 btn-full" onclick="unbindEmail()" style="margin-top:10px;">解绑邮箱</button>
+                            {% else %}
+                            <div class="password-notice-v2">
+                                <span>💡</span> 绑定邮箱后可通过邮箱找回密码
+                            </div>
+                            <div class="form-field-v2">
+                                <label>邮箱地址</label>
+                                <div class="input-group-v2">
+                                    <input type="email" id="bindEmailAddr" placeholder="请输入邮箱地址">
+                                </div>
+                            </div>
+                            <div class="form-field-v2" id="emailCodeGroup" style="display:none;">
+                                <label>验证码</label>
+                                <div class="input-group-v2" style="display:flex;gap:8px;">
+                                    <input type="text" id="bindEmailCode" placeholder="输入验证码" maxlength="6" style="flex:1;">
+                                    <button type="button" class="btn-v2 btn-secondary-v2" id="confirmBindEmailBtn" onclick="confirmBindEmail()" style="white-space:nowrap;">确认绑定</button>
+                                </div>
+                            </div>
+                            <button class="btn-v2 btn-primary-v2 btn-full" id="sendEmailCodeBtn" onclick="sendEmailBindCode()" style="margin-top:10px;">
+                                <span class="btn-text">发送验证码</span>
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    
                     <!-- 修改 Emby 密码 -->
                     {% if user.embyid %}
                     <div class="feature-card-v2">

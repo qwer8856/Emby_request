@@ -553,6 +553,17 @@
                     <div class="error-text" id="confirmPasswordError"></div>
                 </div>
                 
+                {% if email_enabled %}
+                <div class="form-group">
+                    <label for="regEmail">邮箱 {% if require_email_register %}<span style="color: #dc2626; font-weight: 600;">(必填)</span>{% else %}<span style="color: #9ca3af; font-weight: 400;">(选填)</span>{% endif %}</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">📧</span>
+                        <input type="email" id="regEmail" name="email" placeholder="请输入邮箱地址" {% if require_email_register %}required{% endif %}>
+                    </div>
+                    <div class="hint">绑定邮箱后可用于找回密码{% if require_email_register %}，注册必须填写{% endif %}</div>
+                </div>
+                {% endif %}
+                
                 <div class="form-group">
                     <label for="inviteCode">邀请码 {% if register_mode == 'invite' %}<span style="color: #dc2626; font-weight: 600;">(必填)</span>{% else %}<span style="color: #9ca3af; font-weight: 400;">(选填)</span>{% endif %}</label>
                     <div class="input-wrapper">
@@ -669,7 +680,8 @@
                 const formData = {
                     username: document.getElementById('username').value.trim(),
                     password: document.getElementById('password').value,
-                    invite_code: document.getElementById('inviteCode').value.trim()
+                    invite_code: document.getElementById('inviteCode').value.trim(),
+                    email: document.getElementById('regEmail') ? document.getElementById('regEmail').value.trim() : ''
                 };
                 
                 const response = await fetch('/api/register', {

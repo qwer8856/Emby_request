@@ -25,6 +25,10 @@ import xml.etree.ElementTree as ET
 import re
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr
 
 # ==================== 授权验证 ====================
 from license import require_license, check_license, is_license_valid
@@ -1182,6 +1186,16 @@ DEFAULT_SYSTEM_CONFIG = {
         'reward_percent': 10,        # 返利百分比（如10表示10%）
         'min_reward_days': 1,        # 最低返利天数
         'reward_mode': 'recurring'   # 默认返利模式: once=一次性, recurring=循环(每次购买都返利)
+    },
+    'email': {
+        'enabled': False,            # 是否启用邮件功能
+        'smtp_host': '',             # SMTP 服务器地址
+        'smtp_port': 465,            # SMTP 端口
+        'smtp_ssl': True,            # 是否使用 SSL
+        'smtp_user': '',             # SMTP 用户名（发件邮箱）
+        'smtp_password': '',         # SMTP 密码/授权码
+        'sender_name': 'Emby管理系统', # 发件人名称
+        'require_email_register': False  # 注册时是否强制绑定邮箱
     }
 }
 
@@ -3558,6 +3572,7 @@ class User(db.Model):
     iv = db.Column(db.Integer, default=0)  # 邀请数
     ch = db.Column(db.DateTime, nullable=True)  # 签到时间
     coins = db.Column(db.Integer, default=0)  # 签到积分（货币）
+    email = db.Column(db.String(255), nullable=True)  # 绑定邮箱（用于找回密码、接收通知）
     
     # 个性化邀请返利配置（管理员可为每个用户单独设置）
     invite_reward_mode = db.Column(db.String(20), nullable=True)  # once/recurring/None(跟随全局)
@@ -6025,12 +6040,17 @@ def register_page():
     
     sys_cfg = get_system_config()
     invite_reward_enabled = sys_cfg.get('invite_reward', {}).get('enabled', True)
+    email_cfg = sys_cfg.get('email', {})
+    email_enabled = email_cfg.get('enabled', False)
+    require_email_register = email_cfg.get('require_email_register', False)
     
     return render_template('register.html', 
                          invite_code=invite_code, 
                          site_config=site_config,
                          register_mode=register_mode,
-                         invite_reward_enabled=invite_reward_enabled)
+                         invite_reward_enabled=invite_reward_enabled,
+                         email_enabled=email_enabled,
+                         require_email_register=require_email_register)
 
 
 @app.route('/api/register', methods=['POST'])
@@ -6045,6 +6065,7 @@ def register():
         username = data.get('username', '').strip()
         password = data.get('password', '')
         invite_code = data.get('invite_code', '').strip()
+        reg_email = data.get('email', '').strip().lower() if data.get('email') else ''
         
         # 如果注册已关闭，直接拒绝
         if register_mode == 'closed':
@@ -6070,6 +6091,19 @@ def register():
         existing_user = User.query.filter_by(name=username).first()
         if existing_user:
             return jsonify({'success': False, 'error': '用户名已被使用'}), 400
+        
+        # 检查邮箱
+        sys_cfg = get_system_config()
+        email_cfg = sys_cfg.get('email', {})
+        if email_cfg.get('enabled') and email_cfg.get('require_email_register') and not reg_email:
+            return jsonify({'success': False, 'error': '请填写邮箱地址'}), 400
+        
+        if reg_email:
+            if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', reg_email):
+                return jsonify({'success': False, 'error': '请输入有效的邮箱地址'}), 400
+            existing_email = User.query.filter_by(email=reg_email).first()
+            if existing_email:
+                return jsonify({'success': False, 'error': '该邮箱已被使用'}), 400
         
         # 生成唯一的 tg ID（使用时间戳 + 随机数）
         import random
@@ -6104,7 +6138,8 @@ def register():
             ex=None,  # 新用户不赠送时间
             us=1,
             iv=0,
-            ch=None
+            ch=None,
+            email=reg_email or None
         )
         
         db.session.add(new_user)
@@ -6237,7 +6272,9 @@ def logout():
 def forgot_password_page():
     """忘记密码页面"""
     site_config = get_site_config()
-    return render_template('forgot_password.html', site_config=site_config)
+    _email_cfg = get_system_config().get('email', {})
+    email_enabled = _email_cfg.get('enabled', False)
+    return render_template('forgot_password.html', site_config=site_config, email_enabled=email_enabled)
 
 
 # ==================== 修改密码功能 ====================
@@ -6452,6 +6489,326 @@ def send_telegram_private_message(telegram_id, message):
     except Exception as e:
         app.logger.error(f'发送 Telegram 消息异常: {e}')
         return False
+
+
+def get_email_config():
+    """获取邮件 SMTP 配置"""
+    config = get_system_config()
+    return config.get('email', {
+        'enabled': False, 'smtp_host': '', 'smtp_port': 465, 'smtp_ssl': True,
+        'smtp_user': '', 'smtp_password': '', 'sender_name': 'Emby管理系统',
+        'require_email_register': False
+    })
+
+
+def send_email(to_email, subject, html_content):
+    """发送邮件（HTML 格式）"""
+    email_cfg = get_email_config()
+    if not email_cfg.get('enabled'):
+        app.logger.warning('邮件功能未启用')
+        return False, '邮件功能未启用'
+    
+    smtp_host = email_cfg.get('smtp_host', '')
+    smtp_port = int(email_cfg.get('smtp_port', 465))
+    smtp_ssl = email_cfg.get('smtp_ssl', True)
+    smtp_user = email_cfg.get('smtp_user', '')
+    smtp_password = email_cfg.get('smtp_password', '')
+    sender_name = email_cfg.get('sender_name', 'Emby管理系统')
+    
+    if not smtp_host or not smtp_user or not smtp_password:
+        return False, 'SMTP 配置不完整'
+    
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['From'] = formataddr((sender_name, smtp_user))
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(html_content, 'html', 'utf-8'))
+        
+        if smtp_ssl:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15)
+        else:
+            server = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
+            server.starttls()
+        
+        server.login(smtp_user, smtp_password)
+        server.sendmail(smtp_user, to_email, msg.as_string())
+        server.quit()
+        
+        app.logger.info(f'邮件发送成功: to={to_email}, subject={subject}')
+        return True, '发送成功'
+    except smtplib.SMTPAuthenticationError:
+        app.logger.error(f'SMTP 认证失败: user={smtp_user}')
+        return False, 'SMTP 认证失败，请检查用户名和密码/授权码'
+    except smtplib.SMTPConnectError as e:
+        app.logger.error(f'SMTP 连接失败: {e}')
+        return False, f'SMTP 服务器连接失败: {e}'
+    except Exception as e:
+        app.logger.error(f'邮件发送失败: {e}', exc_info=True)
+        return False, f'发送失败: {str(e)}'
+
+
+def build_email_html(title, body_html, site_name=None):
+    """构建统一风格的邮件 HTML 模板"""
+    if not site_name:
+        site_name = get_site_config().get('site_name', 'Emby')
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<style>body{{margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}}
+.container{{max-width:560px;margin:40px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08)}}
+.header{{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:28px 32px;text-align:center}}
+.header h1{{color:#fff;font-size:20px;margin:0;font-weight:600}}
+.body{{padding:32px;color:#333;font-size:15px;line-height:1.7}}
+.code-box{{background:#f0f4ff;border:2px dashed #667eea;border-radius:10px;text-align:center;padding:18px;margin:20px 0}}
+.code-box .code{{font-size:32px;font-weight:700;color:#667eea;letter-spacing:8px;font-family:monospace}}
+.footer{{padding:20px 32px;background:#fafafa;text-align:center;color:#999;font-size:12px;border-top:1px solid #eee}}
+.btn{{display:inline-block;padding:12px 32px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff!important;text-decoration:none;border-radius:8px;font-weight:600;font-size:15px}}</style>
+</head><body><div class="container">
+<div class="header"><h1>{title}</h1></div>
+<div class="body">{body_html}</div>
+<div class="footer">&copy; {site_name} · 此邮件由系统自动发送，请勿直接回复</div>
+</div></body></html>"""
+
+
+@app.route('/api/account/bind-email', methods=['POST'])
+@login_required
+def bind_email_send_code():
+    """绑定邮箱 - 发送验证码"""
+    try:
+        email_cfg = get_email_config()
+        if not email_cfg.get('enabled'):
+            return jsonify({'success': False, 'error': '邮件功能未启用，请联系管理员'}), 400
+        
+        data = request.get_json()
+        email_addr = data.get('email', '').strip().lower()
+        
+        if not email_addr or not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email_addr):
+            return jsonify({'success': False, 'error': '请输入有效的邮箱地址'}), 400
+        
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 401
+        
+        # 检查邮箱是否已被其他用户绑定
+        existing = User.query.filter(User.email == email_addr, User.tg != user.tg).first()
+        if existing:
+            return jsonify({'success': False, 'error': '该邮箱已被其他用户绑定'}), 400
+        
+        # 限频：60秒内只能请求一次
+        cache_key = f'bind_{user.tg}'
+        if cache_key in EMAIL_VERIFY_CODES:
+            prev = EMAIL_VERIFY_CODES[cache_key]
+            if prev.get('created_at') and (datetime.now() - prev['created_at']).total_seconds() < 60:
+                remaining = 60 - int((datetime.now() - prev['created_at']).total_seconds())
+                return jsonify({'success': False, 'error': f'请 {remaining} 秒后重试'}), 429
+        
+        verify_code = str(random.randint(100000, 999999))
+        EMAIL_VERIFY_CODES[cache_key] = {
+            'code': verify_code,
+            'email': email_addr,
+            'user_tg': user.tg,
+            'created_at': datetime.now(),
+            'expires_at': datetime.now() + timedelta(minutes=10)
+        }
+        
+        site_name = get_site_config().get('site_name', 'Emby')
+        body = f"""<p>您好，<b>{user.name}</b>！</p>
+<p>您正在绑定邮箱到 {site_name} 账号，请使用以下验证码完成绑定：</p>
+<div class="code-box"><div class="code">{verify_code}</div></div>
+<p>验证码 <b>10 分钟</b>内有效，请勿将验证码告知他人。</p>
+<p>如非本人操作，请忽略此邮件。</p>"""
+        
+        html = build_email_html(f'{site_name} - 邮箱绑定验证', body, site_name)
+        success, msg = send_email(email_addr, f'【{site_name}】邮箱绑定验证码', html)
+        
+        if success:
+            masked = email_addr[:3] + '***' + email_addr[email_addr.index('@'):]
+            return jsonify({'success': True, 'message': f'验证码已发送到 {masked}'}), 200
+        else:
+            del EMAIL_VERIFY_CODES[cache_key]
+            return jsonify({'success': False, 'error': f'邮件发送失败: {msg}'}), 500
+        
+    except Exception as e:
+        app.logger.error(f'发送邮箱验证码失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '发送失败，请稍后重试'}), 500
+
+
+@app.route('/api/account/verify-email', methods=['POST'])
+@login_required
+def verify_email_bind():
+    """验证邮箱验证码并完成绑定"""
+    try:
+        data = request.get_json()
+        code = data.get('code', '').strip()
+        
+        if not code:
+            return jsonify({'success': False, 'error': '请输入验证码'}), 400
+        
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 401
+        
+        cache_key = f'bind_{user.tg}'
+        if cache_key not in EMAIL_VERIFY_CODES:
+            return jsonify({'success': False, 'error': '验证码无效或已过期，请重新获取'}), 400
+        
+        vdata = EMAIL_VERIFY_CODES[cache_key]
+        if datetime.now() > vdata['expires_at']:
+            del EMAIL_VERIFY_CODES[cache_key]
+            return jsonify({'success': False, 'error': '验证码已过期，请重新获取'}), 400
+        
+        if vdata['code'] != code:
+            return jsonify({'success': False, 'error': '验证码错误'}), 400
+        
+        # 再次检查邮箱唯一性
+        email_addr = vdata['email']
+        existing = User.query.filter(User.email == email_addr, User.tg != user.tg).first()
+        if existing:
+            del EMAIL_VERIFY_CODES[cache_key]
+            return jsonify({'success': False, 'error': '该邮箱已被其他用户绑定'}), 400
+        
+        user.email = email_addr
+        db.session.commit()
+        del EMAIL_VERIFY_CODES[cache_key]
+        
+        app.logger.info(f'用户 {user.name}(tg={user.tg}) 绑定邮箱: {email_addr}')
+        log_user_activity(UserActivityLog.ACTION_EMAIL_BIND if hasattr(UserActivityLog, 'ACTION_EMAIL_BIND') else 'email_bind',
+                         user=user, detail={'email': email_addr})
+        
+        return jsonify({'success': True, 'message': '邮箱绑定成功！'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'邮箱绑定失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '绑定失败，请稍后重试'}), 500
+
+
+@app.route('/api/account/unbind-email', methods=['POST'])
+@login_required
+def unbind_email():
+    """解绑邮箱"""
+    try:
+        user = db.session.get(User, session.get('user_id'))
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 401
+        if not user.email:
+            return jsonify({'success': False, 'error': '您尚未绑定邮箱'}), 400
+        
+        old_email = user.email
+        user.email = None
+        db.session.commit()
+        
+        app.logger.info(f'用户 {user.name}(tg={user.tg}) 解绑邮箱: {old_email}')
+        return jsonify({'success': True, 'message': '邮箱已解绑'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': '操作失败'}), 500
+
+
+@app.route('/api/account/forgot-password-email', methods=['POST'])
+def forgot_password_email():
+    """通过邮箱找回密码 - 发送验证码"""
+    try:
+        email_cfg = get_email_config()
+        if not email_cfg.get('enabled'):
+            return jsonify({'success': False, 'error': '邮件功能未启用'}), 400
+        
+        data = request.get_json()
+        email_addr = data.get('email', '').strip().lower()
+        
+        if not email_addr:
+            return jsonify({'success': False, 'error': '请输入邮箱地址'}), 400
+        
+        user = User.query.filter_by(email=email_addr).first()
+        if not user:
+            return jsonify({'success': False, 'error': '该邮箱未绑定任何账号'}), 400
+        
+        # 限频
+        cache_key = f'reset_{email_addr}'
+        if cache_key in EMAIL_VERIFY_CODES:
+            prev = EMAIL_VERIFY_CODES[cache_key]
+            if prev.get('created_at') and (datetime.now() - prev['created_at']).total_seconds() < 60:
+                remaining = 60 - int((datetime.now() - prev['created_at']).total_seconds())
+                return jsonify({'success': False, 'error': f'请 {remaining} 秒后重试'}), 429
+        
+        verify_code = str(random.randint(100000, 999999))
+        EMAIL_VERIFY_CODES[cache_key] = {
+            'code': verify_code,
+            'email': email_addr,
+            'user_tg': user.tg,
+            'username': user.name,
+            'created_at': datetime.now(),
+            'expires_at': datetime.now() + timedelta(minutes=10)
+        }
+        
+        site_name = get_site_config().get('site_name', 'Emby')
+        body = f"""<p>您好，<b>{user.name}</b>！</p>
+<p>您正在重置 {site_name} 账号密码，请使用以下验证码：</p>
+<div class="code-box"><div class="code">{verify_code}</div></div>
+<p>验证码 <b>10 分钟</b>内有效。如非本人操作，请忽略此邮件。</p>"""
+        
+        html = build_email_html(f'{site_name} - 密码重置', body, site_name)
+        success, msg = send_email(email_addr, f'【{site_name}】密码重置验证码', html)
+        
+        if success:
+            masked = email_addr[:3] + '***' + email_addr[email_addr.index('@'):]
+            return jsonify({'success': True, 'message': f'验证码已发送到 {masked}', 'username': user.name}), 200
+        else:
+            del EMAIL_VERIFY_CODES[cache_key]
+            return jsonify({'success': False, 'error': f'邮件发送失败: {msg}'}), 500
+        
+    except Exception as e:
+        app.logger.error(f'邮箱找回密码失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '请求失败，请稍后重试'}), 500
+
+
+@app.route('/api/account/reset-password-email', methods=['POST'])
+def reset_password_email():
+    """通过邮箱验证码重置密码"""
+    try:
+        data = request.get_json()
+        email_addr = data.get('email', '').strip().lower()
+        code = data.get('code', '').strip()
+        new_password = data.get('new_password', '').strip()
+        
+        if not email_addr or not code or not new_password:
+            return jsonify({'success': False, 'error': '请填写完整信息'}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({'success': False, 'error': '新密码至少需要6个字符'}), 400
+        
+        cache_key = f'reset_{email_addr}'
+        if cache_key not in EMAIL_VERIFY_CODES:
+            return jsonify({'success': False, 'error': '验证码无效或已过期'}), 400
+        
+        vdata = EMAIL_VERIFY_CODES[cache_key]
+        if datetime.now() > vdata['expires_at']:
+            del EMAIL_VERIFY_CODES[cache_key]
+            return jsonify({'success': False, 'error': '验证码已过期'}), 400
+        
+        if vdata['code'] != code:
+            return jsonify({'success': False, 'error': '验证码错误'}), 400
+        
+        user = db.session.get(User, vdata['user_tg'])
+        if not user:
+            del EMAIL_VERIFY_CODES[cache_key]
+            return jsonify({'success': False, 'error': '用户不存在'}), 400
+        
+        import secrets
+        user.pwd = new_password
+        user.session_token = secrets.token_hex(32)
+        db.session.commit()
+        del EMAIL_VERIFY_CODES[cache_key]
+        
+        app.logger.info(f'通过邮箱重置密码成功: 用户={user.name}, 邮箱={email_addr}')
+        log_user_activity(UserActivityLog.ACTION_PASSWORD_RESET, user=user, detail='通过邮箱验证重置密码')
+        
+        return jsonify({'success': True, 'message': '密码重置成功，请使用新密码登录'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'邮箱重置密码失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '重置失败，请稍后重试'}), 500
 
 
 @app.route('/api/account/change-emby-password', methods=['POST'])
@@ -7077,6 +7434,10 @@ def dashboard():
     invite_reward_enabled = _invite_cfg.get('enabled', True)
     invite_reward_percent = _invite_cfg.get('reward_percent', 10)
     
+    # 获取邮箱功能开关状态
+    _email_cfg = get_system_config().get('email', {})
+    email_enabled = _email_cfg.get('enabled', False)
+    
     return render_template('dashboard.html', 
                          user=user, 
                          today_count=today_count, 
@@ -7096,6 +7457,7 @@ def dashboard():
                          site_config=site_config,
                          invite_reward_enabled=invite_reward_enabled,
                          invite_reward_percent=invite_reward_percent,
+                         email_enabled=email_enabled,
                          app_version=APP_VERSION)
 
 
@@ -15555,6 +15917,16 @@ def get_system_config_api():
                 'reward_percent': config.get('invite_reward', {}).get('reward_percent', 10),
                 'min_reward_days': config.get('invite_reward', {}).get('min_reward_days', 1),
                 'reward_mode': config.get('invite_reward', {}).get('reward_mode', 'recurring')
+            },
+            'email': {
+                'enabled': config.get('email', {}).get('enabled', False),
+                'smtp_host': config.get('email', {}).get('smtp_host', ''),
+                'smtp_port': config.get('email', {}).get('smtp_port', 465),
+                'smtp_ssl': config.get('email', {}).get('smtp_ssl', True),
+                'smtp_user': config.get('email', {}).get('smtp_user', ''),
+                'smtp_password': config.get('email', {}).get('smtp_password', ''),
+                'sender_name': config.get('email', {}).get('sender_name', 'Emby管理系统'),
+                'require_email_register': config.get('email', {}).get('require_email_register', False)
             }
         }
     }), 200
@@ -15698,6 +16070,28 @@ def save_system_config_api():
                 if mode in ('once', 'recurring'):
                     current_config['invite_reward']['reward_mode'] = mode
         
+        # 更新邮件配置
+        if 'email' in data:
+            email_data = data['email']
+            if 'email' not in current_config:
+                current_config['email'] = {}
+            if 'enabled' in email_data:
+                current_config['email']['enabled'] = bool(email_data['enabled'])
+            if 'smtp_host' in email_data:
+                current_config['email']['smtp_host'] = email_data['smtp_host'].strip()
+            if 'smtp_port' in email_data:
+                current_config['email']['smtp_port'] = int(email_data['smtp_port'])
+            if 'smtp_ssl' in email_data:
+                current_config['email']['smtp_ssl'] = bool(email_data['smtp_ssl'])
+            if 'smtp_user' in email_data:
+                current_config['email']['smtp_user'] = email_data['smtp_user'].strip()
+            if 'smtp_password' in email_data:
+                current_config['email']['smtp_password'] = email_data['smtp_password'].strip()
+            if 'sender_name' in email_data:
+                current_config['email']['sender_name'] = email_data['sender_name'].strip()
+            if 'require_email_register' in email_data:
+                current_config['email']['require_email_register'] = bool(email_data['require_email_register'])
+        
         # 保存到文件
         if save_system_config(current_config):
             # 更新全局变量
@@ -15740,6 +16134,136 @@ def save_system_config_api():
     except Exception as e:
         app.logger.error(f'保存系统配置失败: {e}')
         return jsonify({'error': str(e)}), 500
+
+
+# ==================== 邮件管理 API ====================
+
+@app.route('/api/admin/email/test', methods=['POST'])
+@admin_required
+def admin_test_email():
+    """测试 SMTP 邮件发送"""
+    try:
+        data = request.json
+        test_to = data.get('test_email', '').strip()
+        if not test_to:
+            return jsonify({'success': False, 'error': '请输入测试收件邮箱'}), 400
+        
+        site_name = get_site_config().get('site_name', 'Emby')
+        body = f"""<p>🎉 恭喜，SMTP 邮件配置测试成功！</p>
+<p>这是一封来自 <b>{site_name}</b> 管理系统的测试邮件，说明您的邮件服务配置正确。</p>
+<p style="color:#999;font-size:13px;">发送时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"""
+        html = build_email_html(f'{site_name} - 邮件测试', body, site_name)
+        ok, msg = send_email(test_to, f'【{site_name}】SMTP 邮件测试', html)
+        
+        if ok:
+            return jsonify({'success': True, 'message': f'测试邮件已发送到 {test_to}'}), 200
+        else:
+            return jsonify({'success': False, 'error': msg}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/email/broadcast', methods=['POST'])
+@admin_required
+def admin_broadcast_email():
+    """管理员群发邮件"""
+    try:
+        data = request.json
+        subject = data.get('subject', '').strip()
+        content = data.get('content', '').strip()
+        target = data.get('target', 'all')  # all / active / custom
+        custom_emails = data.get('custom_emails', [])
+        
+        if not subject:
+            return jsonify({'success': False, 'error': '请输入邮件标题'}), 400
+        if not content:
+            return jsonify({'success': False, 'error': '请输入邮件内容'}), 400
+        
+        email_cfg = get_email_config()
+        if not email_cfg.get('enabled'):
+            return jsonify({'success': False, 'error': '邮件功能未启用'}), 400
+        
+        # 确定收件人列表
+        recipients = []
+        if target == 'custom':
+            recipients = [e.strip().lower() for e in custom_emails if e.strip()]
+        else:
+            query = User.query.filter(User.email.isnot(None), User.email != '')
+            if target == 'active':
+                # 活跃用户：有有效订阅或白名单
+                query = query.filter(
+                    db.or_(
+                        User.lv == 'a',
+                        db.and_(User.lv == 'b', User.ex > datetime.now())
+                    )
+                )
+            users = query.all()
+            recipients = [u.email for u in users if u.email]
+        
+        if not recipients:
+            return jsonify({'success': False, 'error': '没有符合条件的收件人'}), 400
+        
+        # 构建 HTML（content 支持基础 HTML，自动处理换行）
+        processed_content = content.replace('\n', '<br>')
+        site_name = get_site_config().get('site_name', 'Emby')
+        html = build_email_html(subject, processed_content, site_name)
+        
+        # 异步发送
+        success_count = 0
+        fail_count = 0
+        fail_list = []
+        
+        for addr in recipients:
+            try:
+                ok, msg = send_email(addr, f'【{site_name}】{subject}', html)
+                if ok:
+                    success_count += 1
+                else:
+                    fail_count += 1
+                    fail_list.append(f'{addr}: {msg}')
+            except Exception as e:
+                fail_count += 1
+                fail_list.append(f'{addr}: {str(e)}')
+        
+        app.logger.info(f'群发邮件完成: 标题={subject}, 成功={success_count}, 失败={fail_count}')
+        
+        result_msg = f'发送完成: 成功 {success_count} 封'
+        if fail_count > 0:
+            result_msg += f'，失败 {fail_count} 封'
+        
+        return jsonify({
+            'success': True,
+            'message': result_msg,
+            'success_count': success_count,
+            'fail_count': fail_count,
+            'total': len(recipients)
+        }), 200
+        
+    except Exception as e:
+        app.logger.error(f'群发邮件失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/email/stats', methods=['GET'])
+@admin_required
+def admin_email_stats():
+    """获取邮箱绑定统计"""
+    try:
+        total_users = User.query.count()
+        bound_users = User.query.filter(User.email.isnot(None), User.email != '').count()
+        active_bound = User.query.filter(
+            User.email.isnot(None), User.email != '',
+            db.or_(User.lv == 'a', db.and_(User.lv == 'b', User.ex > datetime.now()))
+        ).count()
+        
+        return jsonify({
+            'success': True,
+            'total_users': total_users,
+            'bound_users': bound_users,
+            'active_bound': active_bound
+        }), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # ==================== 二级分类策略配置 API ====================
@@ -16705,6 +17229,9 @@ TELEGRAM_CHECKIN_CODES = {}
 
 # 存储忘记密码验证码 {username: {'code': '1234', 'telegram_id': xxx, 'created_at': datetime, 'expires_at': datetime}}
 PASSWORD_RESET_CODES = {}
+
+# 存储邮箱验证码 {email_or_key: {'code': '1234', 'user_tg': xxx, 'created_at': datetime, 'expires_at': datetime}}
+EMAIL_VERIFY_CODES = {}
 
 
 def cleanup_expired_bind_codes():
@@ -19816,6 +20343,8 @@ def migrate_database():
         # User表个性化返利配置
         ('emby', 'invite_reward_mode', 'VARCHAR(20) NULL'),
         ('emby', 'invite_reward_percent', 'FLOAT NULL'),
+        # User表邮箱字段
+        ('emby', 'email', 'VARCHAR(255) NULL'),
     ]
     
     app.logger.info('开始检查数据库迁移...')
