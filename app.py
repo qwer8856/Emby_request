@@ -14380,6 +14380,14 @@ def use_redeem_code():
         if redeem.expires_at and redeem.expires_at < datetime.now():
             return jsonify({'success': False, 'error': '兑换码已过期，请使用有效的兑换码'}), 400
         
+        # 校验兑换码类型与用户状态是否匹配
+        has_emby = bool(user.embyid)
+        if redeem.code_type == 'new' and has_emby:
+            return jsonify({'success': False, 'error': '您已有 Emby 账号，此为注册码，仅限未开通账号的用户使用。请使用续期码延长订阅。'}), 400
+        
+        if redeem.code_type == 'renew' and not has_emby:
+            return jsonify({'success': False, 'error': '您还没有 Emby 账号，此为续期码，仅限已有账号的用户使用。请先使用注册码开通账号。'}), 400
+        
         # 获取套餐配置
         plans_config = []
         try:
