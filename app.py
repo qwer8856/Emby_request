@@ -6053,6 +6053,64 @@ def register_page():
                          require_email_register=require_email_register)
 
 
+@app.route('/api/account/register-email-code', methods=['POST'])
+def send_register_email_code():
+    """注册时发送邮箱验证码（不需要登录）"""
+    try:
+        email_cfg = get_email_config()
+        if not email_cfg.get('enabled'):
+            return jsonify({'success': False, 'error': '邮件功能未启用'}), 400
+        
+        data = request.get_json()
+        email_addr = data.get('email', '').strip().lower()
+        
+        import re
+        if not email_addr or not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email_addr):
+            return jsonify({'success': False, 'error': '请输入有效的邮箱地址'}), 400
+        
+        # 检查邮箱是否已被使用
+        existing = User.query.filter_by(email=email_addr).first()
+        if existing:
+            return jsonify({'success': False, 'error': '该邮箱已被注册'}), 400
+        
+        # 限频：60秒内只能请求一次
+        cache_key = f'reg_{email_addr}'
+        if cache_key in EMAIL_VERIFY_CODES:
+            prev = EMAIL_VERIFY_CODES[cache_key]
+            if prev.get('created_at') and (datetime.now() - prev['created_at']).total_seconds() < 60:
+                remaining = 60 - int((datetime.now() - prev['created_at']).total_seconds())
+                return jsonify({'success': False, 'error': f'请 {remaining} 秒后重试'}), 429
+        
+        verify_code = str(random.randint(100000, 999999))
+        EMAIL_VERIFY_CODES[cache_key] = {
+            'code': verify_code,
+            'email': email_addr,
+            'created_at': datetime.now(),
+            'expires_at': datetime.now() + timedelta(minutes=5)
+        }
+        
+        site_name = get_site_config().get('site_name', 'Emby')
+        body = f"""<p>您好！</p>
+<p>您正在注册 {site_name} 账号，请使用以下验证码完成邮箱验证：</p>
+<div class="code-box"><div class="code">{verify_code}</div></div>
+<p>验证码 <b>5 分钟</b>内有效，请勿将验证码告知他人。</p>
+<p>如非本人操作，请忽略此邮件。</p>"""
+        
+        html = build_email_html(f'{site_name} - 注册邮箱验证', body, site_name)
+        success, msg = send_email(email_addr, f'【{site_name}】注册邮箱验证码', html)
+        
+        if success:
+            masked = email_addr[:3] + '***' + email_addr[email_addr.index('@'):]
+            return jsonify({'success': True, 'message': f'验证码已发送到 {masked}'}), 200
+        else:
+            del EMAIL_VERIFY_CODES[cache_key]
+            return jsonify({'success': False, 'error': f'邮件发送失败: {msg}'}), 500
+        
+    except Exception as e:
+        app.logger.error(f'注册发送邮箱验证码失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '发送失败，请稍后重试'}), 500
+
+
 @app.route('/api/register', methods=['POST'])
 def register():
     """用户注册 API"""

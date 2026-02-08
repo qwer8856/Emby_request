@@ -558,9 +558,20 @@
                     <label for="regEmail">邮箱 {% if require_email_register %}<span style="color: #dc2626; font-weight: 600;">(必填)</span>{% else %}<span style="color: #9ca3af; font-weight: 400;">(选填)</span>{% endif %}</label>
                     <div class="input-wrapper">
                         <span class="input-icon">📧</span>
-                        <input type="email" id="regEmail" name="email" placeholder="请输入邮箱地址" {% if require_email_register %}required{% endif %}>
+                        <input type="email" id="regEmail" name="email" placeholder="请输入邮箱地址" {% if require_email_register %}required{% endif %} oninput="toggleEmailCodeRow()">
                     </div>
-                    <div class="hint">绑定邮箱后可用于找回密码{% if require_email_register %}，注册必须填写{% endif %}</div>
+                    <div style="margin-top:8px;display:none;gap:8px;align-items:stretch;" id="emailCodeRow">
+                        <input type="text" id="regEmailCode" placeholder="邮箱验证码" maxlength="6" inputmode="numeric" 
+                               style="flex:1;padding:12px 14px;border:2px solid #e5e5e5;border-radius:12px;font-size:15px;background:#fafafa;color:#1a1a1a;transition:all 0.3s;letter-spacing:4px;text-align:center;font-weight:600;"
+                               onfocus="this.style.borderColor='#3b82f6';this.style.background='white';this.style.boxShadow='0 0 0 4px rgba(59,130,246,0.1)'" 
+                               onblur="this.style.borderColor='#e5e5e5';this.style.background='#fafafa';this.style.boxShadow='none'">
+                        <button type="button" id="sendRegEmailCodeBtn" onclick="sendRegEmailCode()" 
+                                style="white-space:nowrap;padding:12px 18px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;border:none;border-radius:12px;font-size:14px;font-weight:500;cursor:pointer;transition:all 0.3s;min-width:120px;">
+                            发送验证码
+                        </button>
+                    </div>
+                    <div class="hint">绑定邮箱后可用于找回密码{% if require_email_register %}，注册必须填写并验证{% endif %}</div>
+                    <div class="error-text" id="emailError"></div>
                 </div>
                 {% endif %}
                 
@@ -671,6 +682,17 @@
                 return false;
             }
             
+            // 如果填了邮箱，必须输入验证码
+            const regEmailEl = document.getElementById('regEmail');
+            const regEmailCodeEl = document.getElementById('regEmailCode');
+            if (regEmailEl && regEmailEl.value.trim()) {
+                if (!regEmailCodeEl || !regEmailCodeEl.value.trim()) {
+                    showMessage('请输入邮箱验证码', 'error');
+                    if (regEmailCodeEl) regEmailCodeEl.focus();
+                    return false;
+                }
+            }
+            
             const btn = document.getElementById('registerBtn');
             const originalText = btn.textContent;
             btn.disabled = true;
@@ -681,7 +703,8 @@
                     username: document.getElementById('username').value.trim(),
                     password: document.getElementById('password').value,
                     invite_code: document.getElementById('inviteCode').value.trim(),
-                    email: document.getElementById('regEmail') ? document.getElementById('regEmail').value.trim() : ''
+                    email: document.getElementById('regEmail') ? document.getElementById('regEmail').value.trim() : '',
+                    email_code: document.getElementById('regEmailCode') ? document.getElementById('regEmailCode').value.trim() : ''
                 };
                 
                 const response = await fetch('/api/register', {
@@ -708,6 +731,81 @@
             }
             
             return false;
+        }
+        
+        // 邮箱验证码相关
+        let regEmailCodeSent = false;
+        let regEmailCountdown = 0;
+        let regEmailTimer = null;
+        
+        function toggleEmailCodeRow() {
+            const email = document.getElementById('regEmail')?.value?.trim();
+            const row = document.getElementById('emailCodeRow');
+            if (row) {
+                row.style.display = email ? 'flex' : 'none';
+            }
+        }
+        
+        async function sendRegEmailCode() {
+            const emailInput = document.getElementById('regEmail');
+            const email = emailInput ? emailInput.value.trim() : '';
+            const btn = document.getElementById('sendRegEmailCodeBtn');
+            const errorEl = document.getElementById('emailError');
+            
+            if (!email) {
+                if (errorEl) errorEl.textContent = '请先输入邮箱地址';
+                emailInput && emailInput.focus();
+                return;
+            }
+            
+            if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email)) {
+                if (errorEl) errorEl.textContent = '请输入有效的邮箱地址';
+                return;
+            }
+            
+            if (errorEl) errorEl.textContent = '';
+            btn.disabled = true;
+            btn.textContent = '发送中...';
+            
+            try {
+                const response = await fetch('/api/account/register-email-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('✉️ ' + (data.message || '验证码已发送'), 'success');
+                    regEmailCodeSent = true;
+                    document.getElementById('regEmailCode')?.focus();
+                    // 倒计时60秒
+                    regEmailCountdown = 60;
+                    btn.textContent = regEmailCountdown + 's 后重试';
+                    btn.style.background = '#9ca3af';
+                    regEmailTimer = setInterval(() => {
+                        regEmailCountdown--;
+                        if (regEmailCountdown <= 0) {
+                            clearInterval(regEmailTimer);
+                            btn.disabled = false;
+                            btn.textContent = '重新发送';
+                            btn.style.background = 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)';
+                        } else {
+                            btn.textContent = regEmailCountdown + 's 后重试';
+                        }
+                    }, 1000);
+                } else {
+                    showMessage(data.error || '发送失败', 'error');
+                    btn.disabled = false;
+                    btn.textContent = '发送验证码';
+                    btn.style.background = 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)';
+                }
+            } catch (error) {
+                showMessage('网络错误，请稍后重试', 'error');
+                btn.disabled = false;
+                btn.textContent = '发送验证码';
+                btn.style.background = 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)';
+            }
         }
     </script>
 </body>
