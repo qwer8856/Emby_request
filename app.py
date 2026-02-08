@@ -2001,7 +2001,6 @@ class EmbyClient:
             'PasswordResetProviderId', 
             'InvalidLoginAttemptCount',
             'LoginAttemptsBeforeLockout',
-            'MaxActiveSessions',
             'RemoteClientBitrateLimit',
             'AuthenticatedFolders',
         ]
@@ -3009,8 +3008,10 @@ class EmbyClient:
             max_streams = config.get('telegram', {}).get('max_streams', 0)
             if max_streams and max_streams > 0:
                 policy['SimultaneousStreamLimit'] = max_streams
+                policy['MaxActiveSessions'] = max_streams
             else:
                 policy.pop('SimultaneousStreamLimit', None)
+                policy.pop('MaxActiveSessions', None)
             
             # 移除可能导致 400 错误的只读字段
             self._clean_policy_readonly_fields(policy)
@@ -3249,13 +3250,16 @@ class EmbyClient:
             policy['EnableContentDeletionFromFolders'] = []
             
             # 最大同时播放流数限制（始终设置，0视为不限制时不设此字段让Emby使用默认行为）
+            # 同时设置 SimultaneousStreamLimit 和 MaxActiveSessions（不同 Emby 版本认不同字段）
             config = load_system_config()
             max_streams = config.get('telegram', {}).get('max_streams', 0)
             if max_streams and max_streams > 0:
                 policy['SimultaneousStreamLimit'] = max_streams
+                policy['MaxActiveSessions'] = max_streams
             else:
                 # 未配置时移除限制让Emby使用默认行为
                 policy.pop('SimultaneousStreamLimit', None)
+                policy.pop('MaxActiveSessions', None)
             
             # 最大同步视频流
             policy['SyncPlayAccess'] = 'CreateAndJoinGroups'
@@ -3274,10 +3278,11 @@ class EmbyClient:
             )
             
             if response.status_code in [200, 204]:
-                app.logger.info(f'已设置 Emby 用户策略: {user_id}')
+                app.logger.info(f'已设置 Emby 用户策略: {user_id}, SimultaneousStreamLimit={policy.get("SimultaneousStreamLimit")}, MaxActiveSessions={policy.get("MaxActiveSessions")}')
                 return True
             else:
-                app.logger.warning(f'设置用户策略失败: {user_id}, status={response.status_code}')
+                resp_text = response.text[:500] if response.text else ''
+                app.logger.warning(f'设置用户策略失败: {user_id}, status={response.status_code}, response={resp_text}')
                 return False
                 
         except Exception as e:
@@ -3317,12 +3322,14 @@ class EmbyClient:
                     user_info = response.json()
                     policy = user_info.get('Policy', {})
                     
-                    # 更新流数限制
+                    # 更新流数限制（同时设置两个字段，兼容不同 Emby 版本）
                     if max_streams > 0:
                         policy['SimultaneousStreamLimit'] = max_streams
+                        policy['MaxActiveSessions'] = max_streams
                     else:
                         # 0表示不限制，移除限制
                         policy.pop('SimultaneousStreamLimit', None)
+                        policy.pop('MaxActiveSessions', None)
                     
                     # 移除只读字段
                     self._clean_policy_readonly_fields(policy)
