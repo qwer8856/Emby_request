@@ -6340,12 +6340,24 @@ def forgot_password():
         # 查找用户
         user = User.query.filter_by(name=username).first()
         if not user:
-            # 为了安全，不透露用户是否存在
-            return jsonify({'success': False, 'error': '用户名不存在或未绑定 Telegram'}), 400
+            return jsonify({'success': False, 'error': '用户名不存在'}), 400
         
         # 检查用户是否绑定了 Telegram
         if not user.telegram_id:
-            return jsonify({'success': False, 'error': '该账号未绑定 Telegram，无法重置密码'}), 400
+            # 检查邮件功能是否启用且用户已绑定邮箱，引导用户使用邮箱找回
+            _email_cfg = get_system_config().get('email', {})
+            email_on = _email_cfg.get('enabled', False)
+            if email_on and user.email:
+                return jsonify({
+                    'success': False, 
+                    'error': '该账号未绑定 Telegram Bot，请使用邮箱方式找回密码',
+                    'suggest_method': 'email'
+                }), 400
+            else:
+                return jsonify({
+                    'success': False, 
+                    'error': '该账号未绑定 Telegram Bot，无法通过此方式找回密码，请联系管理员'
+                }), 400
         
         # 检查是否频繁请求（1分钟内只能请求一次）
         if username in PASSWORD_RESET_CODES:
@@ -6721,7 +6733,11 @@ def forgot_password_email():
         
         user = User.query.filter_by(email=email_addr).first()
         if not user:
-            return jsonify({'success': False, 'error': '该邮箱未绑定任何账号'}), 400
+            return jsonify({
+                'success': False, 
+                'error': '该邮箱未绑定任何账号，请检查邮箱地址是否正确，或使用 Telegram 方式找回',
+                'suggest_method': 'telegram'
+            }), 400
         
         # 限频
         cache_key = f'reset_{email_addr}'

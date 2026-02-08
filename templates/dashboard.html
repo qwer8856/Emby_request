@@ -117,6 +117,14 @@
                 <span id="telegramBindText">绑定 Telegram</span>
                 <span class="bind-badge" id="telegramBindBadge"></span>
             </div>
+            {% if email_enabled %}
+            <!-- 邮箱绑定按钮 -->
+            <div class="email-bind-sidebar" id="emailBindSidebar" onclick="goToEmailBind()">
+                <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+                <span id="emailBindText">{{ '邮箱已绑定' if user.email else '绑定邮箱' }}</span>
+                <span class="bind-badge" id="emailBindBadge">{{ '已绑定' if user.email else '未绑定' }}</span>
+            </div>
+            {% endif %}
             <div class="user-card">
                 <div class="user-avatar">{{ (user.name or 'U')[0].upper() }}</div>
                 <div class="user-info-sidebar">

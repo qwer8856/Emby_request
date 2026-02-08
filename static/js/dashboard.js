@@ -407,6 +407,51 @@ async function submitEmbyUnbind(event) {
 
 // ==================== Telegram 绑定功能 ====================
 let currentBindCode = null;
+// 邮箱绑定 - 跳转到个人信息邮箱绑定卡片
+function goToEmailBind() {
+    switchSection('profile');
+    // 等页面切换完成后滚动到邮箱绑定卡片
+    setTimeout(() => {
+        const emailCard = document.querySelector('#section-profile .feature-card-v2 .feature-title-v2');
+        // 找到“绑定邮箱”卡片
+        const cards = document.querySelectorAll('#section-profile .feature-card-v2');
+        for (const card of cards) {
+            const title = card.querySelector('.feature-title-v2');
+            if (title && title.textContent.includes('绑定邮箱')) {
+                card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // 高亮闪烁一下
+                card.style.transition = 'box-shadow 0.3s ease';
+                card.style.boxShadow = '0 0 0 2px #8b5cf6, 0 4px 20px rgba(139, 92, 246, 0.3)';
+                setTimeout(() => { card.style.boxShadow = ''; }, 2000);
+                break;
+            }
+        }
+    }, 300);
+}
+
+// 更新邮箱绑定侧边栏状态
+function updateEmailBindSidebar(isBound) {
+    const sidebar = document.getElementById('emailBindSidebar');
+    if (!sidebar) return;
+    const textEl = document.getElementById('emailBindText');
+    const badgeEl = document.getElementById('emailBindBadge');
+    
+    if (isBound === undefined) {
+        // 从初始渲染状态判断
+        isBound = badgeEl && badgeEl.textContent.trim() === '已绑定';
+    }
+    
+    if (isBound) {
+        sidebar.classList.add('bound');
+        if (textEl) textEl.textContent = '邮箱已绑定';
+        if (badgeEl) badgeEl.textContent = '已绑定';
+    } else {
+        sidebar.classList.remove('bound');
+        if (textEl) textEl.textContent = '绑定邮箱';
+        if (badgeEl) badgeEl.textContent = '未绑定';
+    }
+}
+
 let bindCodeExpireTimer = null;
 let bindStatusCheckTimer = null;
 
@@ -1669,8 +1714,8 @@ async function unbindTelegramId() {
             // 加载系统公告列表
             loadSystemAnnouncements();
             
-            // 加载 Telegram 绑定状态
-            loadTelegramBindStatus();
+            // 初始化邮箱绑定侧边栏状态
+            updateEmailBindSidebar();
             
             // 加载订阅权益配置
             loadSubscriptionBenefits();
