@@ -6182,8 +6182,15 @@ def register():
                 if datetime.now() > vdata['expires_at']:
                     del EMAIL_VERIFY_CODES[cache_key]
                     return jsonify({'success': False, 'error': '验证码已过期，请重新发送'}), 400
+                # 检查尝试次数（防暴力破解）
+                vdata.setdefault('attempts', 0)
+                vdata['attempts'] += 1
+                if vdata['attempts'] > 5:
+                    del EMAIL_VERIFY_CODES[cache_key]
+                    return jsonify({'success': False, 'error': '验证码错误次数过多，请重新获取'}), 400
                 if vdata['code'] != email_code:
-                    return jsonify({'success': False, 'error': '邮箱验证码错误'}), 400
+                    remaining = 5 - vdata['attempts']
+                    return jsonify({'success': False, 'error': f'邮箱验证码错误，还可尝试 {remaining} 次'}), 400
                 # 验证通过，清除验证码
                 del EMAIL_VERIFY_CODES[cache_key]
         
@@ -6523,9 +6530,17 @@ def reset_password():
             del PASSWORD_RESET_CODES[username]
             return jsonify({'success': False, 'error': '验证码已过期，请重新获取'}), 400
         
+        # 检查尝试次数（防暴力破解）
+        reset_data.setdefault('attempts', 0)
+        reset_data['attempts'] += 1
+        if reset_data['attempts'] > 5:
+            del PASSWORD_RESET_CODES[username]
+            return jsonify({'success': False, 'error': '验证码错误次数过多，请重新获取'}), 400
+        
         # 验证码匹配
         if reset_data['code'] != code:
-            return jsonify({'success': False, 'error': '验证码错误'}), 400
+            remaining = 5 - reset_data['attempts']
+            return jsonify({'success': False, 'error': f'验证码错误，还可尝试 {remaining} 次'}), 400
         
         # 查找用户并更新密码
         user = User.query.filter_by(name=username).first()
@@ -6751,8 +6766,16 @@ def verify_email_bind():
             del EMAIL_VERIFY_CODES[cache_key]
             return jsonify({'success': False, 'error': '验证码已过期，请重新获取'}), 400
         
+        # 检查尝试次数（防暴力破解）
+        vdata.setdefault('attempts', 0)
+        vdata['attempts'] += 1
+        if vdata['attempts'] > 5:
+            del EMAIL_VERIFY_CODES[cache_key]
+            return jsonify({'success': False, 'error': '验证码错误次数过多，请重新获取'}), 400
+        
         if vdata['code'] != code:
-            return jsonify({'success': False, 'error': '验证码错误'}), 400
+            remaining = 5 - vdata['attempts']
+            return jsonify({'success': False, 'error': f'验证码错误，还可尝试 {remaining} 次'}), 400
         
         # 再次检查邮箱唯一性
         email_addr = vdata['email']
@@ -6884,8 +6907,16 @@ def reset_password_email():
             del EMAIL_VERIFY_CODES[cache_key]
             return jsonify({'success': False, 'error': '验证码已过期'}), 400
         
+        # 检查尝试次数（防暴力破解）
+        vdata.setdefault('attempts', 0)
+        vdata['attempts'] += 1
+        if vdata['attempts'] > 5:
+            del EMAIL_VERIFY_CODES[cache_key]
+            return jsonify({'success': False, 'error': '验证码错误次数过多，请重新获取'}), 400
+        
         if vdata['code'] != code:
-            return jsonify({'success': False, 'error': '验证码错误'}), 400
+            remaining = 5 - vdata['attempts']
+            return jsonify({'success': False, 'error': f'验证码错误，还可尝试 {remaining} 次'}), 400
         
         user = db.session.get(User, vdata['user_tg'])
         if not user:
@@ -16351,20 +16382,21 @@ def admin_broadcast_email():
         
         # 后台线程异步发送，避免大量收件人时请求超时
         def _send_broadcast():
-            success_count = 0
-            fail_count = 0
-            for addr in recipients:
-                try:
-                    ok, msg = send_email(addr, f'【{site_name}】{subject}', html)
-                    if ok:
-                        success_count += 1
-                    else:
+            with app.app_context():
+                success_count = 0
+                fail_count = 0
+                for addr in recipients:
+                    try:
+                        ok, msg = send_email(addr, f'【{site_name}】{subject}', html)
+                        if ok:
+                            success_count += 1
+                        else:
+                            fail_count += 1
+                            app.logger.warning(f'群发邮件失败: {addr} - {msg}')
+                    except Exception as e:
                         fail_count += 1
-                        app.logger.warning(f'群发邮件失败: {addr} - {msg}')
-                except Exception as e:
-                    fail_count += 1
-                    app.logger.warning(f'群发邮件异常: {addr} - {e}')
-            app.logger.info(f'群发邮件完成: 标题={subject}, 成功={success_count}, 失败={fail_count}, 总计={total_count}')
+                        app.logger.warning(f'群发邮件异常: {addr} - {e}')
+                app.logger.info(f'群发邮件完成: 标题={subject}, 成功={success_count}, 失败={fail_count}, 总计={total_count}')
         
         thread = Thread(target=_send_broadcast)
         thread.daemon = True
