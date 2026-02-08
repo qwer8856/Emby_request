@@ -6162,6 +6162,23 @@ def register():
             existing_email = User.query.filter_by(email=reg_email).first()
             if existing_email:
                 return jsonify({'success': False, 'error': '该邮箱已被使用'}), 400
+            
+            # 验证邮箱验证码（邮件功能启用时必须验证）
+            if email_cfg.get('enabled'):
+                email_code = data.get('email_code', '').strip()
+                if not email_code:
+                    return jsonify({'success': False, 'error': '请输入邮箱验证码'}), 400
+                cache_key = f'reg_{reg_email}'
+                vdata = EMAIL_VERIFY_CODES.get(cache_key)
+                if not vdata:
+                    return jsonify({'success': False, 'error': '请先发送邮箱验证码'}), 400
+                if datetime.now() > vdata['expires_at']:
+                    del EMAIL_VERIFY_CODES[cache_key]
+                    return jsonify({'success': False, 'error': '验证码已过期，请重新发送'}), 400
+                if vdata['code'] != email_code:
+                    return jsonify({'success': False, 'error': '邮箱验证码错误'}), 400
+                # 验证通过，清除验证码
+                del EMAIL_VERIFY_CODES[cache_key]
         
         # 生成唯一的 tg ID（使用时间戳 + 随机数）
         import random
