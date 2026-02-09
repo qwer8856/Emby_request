@@ -5373,6 +5373,71 @@ def send_user_telegram_notification(user_tg_id, title, status, admin_note=None, 
     if not user_tg_id or not TELEGRAM_BOT_TOKEN:
         return False
 
+    status_emoji = {
+        'approved': '✅',
+        'completed': '🎉',
+        'rejected': '❌'
+    }
+    
+    status_text = {
+        'approved': '已批准',
+        'completed': '已入库',
+        'rejected': '已拒绝'
+    }
+    
+    media_type_cn = '🎬 电影' if media_type == 'movie' else '📺 剧集'
+    
+    message_lines = [
+        f"{status_emoji.get(status, '📢')} <b>求片状态更新</b>",
+        f"━━━━━━━━━━━━━━━━━━",
+        f"🎞 <b>影片：</b><b>{title}</b>",
+        f"📁 <b>类型：</b>{media_type_cn}",
+        f"📊 <b>状态：</b><b>{status_text.get(status, status)}</b>",
+    ]
+    
+    if admin_note:
+        message_lines.append(f"💬 <b>管理员备注：</b>{admin_note}")
+    
+    # 添加TMDB链接
+    if tmdb_id:
+        tmdb_url = f"https://www.themoviedb.org/{media_type}/{tmdb_id}"
+        message_lines.append(f"🔗 <a href='{tmdb_url}'>查看 TMDB 详情</a>")
+    
+    message_lines.extend([
+        f"━━━━━━━━━━━━━━━━━━",
+        f"⏰ <b>更新时间：</b>{datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')}"
+    ])
+    
+    message = '\n'.join(message_lines)
+    
+    try:
+        # 如果有海报，发送带图片的消息
+        if poster_path:
+            poster_url = f"{TMDB_IMAGE_BASE_URL}{poster_path}"
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+            response = http_session.post(url, json={
+                'chat_id': user_tg_id,
+                'photo': poster_url,
+                'caption': message,
+                'parse_mode': 'HTML'
+            }, timeout=5)
+        else:
+            # 没有海报就发送纯文本消息
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            response = http_session.post(url, json={
+                'chat_id': user_tg_id,
+                'text': message,
+                'parse_mode': 'HTML',
+                'disable_web_page_preview': False
+            }, timeout=5)
+        
+        response.raise_for_status()
+        app.logger.info(f'用户通知发送成功: {title} -> {user_tg_id}')
+        return True
+    except Exception as e:
+        app.logger.error(f'用户通知发送失败: {e}')
+        return False
+
 
 def send_admin_review_notification(movie_request, user):
     """求片后向所有 bot_admin 私聊发送审核通知（带确认/拒绝按钮）
@@ -5486,71 +5551,6 @@ def send_admin_review_notification(movie_request, user):
                 app.logger.warning(f'[审核通知] 发送给管理员 {admin_id} 失败: {data.get("description")}')
         except Exception as e:
             app.logger.error(f'[审核通知] 发送给管理员 {admin_id} 异常: {e}')
-    
-    status_emoji = {
-        'approved': '✅',
-        'completed': '🎉',
-        'rejected': '❌'
-    }
-    
-    status_text = {
-        'approved': '已批准',
-        'completed': '已入库',
-        'rejected': '已拒绝'
-    }
-    
-    media_type_cn = '🎬 电影' if media_type == 'movie' else '📺 剧集'
-    
-    message_lines = [
-        f"{status_emoji.get(status, '📢')} <b>求片状态更新</b>",
-        f"━━━━━━━━━━━━━━━━━━",
-        f"🎞 <b>影片：</b><b>{title}</b>",
-        f"📁 <b>类型：</b>{media_type_cn}",
-        f"📊 <b>状态：</b><b>{status_text.get(status, status)}</b>",
-    ]
-    
-    if admin_note:
-        message_lines.append(f"💬 <b>管理员备注：</b>{admin_note}")
-    
-    # 添加TMDB链接
-    if tmdb_id:
-        tmdb_url = f"https://www.themoviedb.org/{media_type}/{tmdb_id}"
-        message_lines.append(f"🔗 <a href='{tmdb_url}'>查看 TMDB 详情</a>")
-    
-    message_lines.extend([
-        f"━━━━━━━━━━━━━━━━━━",
-        f"⏰ <b>更新时间：</b>{datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')}"
-    ])
-    
-    message = '\n'.join(message_lines)
-    
-    try:
-        # 如果有海报，发送带图片的消息
-        if poster_path:
-            poster_url = f"{TMDB_IMAGE_BASE_URL}{poster_path}"
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
-            response = http_session.post(url, json={
-                'chat_id': user_tg_id,
-                'photo': poster_url,
-                'caption': message,
-                'parse_mode': 'HTML'
-            }, timeout=5)
-        else:
-            # 没有海报就发送纯文本消息
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-            response = http_session.post(url, json={
-                'chat_id': user_tg_id,
-                'text': message,
-                'parse_mode': 'HTML',
-                'disable_web_page_preview': False
-            }, timeout=5)
-        
-        response.raise_for_status()
-        app.logger.info(f'用户通知发送成功: {title} -> {user_tg_id}')
-        return True
-    except Exception as e:
-        app.logger.error(f'用户通知发送失败: {e}')
-        return False
 
 
 def send_group_completion_notification(user_tg_id, username, title, year, media_type, tmdb_id, poster_path, 
