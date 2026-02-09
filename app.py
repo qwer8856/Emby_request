@@ -17191,7 +17191,13 @@ def get_system_config_api():
             'subscription_expire': {
                 'auto_disable': config.get('subscription_expire', {}).get('auto_disable', True),
                 'delete_days': config.get('subscription_expire', {}).get('delete_days', 0),
-                'delete_web_account': config.get('subscription_expire', {}).get('delete_web_account', False)
+                'delete_web_account': config.get('subscription_expire', {}).get('delete_web_account', False),
+                'retention_mode': config.get('subscription_expire', {}).get('retention_mode', 'off'),
+                'retention_checkin_days': config.get('subscription_expire', {}).get('retention_checkin_days', 20),
+                'retention_checkin_cost': config.get('subscription_expire', {}).get('retention_checkin_cost', 10),
+                'retention_watch_days': config.get('subscription_expire', {}).get('retention_watch_days', 30),
+                'retention_watch_minutes': config.get('subscription_expire', {}).get('retention_watch_minutes', 30),
+                'retention_renew_days': config.get('subscription_expire', {}).get('retention_renew_days', 30),
             },
             'invite_reward': {
                 'enabled': config.get('invite_reward', {}).get('enabled', True),
