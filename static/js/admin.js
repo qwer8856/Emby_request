@@ -1491,7 +1491,8 @@ function switchAdminSection(section, event, updateHash = true) {
         'playback': '播放监控',
         'activity-logs': '操作日志',
         'knowledge': '知识库管理',
-        'settings': '系统设置'
+        'settings': '系统设置',
+        'audit': '审计日志'
     };
     document.getElementById('pageTitle').textContent = titles[section] || section;
     
@@ -1554,6 +1555,9 @@ function switchAdminSection(section, event, updateHash = true) {
             if (window.ADMIN_INFO && window.ADMIN_INFO.is_super) {
                 loadAdminList();
             }
+            break;
+        case 'audit':
+            loadAuditLogs(1);
             break;
     }
 }
@@ -2387,6 +2391,211 @@ function renderInviteTrendChart(trendData) {
 
 function exportInviteStats() {
     showToast('提示', '导出功能开发中', 'info');
+}
+
+// ==================== 数据导出功能 ====================
+function toggleExportMenu(btn) {
+    const menu = btn.nextElementSibling;
+    const isVisible = menu.style.display !== 'none';
+    // 关闭所有下拉菜单
+    document.querySelectorAll('.dropdown-menu').forEach(m => m.style.display = 'none');
+    menu.style.display = isVisible ? 'none' : 'block';
+    // 点击其他区域关闭
+    if (!isVisible) {
+        setTimeout(() => {
+            const close = (e) => {
+                if (!btn.contains(e.target) && !menu.contains(e.target)) {
+                    menu.style.display = 'none';
+                    document.removeEventListener('click', close);
+                }
+            };
+            document.addEventListener('click', close);
+        }, 0);
+    }
+}
+
+function exportData(type) {
+    document.querySelectorAll('.dropdown-menu').forEach(m => m.style.display = 'none');
+    showToast('提示', '正在生成导出文件...', 'info');
+    
+    const link = document.createElement('a');
+    link.href = `/api/admin/export/${type}`;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    setTimeout(() => showToast('成功', '文件已下载', 'success'), 1000);
+}
+
+// ==================== 审计日志 ====================
+let auditCurrentPage = 1;
+let auditFiltersLoaded = false;
+
+async function loadAuditLogs(page = 1) {
+    auditCurrentPage = page;
+    const container = document.getElementById('auditLogsContainer');
+    const pagination = document.getElementById('auditLogsPagination');
+    if (!container) return;
+    
+    container.innerHTML = '<div class="loading-placeholder">加载中...</div>';
+    
+    try {
+        const adminFilter = document.getElementById('auditFilterAdmin')?.value || '';
+        const actionFilter = document.getElementById('auditFilterAction')?.value || '';
+        const keyword = document.getElementById('auditFilterKeyword')?.value || '';
+        
+        const params = new URLSearchParams({
+            page: page,
+            per_page: 20,
+            admin_username: adminFilter,
+            action_type: actionFilter,
+            keyword: keyword
+        });
+        
+        const response = await fetch(`/api/admin/audit-logs?${params}`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            container.innerHTML = `<div class="empty-state">加载失败: ${data.error}</div>`;
+            return;
+        }
+        
+        // 填充筛选下拉（仅首次）
+        if (!auditFiltersLoaded && data.admin_names) {
+            const adminSelect = document.getElementById('auditFilterAdmin');
+            const actionSelect = document.getElementById('auditFilterAction');
+            
+            if (adminSelect) {
+                data.admin_names.forEach(name => {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    adminSelect.appendChild(opt);
+                });
+            }
+            
+            if (actionSelect && data.action_types) {
+                // 操作类型中文映射
+                const typeNames = {
+                    'admin_login': '🔐 管理员登录',
+                    'admin_logout': '🚪 管理员登出',
+                    'config_change': '⚙️ 修改配置',
+                    'user_ban': '⛔ 封禁用户',
+                    'user_unban': '✅ 解封用户',
+                    'user_level_change': '📊 修改用户等级',
+                    'user_reset_password': '🔑 重置用户密码',
+                    'user_gift_subscription': '🎁 赠送订阅',
+                    'user_reduce_subscription': '⏳ 减少订阅',
+                    'order_mark_paid': '💳 手动标记付款',
+                    'order_cancel': '❌ 取消订单',
+                    'redeem_create': '🎟️ 创建兑换码',
+                    'redeem_delete': '🗑️ 删除兑换码',
+                    'redeem_toggle': '🔄 切换兑换码状态',
+                    'plan_change': '💰 修改套餐',
+                    'admin_create': '👤 创建管理员',
+                    'admin_delete': '🗑️ 删除管理员',
+                    'admin_update': '✏️ 修改管理员',
+                    'export_data': '📥 导出数据',
+                    'batch_operation': '📋 批量操作',
+                    'announcement': '📢 公告管理',
+                    'knowledge': '📚 知识库管理',
+                    'line_change': '🔗 线路管理',
+                    'device_rule': '📱 设备规则',
+                };
+                data.action_types.forEach(type => {
+                    const opt = document.createElement('option');
+                    opt.value = type;
+                    opt.textContent = typeNames[type] || type;
+                    actionSelect.appendChild(opt);
+                });
+            }
+            auditFiltersLoaded = true;
+        }
+        
+        if (!data.logs || data.logs.length === 0) {
+            container.innerHTML = '<div class="empty-state">暂无审计日志</div>';
+            if (pagination) pagination.innerHTML = '';
+            return;
+        }
+        
+        // 渲染日志表格
+        let html = `
+            <table class="data-table" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th style="width:160px;">时间</th>
+                        <th style="width:100px;">管理员</th>
+                        <th style="width:160px;">操作类型</th>
+                        <th>操作详情</th>
+                        <th style="width:120px;">IP地址</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+        
+        data.logs.forEach(log => {
+            html += `
+                <tr>
+                    <td style="font-size:12px; white-space:nowrap;">${log.created_at || '-'}</td>
+                    <td><strong>${escapeHtml(log.admin_username)}</strong></td>
+                    <td>${log.action_type_display || log.action_type}</td>
+                    <td style="font-size:13px; word-break:break-all;">${escapeHtml(log.action_detail || '-')}</td>
+                    <td style="font-size:12px; color:#888;">${log.ip_address || '-'}</td>
+                </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        container.innerHTML = html;
+        
+        // 渲染分页
+        if (pagination && data.total_pages > 1) {
+            let phtml = '';
+            if (page > 1) {
+                phtml += `<button class="btn-secondary btn-sm" onclick="loadAuditLogs(${page - 1})">上一页</button> `;
+            }
+            phtml += `<span style="margin:0 12px; font-size:13px; color:#666;">第 ${page}/${data.total_pages} 页，共 ${data.total} 条</span>`;
+            if (page < data.total_pages) {
+                phtml += ` <button class="btn-secondary btn-sm" onclick="loadAuditLogs(${page + 1})">下一页</button>`;
+            }
+            pagination.innerHTML = phtml;
+        } else if (pagination) {
+            pagination.innerHTML = data.total ? `<span style="font-size:13px; color:#888;">共 ${data.total} 条</span>` : '';
+        }
+        
+    } catch (error) {
+        container.innerHTML = `<div class="empty-state">加载失败: ${error.message}</div>`;
+    }
+}
+
+async function cleanupAuditLogs() {
+    const days = prompt('保留最近多少天的日志？（7-365天）', '90');
+    if (!days) return;
+    
+    const keepDays = parseInt(days);
+    if (isNaN(keepDays) || keepDays < 7 || keepDays > 365) {
+        showToast('错误', '请输入7-365之间的天数', 'error');
+        return;
+    }
+    
+    if (!confirm(`确定要清理 ${keepDays} 天前的审计日志吗？此操作不可撤销。`)) return;
+    
+    try {
+        const response = await fetch('/api/admin/audit-logs/cleanup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keep_days: keepDays })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('成功', data.message, 'success');
+            loadAuditLogs(1);
+        } else {
+            showToast('错误', data.error || '清理失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', '请求失败: ' + error.message, 'error');
+    }
 }
 
 // ==================== 用户管理 ====================
@@ -3320,6 +3529,40 @@ async function loadSystemConfig() {
                 toggleEmailFields();
             }
             
+            // 填充登录通知配置
+            if (config.login_notify) {
+                const lnEnabled = document.getElementById('loginNotifyEnabled');
+                const lnEmail = document.getElementById('loginNotifyEmail');
+                const lnTelegram = document.getElementById('loginNotifyTelegram');
+                const lnStatus = document.getElementById('loginNotifyStatus');
+                
+                if (lnEnabled) lnEnabled.checked = config.login_notify.enabled === true;
+                if (lnEmail) lnEmail.checked = config.login_notify.email !== false;
+                if (lnTelegram) lnTelegram.checked = config.login_notify.telegram !== false;
+                if (lnStatus) {
+                    lnStatus.textContent = config.login_notify.enabled ? '已开启' : '已关闭';
+                    lnStatus.className = 'status-badge ' + (config.login_notify.enabled ? 'configured' : '');
+                }
+            }
+            
+            // 填充到期提醒配置
+            if (config.expire_remind) {
+                const erEnabled = document.getElementById('expireRemindEnabled');
+                const erDays = document.getElementById('expireRemindDays');
+                const erEmail = document.getElementById('expireRemindEmail');
+                const erTelegram = document.getElementById('expireRemindTelegram');
+                const erStatus = document.getElementById('expireRemindStatus');
+                
+                if (erEnabled) erEnabled.checked = config.expire_remind.enabled === true;
+                if (erDays) erDays.value = (config.expire_remind.days || [3, 7]).join(',');
+                if (erEmail) erEmail.checked = config.expire_remind.email !== false;
+                if (erTelegram) erTelegram.checked = config.expire_remind.telegram !== false;
+                if (erStatus) {
+                    erStatus.textContent = config.expire_remind.enabled ? '已开启' : '已关闭';
+                    erStatus.className = 'status-badge ' + (config.expire_remind.enabled ? 'configured' : '');
+                }
+            }
+            
             // 加载邮箱统计
             loadEmailStats();
         }
@@ -3360,6 +3603,66 @@ async function saveEmbyConfig() {
         }
     } catch (error) {
         console.error('保存配置失败:', error);
+        showToast('错误', '保存失败: ' + error.message, 'error');
+    }
+}
+
+// 登录安全通知配置
+async function saveLoginNotifyConfig() {
+    const enabled = document.getElementById('loginNotifyEnabled')?.checked || false;
+    const email = document.getElementById('loginNotifyEmail')?.checked || false;
+    const telegram = document.getElementById('loginNotifyTelegram')?.checked || false;
+    
+    try {
+        const response = await fetch('/api/admin/system-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                login_notify: { enabled, email, telegram }
+            })
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('成功', '登录通知配置已保存', 'success');
+            setTimeout(() => loadSystemConfig(), 500);
+        } else {
+            showToast('失败', data.error || '保存失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', '保存失败: ' + error.message, 'error');
+    }
+}
+
+// 订阅到期提醒配置
+async function saveExpireRemindConfig() {
+    const enabled = document.getElementById('expireRemindEnabled')?.checked || false;
+    const daysStr = document.getElementById('expireRemindDays')?.value || '3,7';
+    const email = document.getElementById('expireRemindEmail')?.checked || false;
+    const telegram = document.getElementById('expireRemindTelegram')?.checked || false;
+    
+    // 解析天数
+    const days = daysStr.split(',').map(s => parseInt(s.trim())).filter(n => n > 0 && n <= 365);
+    if (days.length === 0) {
+        showToast('错误', '请输入有效的提醒天数', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/admin/system-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                expire_remind: { enabled, days, email, telegram }
+            })
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('成功', '到期提醒配置已保存', 'success');
+            setTimeout(() => loadSystemConfig(), 500);
+        } else {
+            showToast('失败', data.error || '保存失败', 'error');
+        }
+    } catch (error) {
         showToast('错误', '保存失败: ' + error.message, 'error');
     }
 }

@@ -369,6 +369,90 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 db = SQLAlchemy(app)
 db_initialized = False
 
+# ==================== 登录暴力破解防护 ====================
+class LoginRateLimiter:
+    """基于内存的登录频率限制器，防止暴力破解"""
+    
+    def __init__(self, max_attempts=5, lockout_seconds=900, cleanup_interval=300):
+        self._attempts = {}   # {key: [timestamp1, timestamp2, ...]}
+        self._lockouts = {}   # {key: lockout_expire_time}
+        self._lock = Lock()
+        self.max_attempts = max_attempts        # 最大尝试次数
+        self.lockout_seconds = lockout_seconds  # 锁定时长（秒），默认15分钟
+        self.cleanup_interval = cleanup_interval
+        self._last_cleanup = time.time()
+    
+    def _get_client_ip(self):
+        """获取客户端真实IP"""
+        forwarded = request.headers.get('X-Forwarded-For', '')
+        if forwarded:
+            return forwarded.split(',')[0].strip()
+        return request.remote_addr or '0.0.0.0'
+    
+    def _cleanup(self):
+        """定期清理过期记录"""
+        now = time.time()
+        if now - self._last_cleanup < self.cleanup_interval:
+            return
+        self._last_cleanup = now
+        window = now - self.lockout_seconds
+        expired_keys = [k for k, v in self._lockouts.items() if v < now]
+        for k in expired_keys:
+            self._lockouts.pop(k, None)
+            self._attempts.pop(k, None)
+        # 清理过期的尝试记录
+        for k in list(self._attempts.keys()):
+            self._attempts[k] = [t for t in self._attempts[k] if t > window]
+            if not self._attempts[k]:
+                self._attempts.pop(k, None)
+    
+    def is_locked(self, extra_key=''):
+        """检查IP是否被锁定，返回 (is_locked, remaining_seconds)"""
+        ip = self._get_client_ip()
+        key = f"{ip}:{extra_key}" if extra_key else ip
+        with self._lock:
+            self._cleanup()
+            if key in self._lockouts:
+                remaining = self._lockouts[key] - time.time()
+                if remaining > 0:
+                    return True, int(remaining)
+                else:
+                    self._lockouts.pop(key, None)
+                    self._attempts.pop(key, None)
+        return False, 0
+    
+    def record_failure(self, extra_key=''):
+        """记录一次失败尝试，如果超过阈值则锁定"""
+        ip = self._get_client_ip()
+        key = f"{ip}:{extra_key}" if extra_key else ip
+        now = time.time()
+        with self._lock:
+            if key not in self._attempts:
+                self._attempts[key] = []
+            # 只保留窗口期内的记录（5分钟窗口）
+            window = now - 300
+            self._attempts[key] = [t for t in self._attempts[key] if t > window]
+            self._attempts[key].append(now)
+            
+            if len(self._attempts[key]) >= self.max_attempts:
+                self._lockouts[key] = now + self.lockout_seconds
+                app.logger.warning(f'登录频率限制: IP {ip} (key={extra_key}) 在5分钟内失败 {len(self._attempts[key])} 次，锁定 {self.lockout_seconds}秒')
+                return True  # 已触发锁定
+        return False
+    
+    def record_success(self, extra_key=''):
+        """登录成功后清除该IP的失败记录"""
+        ip = self._get_client_ip()
+        key = f"{ip}:{extra_key}" if extra_key else ip
+        with self._lock:
+            self._attempts.pop(key, None)
+            self._lockouts.pop(key, None)
+
+# 用户登录限流器（10次失败/5分钟 → 锁定10分钟）
+login_limiter = LoginRateLimiter(max_attempts=10, lockout_seconds=600)
+# 管理员登录限流器（10次失败/5分钟 → 锁定10分钟）
+admin_login_limiter = LoginRateLimiter(max_attempts=10, lockout_seconds=600)
+
 # 求片限制配置
 # A级(白名单用户): 3次/天
 # B级(注册用户): 1次/天
@@ -3631,6 +3715,8 @@ ADMIN_URL_PERMISSION_MAP = {
     '/api/admin/payment': 'settings',
     '/api/admin/database': 'settings',
     '/api/admin/logs': 'settings',
+    '/api/admin/audit-logs': 'settings',
+    '/api/admin/export': 'settings',
     '/api/admin/category': 'settings',
     # 仪表盘
     '/api/admin/dashboard': 'dashboard',
@@ -4506,6 +4592,92 @@ class DeviceBlacklist(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
+
+
+class AdminAuditLog(db.Model):
+    """管理员操作审计日志表 - 记录所有管理后台操作"""
+    __tablename__ = 'admin_audit_logs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    admin_username = db.Column(db.String(100), nullable=False, index=True)  # 管理员用户名
+    admin_id = db.Column(db.Integer, nullable=True)  # 管理员ID（可为空，兼容旧session）
+    action_type = db.Column(db.String(50), nullable=False, index=True)  # 操作类型
+    action_detail = db.Column(db.Text)  # 操作详情
+    target_type = db.Column(db.String(50))  # 目标类型 (user, order, config, etc.)
+    target_id = db.Column(db.String(100))  # 目标ID
+    ip_address = db.Column(db.String(50))  # 操作IP
+    user_agent = db.Column(db.String(500))  # 浏览器信息
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(), index=True)
+    
+    # 操作类型常量
+    ACTION_LOGIN = 'admin_login'
+    ACTION_LOGOUT = 'admin_logout'
+    ACTION_CONFIG_CHANGE = 'config_change'
+    ACTION_USER_BAN = 'user_ban'
+    ACTION_USER_UNBAN = 'user_unban'
+    ACTION_USER_LEVEL_CHANGE = 'user_level_change'
+    ACTION_USER_RESET_PASSWORD = 'user_reset_password'
+    ACTION_USER_GIFT_SUB = 'user_gift_subscription'
+    ACTION_USER_REDUCE_SUB = 'user_reduce_subscription'
+    ACTION_ORDER_MARK_PAID = 'order_mark_paid'
+    ACTION_ORDER_CANCEL = 'order_cancel'
+    ACTION_REDEEM_CREATE = 'redeem_create'
+    ACTION_REDEEM_DELETE = 'redeem_delete'
+    ACTION_REDEEM_TOGGLE = 'redeem_toggle'
+    ACTION_PLAN_CHANGE = 'plan_change'
+    ACTION_ADMIN_CREATE = 'admin_create'
+    ACTION_ADMIN_DELETE = 'admin_delete'
+    ACTION_ADMIN_UPDATE = 'admin_update'
+    ACTION_EXPORT_DATA = 'export_data'
+    ACTION_BATCH_OPERATION = 'batch_operation'
+    ACTION_ANNOUNCEMENT = 'announcement'
+    ACTION_KNOWLEDGE = 'knowledge'
+    ACTION_LINE_CHANGE = 'line_change'
+    ACTION_DEVICE_RULE = 'device_rule'
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'admin_username': self.admin_username,
+            'admin_id': self.admin_id,
+            'action_type': self.action_type,
+            'action_type_display': self.get_action_display(),
+            'action_detail': self.action_detail,
+            'target_type': self.target_type,
+            'target_id': self.target_id,
+            'ip_address': self.ip_address,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
+        }
+    
+    def get_action_display(self):
+        """获取操作类型的中文显示"""
+        displays = {
+            'admin_login': '🔐 管理员登录',
+            'admin_logout': '🚪 管理员登出',
+            'config_change': '⚙️ 修改配置',
+            'user_ban': '⛔ 封禁用户',
+            'user_unban': '✅ 解封用户',
+            'user_level_change': '📊 修改用户等级',
+            'user_reset_password': '🔑 重置用户密码',
+            'user_gift_subscription': '🎁 赠送订阅',
+            'user_reduce_subscription': '⏳ 减少订阅',
+            'order_mark_paid': '💳 手动标记付款',
+            'order_cancel': '❌ 取消订单',
+            'redeem_create': '🎟️ 创建兑换码',
+            'redeem_delete': '🗑️ 删除兑换码',
+            'redeem_toggle': '🔄 切换兑换码状态',
+            'plan_change': '💰 修改套餐',
+            'admin_create': '👤 创建管理员',
+            'admin_delete': '🗑️ 删除管理员',
+            'admin_update': '✏️ 修改管理员',
+            'export_data': '📥 导出数据',
+            'batch_operation': '📋 批量操作',
+            'announcement': '📢 公告管理',
+            'knowledge': '📚 知识库管理',
+            'line_change': '🔗 线路管理',
+            'device_rule': '📱 设备规则',
+        }
+        return displays.get(self.action_type, self.action_type)
 
 
 class UserDevice(db.Model):
@@ -6327,6 +6499,59 @@ def log_user_activity(action_type, user=None, user_tg=None, user_name=None, deta
         return False
 
 
+def log_admin_audit(action_type, detail=None, target_type=None, target_id=None):
+    """
+    记录管理员操作审计日志
+    
+    参数:
+        action_type: 操作类型（使用 AdminAuditLog.ACTION_* 常量）
+        detail: 操作详情（字符串）
+        target_type: 目标类型 (user, order, config, redeem, plan, etc.)
+        target_id: 目标ID（用户ID、订单号等）
+    """
+    try:
+        # 获取当前管理员信息
+        admin_username = session.get('admin_username', 'unknown')
+        admin_id = session.get('admin_user_id')
+        
+        # 获取请求信息
+        ip_address = None
+        user_agent = None
+        try:
+            if request:
+                ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+                if ip_address and ',' in ip_address:
+                    ip_address = ip_address.split(',')[0].strip()
+                user_agent = request.headers.get('User-Agent', '')[:500]
+        except RuntimeError:
+            pass
+        
+        log = AdminAuditLog(
+            admin_username=admin_username,
+            admin_id=admin_id,
+            action_type=action_type,
+            action_detail=str(detail) if detail else None,
+            target_type=target_type,
+            target_id=str(target_id) if target_id else None,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        
+        db.session.add(log)
+        db.session.commit()
+        
+        app.logger.debug(f'审计日志: {admin_username} -> {action_type}: {detail}')
+        return True
+        
+    except Exception as e:
+        app.logger.error(f'记录管理员审计日志失败: {e}')
+        try:
+            db.session.rollback()
+        except:
+            pass
+        return False
+
+
 # 路由
 @app.route('/')
 def index():
@@ -6597,6 +6822,13 @@ def login():
         username = data.get('username')
         password = data.get('password', '') or ''  # 允许空密码
         
+        # ===== 暴力破解防护：检查IP是否被锁定 =====
+        locked, remaining = login_limiter.is_locked(extra_key='user')
+        if locked:
+            minutes = remaining // 60 + 1
+            app.logger.warning(f'用户登录被限流: IP已锁定，剩余 {remaining}秒')
+            return jsonify({'success': False, 'error': f'登录尝试过多，请 {minutes} 分钟后再试'}), 429
+        
         # 通过name字段查找用户
         user = User.query.filter_by(name=username).first()
         
@@ -6607,8 +6839,12 @@ def login():
             if user.lv == 'c':
                 app.logger.warning(f'用户 {username} 登录失败: 账户已被禁用')
                 log_user_activity(UserActivityLog.ACTION_LOGIN, user=user, detail='账户已被禁用', status='failed')
+                login_limiter.record_failure(extra_key='user')
                 ban_reason = f'（原因：{user.ban_reason}）' if user.ban_reason else ''
                 return jsonify({'success': False, 'error': f'账户已被禁用{ban_reason}'}), 401
+            
+            # 登录成功，清除失败记录
+            login_limiter.record_success(extra_key='user')
             
             # 生成新的session_token
             import secrets
@@ -6624,6 +6860,12 @@ def login():
             app.logger.info(f'用户 {username} 登录成功')
             log_user_activity(UserActivityLog.ACTION_LOGIN, user=user, detail='网页登录成功')
             
+            # ===== 登录通知（异步，不阻塞登录响应）=====
+            try:
+                _send_login_notification(user)
+            except Exception:
+                pass  # 通知失败不影响登录
+            
             # 登录时检查：如果用户有有效订阅但 Emby 账号可能被禁用，自动恢复
             if user.embyid and emby_client.is_enabled():
                 is_whitelist = user.lv == 'a'
@@ -6638,6 +6880,8 @@ def login():
         else:
             app.logger.warning(f'登录失败: 用户名={username}')
             log_user_activity(UserActivityLog.ACTION_LOGIN, user_name=username, detail='用户名或密码错误', status='failed')
+            # 记录失败尝试（暴力破解防护）
+            login_limiter.record_failure(extra_key='user')
             return jsonify({'success': False, 'error': '用户名或密码错误'}), 401
     
     site_config = get_site_config()
@@ -6903,6 +7147,62 @@ def send_telegram_private_message(telegram_id, message):
     except Exception as e:
         app.logger.error(f'发送 Telegram 消息异常: {e}')
         return False
+
+
+def _send_login_notification(user):
+    """发送登录通知（邮件 + Telegram），在后台线程中执行以免阻塞"""
+    config = get_system_config()
+    notify_cfg = config.get('login_notify', {})
+    
+    if not notify_cfg.get('enabled', False):
+        return
+    
+    # 获取登录信息
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr) or '未知'
+    if ',' in ip:
+        ip = ip.split(',')[0].strip()
+    ua = request.headers.get('User-Agent', '未知设备')[:100]
+    login_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    site_name = get_site_config().get('site_name', 'Emby')
+    username = user.name or '用户'
+    user_email = user.email  # 提前提取，避免线程中访问过期的 session
+    user_tg_id = user.telegram_id  # 提前提取
+    
+    def _do_notify():
+        with app.app_context():
+            # 邮件通知
+            if notify_cfg.get('email', True) and user_email:
+                try:
+                    body = f"""<p>您好，<b>{username}</b>！</p>
+<p>您的账号刚刚在新设备上登录：</p>
+<div style="background:#f8f9fa;border-radius:8px;padding:16px;margin:16px 0;">
+    <p style="margin:4px 0;"><b>🕐 时间：</b>{login_time}</p>
+    <p style="margin:4px 0;"><b>🌐 IP地址：</b>{ip}</p>
+    <p style="margin:4px 0;"><b>📱 设备：</b>{ua}</p>
+</div>
+<p>如果这不是您本人操作，请立即修改密码！</p>"""
+                    html = build_email_html(f'{site_name} - 登录通知', body, site_name)
+                    send_email(user_email, f'【{site_name}】账号登录通知', html)
+                except Exception as e:
+                    app.logger.debug(f'登录通知邮件发送失败: {e}')
+            
+            # Telegram 通知
+            if notify_cfg.get('telegram', True) and user_tg_id and TELEGRAM_BOT_TOKEN:
+                try:
+                    msg = f"""🔔 <b>登录通知</b>
+
+您的账号 <code>{username}</code> 刚刚登录
+
+🕐 时间：{login_time}
+🌐 IP：{ip}
+📱 设备：{ua[:60]}
+
+如非本人操作，请立即修改密码！"""
+                    send_telegram_private_message(user_tg_id, msg)
+                except Exception as e:
+                    app.logger.debug(f'登录通知TG发送失败: {e}')
+    
+    Thread(target=_do_notify, daemon=True).start()
 
 
 def get_email_config():
@@ -9262,6 +9562,13 @@ def admin_dynamic_entry(secret_path):
 @app.route('/api/admin-login', methods=['POST'])
 def admin_login_api():
     """管理员登录API - 支持多管理员"""
+    # ===== 暴力破解防护：管理员登录（10次/5分钟 → 锁定10分钟）=====
+    locked, remaining = admin_login_limiter.is_locked(extra_key='admin')
+    if locked:
+        minutes = remaining // 60 + 1
+        app.logger.warning(f'管理员登录被限流: IP已锁定，剩余 {remaining}秒')
+        return jsonify({'success': False, 'error': f'登录尝试过多，请 {minutes} 分钟后再试'}), 429
+    
     data = request.get_json()
     username = data.get('username', '').strip()
     password = data.get('password', '').strip()
@@ -9277,10 +9584,12 @@ def admin_login_api():
         if admin_user:
             if not admin_user.is_active:
                 app.logger.warning(f'管理员 {username} 登录失败: 账号已被禁用')
-                return jsonify({'success': False, 'error': '该管理员账号已被禁用'}), 403
+                admin_login_limiter.record_failure(extra_key='admin')
+                return jsonify({'success': False, 'error': '用户名或密码错误'}), 401
             
             if admin_user.password_hash == password_hash:
                 # AdminUser 表密码匹配，直接登录
+                admin_login_limiter.record_success(extra_key='admin')
                 session['admin_logged_in'] = True
                 session['admin_username'] = username
                 session['admin_user_id'] = admin_user.id
@@ -9289,6 +9598,7 @@ def admin_login_api():
                 admin_user.last_login = datetime.now()
                 db.session.commit()
                 app.logger.info(f'管理员 {username} (ID:{admin_user.id}) 登录成功')
+                log_admin_audit('admin_login', detail=f'管理员 {username} 登录成功')
                 
                 if admin_user.is_super:
                     admin_config = get_admin_config()
@@ -9306,6 +9616,7 @@ def admin_login_api():
                 
                 if username == stored_username and password_hash == stored_password_hash:
                     # SystemConfig 密码匹配，同步到 AdminUser 表并登录
+                    admin_login_limiter.record_success(extra_key='admin')
                     admin_user.password_hash = password_hash
                     admin_user.last_login = datetime.now()
                     db.session.commit()
@@ -9317,6 +9628,7 @@ def admin_login_api():
                     session['admin_login_time'] = datetime.now().isoformat()
                     
                     app.logger.info(f'超级管理员 {username} 登录成功（SystemConfig认证，已同步密码到AdminUser表）')
+                    log_admin_audit('admin_login', detail=f'超级管理员 {username} 登录成功（SystemConfig认证）')
                     
                     if not admin_config.get('initialized', False):
                         return jsonify({'success': True, 'redirect': '/admin/setup', 'need_setup': True})
@@ -9325,6 +9637,7 @@ def admin_login_api():
             
             # 非超级管理员或所有密码都不匹配
             app.logger.warning(f'管理员 {username} 登录失败: 密码错误 (IP: {request.remote_addr})')
+            admin_login_limiter.record_failure(extra_key='admin')
             return jsonify({'success': False, 'error': '用户名或密码错误'}), 401
     except Exception as e:
         app.logger.warning(f'AdminUser表查询失败(可能表不存在): {e}')
@@ -9338,6 +9651,7 @@ def admin_login_api():
         return jsonify({'success': False, 'error': '管理员未配置，请联系系统管理员'}), 500
     
     if username == stored_username and password_hash == stored_password_hash:
+        admin_login_limiter.record_success(extra_key='admin')
         session['admin_logged_in'] = True
         session['admin_username'] = username
         session['admin_is_super'] = True
@@ -9350,6 +9664,7 @@ def admin_login_api():
             app.logger.warning(f'同步超级管理员到AdminUser表失败: {e}')
         
         app.logger.info(f'超级管理员 {username} 登录成功（配置文件认证）')
+        log_admin_audit('admin_login', detail=f'超级管理员 {username} 登录成功（配置文件认证）')
         
         if not admin_config.get('initialized', False):
             return jsonify({'success': True, 'redirect': '/admin/setup', 'need_setup': True})
@@ -9357,6 +9672,7 @@ def admin_login_api():
         return jsonify({'success': True, 'redirect': '/admin'})
     else:
         app.logger.warning(f'管理员登录失败: 用户名或密码错误 (尝试用户名: {username}, IP: {request.remote_addr})')
+        admin_login_limiter.record_failure(extra_key='admin')
         return jsonify({'success': False, 'error': '用户名或密码错误'}), 401
 
 
@@ -9612,6 +9928,7 @@ def create_admin():
         db.session.commit()
         
         app.logger.info(f'超级管理员 {current_admin.username} 创建了新管理员 {username}，权限: {valid_perms}')
+        log_admin_audit('admin_create', detail=f'创建管理员 {username}，权限: {valid_perms}', target_type='admin', target_id=str(admin_user.id))
         return jsonify({'success': True, 'admin': admin_user.to_dict()})
     except Exception as e:
         db.session.rollback()
@@ -9679,6 +9996,7 @@ def update_admin(admin_id):
     try:
         db.session.commit()
         app.logger.info(f'超级管理员 {current_admin.username} 更新了管理员 {admin_user.username}')
+        log_admin_audit('admin_update', detail=f'更新管理员 {admin_user.username}', target_type='admin', target_id=str(admin_id))
         return jsonify({'success': True, 'admin': admin_user.to_dict()})
     except Exception as e:
         db.session.rollback()
@@ -9706,6 +10024,7 @@ def delete_admin(admin_id):
         db.session.delete(admin_user)
         db.session.commit()
         app.logger.info(f'超级管理员 {current_admin.username} 删除了管理员 {username}')
+        log_admin_audit('admin_delete', detail=f'删除管理员 {username}', target_type='admin', target_id=str(admin_id))
         return jsonify({'success': True, 'message': f'管理员 {username} 已删除'})
     except Exception as e:
         db.session.rollback()
@@ -13871,16 +14190,22 @@ def get_user_watch_time_30days(user_tg):
                 return watch_time
         
         # 回退：从本地 PlaybackRecord 表查询
+        # play_duration 存的是播放位置（position），同一媒体多条记录会重复
+        # 对每个 emby_item_id 取 MAX(play_duration)，再求和
         thirty_days_ago = datetime.now() - timedelta(days=30)
-        result = db.session.query(
-            db.func.sum(PlaybackRecord.play_duration)
+        from sqlalchemy import func as sa_func
+        duration_by_item = db.session.query(
+            sa_func.max(PlaybackRecord.play_duration)
         ).filter(
             PlaybackRecord.user_tg == user_tg,
             PlaybackRecord.started_at >= thirty_days_ago
-        ).scalar()
+        ).group_by(
+            PlaybackRecord.emby_item_id
+        ).all()
+        total_sec = sum(r[0] or 0 for r in duration_by_item)
         
-        if result:
-            return int(result / 60)
+        if total_sec:
+            return int(total_sec / 60)
         return 0
     except Exception as e:
         app.logger.error(f'获取用户观看时间失败: {e}')
@@ -15046,10 +15371,19 @@ def get_dashboard_stats():
         play_users = db.session.query(db.func.count(db.func.distinct(PlaybackRecord.user_tg))).filter(
             db.func.date(PlaybackRecord.started_at) == today
         ).scalar() or 0
-        play_duration_r = db.session.query(db.func.sum(PlaybackRecord.play_duration)).filter(
+
+        # 计算今日总播放时长
+        # play_duration 字段存的是播放位置（position），不是实际消耗的时间
+        # 同一用户对同一媒体可能有多条记录（每10分钟创建新记录），position 会重复累积
+        # 方案：对每个 (user_tg, emby_item_id) 组合，只取最大 play_duration（即最终位置），避免重复
+        duration_by_item = db.session.query(
+            db.func.max(PlaybackRecord.play_duration)
+        ).filter(
             db.func.date(PlaybackRecord.started_at) == today
-        ).scalar()
-        play_duration_sec = int(play_duration_r) if play_duration_r else 0
+        ).group_by(
+            PlaybackRecord.user_tg, PlaybackRecord.emby_item_id
+        ).all()
+        play_duration_sec = sum(r[0] or 0 for r in duration_by_item)
         play_movies = today_plays.filter(PlaybackRecord.item_type == 'Movie').count()
         play_episodes = today_plays.filter(PlaybackRecord.item_type == 'Episode').count()
         play_transcode = today_plays.filter(PlaybackRecord.play_method == 'Transcode').count()
@@ -17214,6 +17548,17 @@ def get_system_config_api():
                 'smtp_password': config.get('email', {}).get('smtp_password', ''),
                 'sender_name': config.get('email', {}).get('sender_name', 'Emby管理系统'),
                 'require_email_register': config.get('email', {}).get('require_email_register', False)
+            },
+            'login_notify': {
+                'enabled': config.get('login_notify', {}).get('enabled', False),
+                'email': config.get('login_notify', {}).get('email', True),
+                'telegram': config.get('login_notify', {}).get('telegram', True),
+            },
+            'expire_remind': {
+                'enabled': config.get('expire_remind', {}).get('enabled', False),
+                'days': config.get('expire_remind', {}).get('days', [3, 7]),
+                'email': config.get('expire_remind', {}).get('email', True),
+                'telegram': config.get('expire_remind', {}).get('telegram', True),
             }
         }
     }), 200
@@ -17393,6 +17738,34 @@ def save_system_config_api():
             if 'require_email_register' in email_data:
                 current_config['email']['require_email_register'] = bool(email_data['require_email_register'])
         
+        # 更新登录通知配置
+        if 'login_notify' in data:
+            ln = data['login_notify']
+            if 'login_notify' not in current_config:
+                current_config['login_notify'] = {}
+            if 'enabled' in ln:
+                current_config['login_notify']['enabled'] = bool(ln['enabled'])
+            if 'email' in ln:
+                current_config['login_notify']['email'] = bool(ln['email'])
+            if 'telegram' in ln:
+                current_config['login_notify']['telegram'] = bool(ln['telegram'])
+        
+        # 更新到期提醒配置
+        if 'expire_remind' in data:
+            er = data['expire_remind']
+            if 'expire_remind' not in current_config:
+                current_config['expire_remind'] = {}
+            if 'enabled' in er:
+                current_config['expire_remind']['enabled'] = bool(er['enabled'])
+            if 'days' in er:
+                # 接收天数列表，过滤无效值
+                days_list = [int(d) for d in er['days'] if isinstance(d, (int, float)) and 0 < int(d) <= 365]
+                current_config['expire_remind']['days'] = sorted(set(days_list)) if days_list else [3, 7]
+            if 'email' in er:
+                current_config['expire_remind']['email'] = bool(er['email'])
+            if 'telegram' in er:
+                current_config['expire_remind']['telegram'] = bool(er['telegram'])
+        
         # 保存到文件
         if save_system_config(current_config):
             # 更新全局变量
@@ -17421,6 +17794,10 @@ def save_system_config_api():
                 except Exception as e:
                     stream_sync_msg = f'，但同步播放限制到已有用户失败: {e}'
                     app.logger.error(f'同步流数限制到已有用户失败: {e}')
+            
+            # 记录配置变更的审计日志
+            changed_sections = [k for k in data.keys() if k not in ('_',)]
+            log_admin_audit('config_change', detail=f'修改系统配置: {", ".join(changed_sections)}', target_type='config')
             
             return jsonify({
                 'success': True,
@@ -19646,6 +20023,7 @@ def admin_generate_redeem_code():
         db.session.commit()
         
         app.logger.info(f'生成兑换码: {code}, 类型: {code_type}, 套餐: {plan_type}, 天数: {duration_days}')
+        log_admin_audit('redeem_create', detail=f'生成兑换码 {code}，{duration_days}天', target_type='redeem', target_id=code)
         
         return jsonify({
             'success': True,
@@ -19697,6 +20075,7 @@ def admin_batch_generate_redeem_codes():
         db.session.commit()
         
         app.logger.info(f'批量生成兑换码: {count}个, 类型: {code_type}, 套餐: {plan_type}, 天数: {duration_days}')
+        log_admin_audit('redeem_create', detail=f'批量生成{count}个兑换码，{duration_days}天', target_type='redeem')
         
         return jsonify({
             'success': True,
@@ -19726,6 +20105,7 @@ def admin_delete_redeem_code(code_id):
         db.session.commit()
         
         app.logger.info(f'删除兑换码: {redeem.code}')
+        log_admin_audit('redeem_delete', detail=f'删除兑换码 {redeem.code}', target_type='redeem', target_id=redeem.code)
         
         return jsonify({
             'success': True,
@@ -20453,6 +20833,183 @@ def admin_get_users():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/admin/export/<string:export_type>', methods=['GET'])
+@admin_required
+def admin_export_data(export_type):
+    """管理员数据导出API - 支持用户列表、订单、订阅历史导出为CSV"""
+    import csv
+    import io
+    
+    try:
+        output = io.StringIO()
+        output.write('\ufeff')  # UTF-8 BOM
+        now = datetime.now()
+        
+        if export_type == 'users':
+            writer = csv.writer(output)
+            writer.writerow(['用户ID', '网站用户名', 'Emby用户名', '邮箱', 'Telegram ID', 
+                           '等级', '订阅状态', '到期时间', '积分', '注册时间'])
+            
+            users = User.query.order_by(User.cr.desc()).all()
+            level_names = {'a': '白名单', 'b': '普通用户', 'c': '已禁用', 'd': '无账号'}
+            for u in users:
+                status = '已订阅' if (u.lv == 'a' or (u.ex and u.ex > now)) else '未订阅'
+                if u.lv == 'c':
+                    status = '已禁用'
+                writer.writerow([
+                    u.tg, u.name or '', u.emby_name or '', u.email or '', u.telegram_id or '',
+                    level_names.get(u.lv, u.lv), status,
+                    u.ex.strftime('%Y-%m-%d %H:%M') if u.ex else '',
+                    u.coins or 0,
+                    u.cr.strftime('%Y-%m-%d %H:%M') if u.cr else ''
+                ])
+            filename = f'用户列表_{now.strftime("%Y%m%d_%H%M")}.csv'
+        
+        elif export_type == 'orders':
+            writer = csv.writer(output)
+            writer.writerow(['订单号', '用户名', '套餐名称', '金额', '时长(天)', '状态', 
+                           '支付方式', '创建时间', '支付时间'])
+            
+            orders = Order.query.order_by(Order.created_at.desc()).all()
+            status_names = {'pending': '待支付', 'paid': '已支付', 'cancelled': '已取消', 'expired': '已过期', 'failed': '失败', 'refunded': '已退款'}
+            for o in orders:
+                # 获取用户名
+                user = db.session.get(User, o.user_tg)
+                user_name = (user.name if user else f'用户{o.user_tg}')
+                days = o.duration_days if o.duration_days else (o.duration_months * 30 if o.duration_months else '')
+                writer.writerow([
+                    o.order_no or '', user_name,
+                    o.plan_name or '', f'{o.final_price:.2f}' if o.final_price else '0.00',
+                    days,
+                    status_names.get(o.payment_status, o.payment_status or ''),
+                    o.payment_method or '',
+                    o.created_at.strftime('%Y-%m-%d %H:%M') if o.created_at else '',
+                    o.payment_time.strftime('%Y-%m-%d %H:%M') if o.payment_time else ''
+                ])
+            filename = f'订单列表_{now.strftime("%Y%m%d_%H%M")}.csv'
+        
+        elif export_type == 'subscriptions':
+            writer = csv.writer(output)
+            writer.writerow(['用户名', '套餐名称', '开始时间', '结束时间', '时长(月)', '价格', '状态', '来源'])
+            
+            subs = Subscription.query.order_by(Subscription.created_at.desc()).all()
+            status_names = {'active': '生效中', 'expired': '已过期', 'cancelled': '已取消'}
+            source_names = {'purchase': '购买', 'gift': '管理员赠送', 'manual': '手动设置', 'redeem': '兑换码'}
+            for s in subs:
+                user = db.session.get(User, s.user_tg)
+                user_name = (user.name if user else f'用户{s.user_tg}')
+                writer.writerow([
+                    user_name, s.plan_name or '',
+                    s.start_date.strftime('%Y-%m-%d') if s.start_date else '',
+                    s.end_date.strftime('%Y-%m-%d') if s.end_date else '',
+                    s.duration_months or '',
+                    f'{s.price:.2f}' if s.price else '0.00',
+                    status_names.get(s.status, s.status or ''),
+                    source_names.get(s.source, s.source or 'purchase')
+                ])
+            filename = f'订阅记录_{now.strftime("%Y%m%d_%H%M")}.csv'
+        
+        else:
+            return jsonify({'success': False, 'error': '不支持的导出类型'}), 400
+        
+        # 记录审计日志
+        log_admin_audit('export_data', detail=f'导出{export_type}数据')
+        
+        csv_data = output.getvalue()
+        output.close()
+        
+        return Response(
+            csv_data,
+            mimetype='text/csv; charset=utf-8',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+        )
+        
+    except Exception as e:
+        app.logger.error(f'数据导出失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/audit-logs', methods=['GET'])
+@admin_required
+def admin_get_audit_logs():
+    """获取管理员审计日志"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        action_type = request.args.get('action_type', '')
+        admin_username = request.args.get('admin_username', '')
+        keyword = request.args.get('keyword', '')
+        
+        per_page = min(per_page, 100)
+        
+        query = AdminAuditLog.query
+        
+        if action_type:
+            query = query.filter(AdminAuditLog.action_type == action_type)
+        if admin_username:
+            query = query.filter(AdminAuditLog.admin_username == admin_username)
+        if keyword:
+            query = query.filter(AdminAuditLog.action_detail.like(f'%{keyword}%'))
+        
+        query = query.order_by(AdminAuditLog.created_at.desc())
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+        
+        # 获取所有管理员用户名（用于筛选）
+        admin_names = db.session.query(AdminAuditLog.admin_username).distinct().all()
+        admin_names = sorted(set(n[0] for n in admin_names if n[0]))
+        
+        # 获取所有操作类型（用于筛选）
+        action_types = db.session.query(AdminAuditLog.action_type).distinct().all()
+        action_types = sorted(set(t[0] for t in action_types if t[0]))
+        
+        return jsonify({
+            'success': True,
+            'logs': [log.to_dict() for log in pagination.items],
+            'total': pagination.total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': pagination.pages,
+            'admin_names': admin_names,
+            'action_types': action_types
+        })
+        
+    except Exception as e:
+        app.logger.error(f'获取审计日志失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/audit-logs/cleanup', methods=['POST'])
+@admin_required
+def admin_cleanup_audit_logs():
+    """清理旧审计日志（保留最近N天）"""
+    try:
+        # 仅超级管理员可执行
+        admin = getattr(g, 'current_admin', None)
+        if admin and not admin.is_super:
+            return jsonify({'success': False, 'error': '仅超级管理员可执行此操作'}), 403
+        
+        data = request.get_json() or {}
+        keep_days = data.get('keep_days', 90)
+        keep_days = max(7, min(keep_days, 365))  # 最少保留7天，最多365天
+        
+        cutoff = datetime.now() - timedelta(days=keep_days)
+        deleted = AdminAuditLog.query.filter(AdminAuditLog.created_at < cutoff).delete()
+        db.session.commit()
+        
+        log_admin_audit('config_change', detail=f'清理审计日志，保留{keep_days}天，删除{deleted}条')
+        
+        return jsonify({
+            'success': True,
+            'deleted': deleted,
+            'message': f'已清理{deleted}条审计日志（保留最近{keep_days}天）'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'清理审计日志失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/admin/users/<int:user_id>/toggle-role', methods=['POST'])
 @admin_required
 def admin_toggle_user_role(user_id):
@@ -20519,10 +21076,12 @@ def admin_toggle_user_role(user_id):
                 log_user_activity(UserActivityLog.ACTION_ACCOUNT_BANNED, user=user,
                                  detail={'reason': data.get('reason', '管理员手动禁用'), 'old_level': old_level,
                                         'emby_disabled': emby_disabled, 'subscription_suspended': subscription_suspended})
+                log_admin_audit('user_ban', detail=f'封禁用户 {user.name}', target_type='user', target_id=user.tg)
             else:
                 log_user_activity(UserActivityLog.ACTION_LEVEL_CHANGE, user=user,
                                  detail={'old_level': old_level, 'new_level': new_level, 
                                         'old_level_name': level_names.get(old_level), 'new_level_name': level_names.get(new_level)})
+                log_admin_audit('user_level_change', detail=f'修改用户 {user.name} 等级: {level_names.get(old_level)} → {level_names.get(new_level)}', target_type='user', target_id=user.tg)
             
             return jsonify({
                 'success': True,
@@ -20703,6 +21262,7 @@ def admin_unban_user(user_id):
         log_user_activity(UserActivityLog.ACTION_ACCOUNT_UNBANNED, user=user,
                          detail={'old_level': old_level, 'new_level': user.lv, 'emby_restored': emby_restored,
                                 'subscription_restored': subscription_restored, 'devices_unblocked': unblocked_count})
+        log_admin_audit('user_unban', detail=f'解封用户 {user.name}', target_type='user', target_id=user.tg)
         
         message = f'用户已解除禁用，等级恢复为{new_level_name}'
         if 'expires_at' in restored_info:
@@ -20762,6 +21322,7 @@ def admin_reset_user_password(user_id):
         # 记录操作日志
         log_user_activity(UserActivityLog.ACTION_PASSWORD_CHANGE, user=user,
                          detail={'admin_reset': True, 'admin': session.get('admin_username', 'unknown')})
+        log_admin_audit('user_reset_password', detail=f'重置用户 {user.name} 密码', target_type='user', target_id=user.tg)
         
         return jsonify({
             'success': True,
@@ -21320,6 +21881,7 @@ def admin_mark_order_paid(order_no):
                 app.logger.info(f'管理员手动标记付款，已恢复用户 {user.name} 的Emby账号')
         
         app.logger.info(f'管理员手动标记订单 {order_no} 为已支付，用户 {user.name} 订阅已生效，到期时间: {user.ex}')
+        log_admin_audit('order_mark_paid', detail=f'手动标记订单 {order_no} 为已支付，用户 {user.name}', target_type='order', target_id=order_no)
         
         return jsonify({
             'success': True,
@@ -21363,6 +21925,7 @@ def admin_cancel_order(order_no):
         db.session.commit()
         
         app.logger.info(f'管理员取消订单 {order_no}')
+        log_admin_audit('order_cancel', detail=f'取消订单 {order_no}', target_type='order', target_id=order_no)
         
         return jsonify({
             'success': True,
@@ -21446,6 +22009,7 @@ def admin_gift_subscription(user_id):
         log_user_activity(UserActivityLog.ACTION_SUBSCRIPTION_GIFT, user=user,
                          detail={'action': 'gift_subscription', 'plan_type': plan_type,
                                 'gift_days': gift_days, 'new_ex': str(user.ex)})
+        log_admin_audit('user_gift_subscription', detail=f'赠送用户 {user.name} {gift_days}天订阅', target_type='user', target_id=user.tg)
         
         return jsonify({
             'success': True,
@@ -21507,6 +22071,7 @@ def admin_reduce_subscription(user_id):
         log_user_activity(UserActivityLog.ACTION_SUBSCRIPTION_REDUCE, user=user,
                          detail={'action': 'reduce_subscription', 'reduce_days': reduce_days,
                                 'new_ex': str(user.ex), 'expired': new_ex <= now})
+        log_admin_audit('user_reduce_subscription', detail=f'减少用户 {user.name} {reduce_days}天订阅', target_type='user', target_id=user.tg)
         
         return jsonify({
             'success': True,
@@ -22031,6 +22596,93 @@ def bootstrap_background_tasks():
 
 download_monitor_started = False
 last_subscription_check_time = None
+last_expire_remind_time = None
+_expire_remind_sent = {}  # {date_str: set(user_tg)} 已发送提醒的用户记录，按日期清理
+
+
+def check_subscription_expiry_reminders():
+    """检查即将到期的订阅，发送到期提醒（邮件 + Telegram）"""
+    global _expire_remind_sent
+    with app.app_context():
+        try:
+            config = load_system_config()
+            remind_cfg = config.get('expire_remind', {})
+            
+            if not remind_cfg.get('enabled', False):
+                return
+            
+            remind_days_list = remind_cfg.get('days', [3, 7])  # 提前多少天提醒
+            site_name = get_site_config().get('site_name', 'Emby')
+            now = datetime.now()
+            today_str = now.strftime('%Y-%m-%d')
+            reminded_count = 0
+            
+            # 清理旧日期的已发送记录（只保留今天的）
+            _expire_remind_sent = {k: v for k, v in _expire_remind_sent.items() if k == today_str}
+            if today_str not in _expire_remind_sent:
+                _expire_remind_sent[today_str] = set()
+            
+            for remind_days in remind_days_list:
+                # 查找在 remind_days 天后过期的用户（按日期匹配整天，确保不会遗漏）
+                target_date = (now + timedelta(days=remind_days)).date()
+                expire_start = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0)
+                expire_end = datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59)
+                
+                users = User.query.filter(
+                    User.lv.in_(['a', 'b']),
+                    User.ex >= expire_start,
+                    User.ex <= expire_end,
+                    User.embyid.isnot(None),
+                    User.embyid != ''
+                ).all()
+                
+                for user in users:
+                    # 去重：同一天同一用户只提醒一次
+                    remind_key = f'{user.tg}:{remind_days}'
+                    if remind_key in _expire_remind_sent[today_str]:
+                        continue
+                    _expire_remind_sent[today_str].add(remind_key)
+                    
+                    username = user.name or '用户'
+                    expire_date = user.ex.strftime('%Y-%m-%d') if user.ex else '未知'
+                    
+                    # 邮件提醒
+                    if remind_cfg.get('email', True) and user.email:
+                        try:
+                            body = f"""<p>您好，<b>{username}</b>！</p>
+<p>您的 Emby 订阅将在 <b>{remind_days} 天后</b>（{expire_date}）到期。</p>
+<div style="background:#fff3cd;border-left:4px solid #ffc107;padding:12px 16px;border-radius:4px;margin:16px 0;">
+    <p style="margin:0;"><b>⏰ 到期时间：</b>{expire_date}</p>
+    <p style="margin:4px 0 0;"><b>💡 建议：</b>请及时续费以免影响观影体验</p>
+</div>
+<p>您可以登录网站进行续费，或使用兑换码延长订阅。</p>"""
+                            html = build_email_html(f'{site_name} - 订阅即将到期', body, site_name)
+                            send_email(user.email, f'【{site_name}】您的订阅将在{remind_days}天后到期', html)
+                            reminded_count += 1
+                        except Exception as e:
+                            app.logger.debug(f'到期提醒邮件发送失败({username}): {e}')
+                    
+                    # Telegram 提醒
+                    if remind_cfg.get('telegram', True) and user.telegram_id and TELEGRAM_BOT_TOKEN:
+                        try:
+                            msg = f"""⏰ <b>订阅到期提醒</b>
+
+您好 <code>{username}</code>，您的 Emby 订阅将在 <b>{remind_days} 天后</b>到期。
+
+📅 到期时间：{expire_date}
+💡 请及时续费以免影响观影体验！"""
+                            send_telegram_private_message(user.telegram_id, msg)
+                            reminded_count += 1
+                        except Exception as e:
+                            app.logger.debug(f'到期提醒TG发送失败({username}): {e}')
+            
+            if reminded_count > 0:
+                app.logger.info(f'订阅到期提醒: 已发送 {reminded_count} 条提醒')
+                
+        except Exception as e:
+            app.logger.error(f'订阅到期提醒检查失败: {e}', exc_info=True)
+        finally:
+            db.session.remove()
 
 
 def check_expired_subscriptions():
@@ -22236,13 +22888,18 @@ def _check_user_retention(user, now, mode, checkin_days, checkin_cost,
             watch_since = now - timedelta(days=watch_days)
             
             # 查询观看时长（秒）
+            # play_duration 存的是播放位置，同一媒体多条记录会重复累加
+            # 对每个 emby_item_id 取 MAX(play_duration)，再求和
             from sqlalchemy import func
-            total_seconds = db.session.query(
-                func.coalesce(func.sum(PlaybackRecord.play_duration), 0)
+            duration_rows = db.session.query(
+                func.max(PlaybackRecord.play_duration)
             ).filter(
                 PlaybackRecord.user_tg == user.tg,
                 PlaybackRecord.started_at >= watch_since
-            ).scalar() or 0
+            ).group_by(
+                PlaybackRecord.emby_item_id
+            ).all()
+            total_seconds = sum(r[0] or 0 for r in duration_rows)
             
             total_minutes = total_seconds / 60
             
@@ -22302,7 +22959,7 @@ def _check_user_retention(user, now, mode, checkin_days, checkin_cost,
 
 @app.before_request
 def ensure_background_tasks():
-    global last_ticket_check_time, last_subscription_check_time
+    global last_ticket_check_time, last_subscription_check_time, last_expire_remind_time
     bootstrap_background_tasks()
     
     # 轻量级授权状态检查（不发起网络请求，仅检查缓存状态）
@@ -22328,6 +22985,12 @@ def ensure_background_tasks():
         last_subscription_check_time = now
         from threading import Thread
         Thread(target=check_expired_subscriptions, daemon=True).start()
+    
+    # 每6小时检查一次订阅到期提醒
+    if last_expire_remind_time is None or (now - last_expire_remind_time).total_seconds() > 21600:
+        last_expire_remind_time = now
+        from threading import Thread
+        Thread(target=check_subscription_expiry_reminders, daemon=True).start()
 
 
 # ==================== 播放限制调试 API ====================

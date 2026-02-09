@@ -163,6 +163,10 @@
                     <span class="nav-icon">⚙️</span>
                     <span class="nav-text">系统设置</span>
                 </a>
+                <a href="#" class="nav-item" data-section="audit" data-perm="settings" onclick="switchAdminSection('audit', event)">
+                    <span class="nav-icon">📝</span>
+                    <span class="nav-text">审计日志</span>
+                </a>
             </nav>
 
             <div class="sidebar-footer">
@@ -1353,6 +1357,14 @@
                                 <option value="normal">未订阅</option>
                                 <option value="banned">已禁用</option>
                             </select>
+                            <div class="dropdown" style="position:relative;display:inline-block;">
+                                <button class="export-btn" onclick="toggleExportMenu(this)" title="导出数据">📤 导出</button>
+                                <div class="dropdown-menu" style="display:none;position:absolute;right:0;top:100%;background:#fff;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);min-width:160px;z-index:100;overflow:hidden;margin-top:4px;">
+                                    <a href="#" onclick="exportData('users');return false;" style="display:block;padding:10px 16px;color:#333;text-decoration:none;font-size:13px;white-space:nowrap;">👥 导出用户列表</a>
+                                    <a href="#" onclick="exportData('orders');return false;" style="display:block;padding:10px 16px;color:#333;text-decoration:none;font-size:13px;border-top:1px solid #f0f0f0;white-space:nowrap;">🧾 导出订单数据</a>
+                                    <a href="#" onclick="exportData('subscriptions');return false;" style="display:block;padding:10px 16px;color:#333;text-decoration:none;font-size:13px;border-top:1px solid #f0f0f0;white-space:nowrap;">💎 导出订阅记录</a>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -2277,6 +2289,60 @@
                         </div>
                     </div>
 
+                    <!-- 登录安全通知 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="business">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🔔 登录安全通知</h3>
+                            </div>
+                            <span class="status-badge" id="loginNotifyStatus">已关闭</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">用户登录时自动发送通知（邮件/Telegram），帮助用户发现异常登录行为。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="loginNotifyEnabled">
+                                        <span>启用登录通知</span>
+                                    </label>
+                                    <span class="form-hint">开启后，用户每次登录都会收到通知（含IP、设备信息）</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>通知渠道</label>
+                                    <div class="checkbox-group" style="margin-top: 8px;">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="loginNotifyEmail" checked>
+                                            <span>📧 邮件通知（用户需绑定邮箱）</span>
+                                        </label>
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="loginNotifyTelegram" checked>
+                                            <span>📱 Telegram 通知（用户需绑定TG）</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveLoginNotifyConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 说明</h4>
+                                <ul>
+                                    <li>邮件通知需要先在「邮件服务配置」中启用 SMTP</li>
+                                    <li>Telegram 通知需要用户已绑定 Telegram 且 Bot 已配置</li>
+                                    <li>通知在后台异步发送，不会影响登录速度</li>
+                                    <li>同时启用暴力破解防护：5分钟内连续10次登录失败，账号将被锁定10分钟（用户端与管理端均适用）</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- 订阅过期管理 - 可折叠 -->
                     <div class="settings-card collapsible collapsed" data-settings-group="business">
                         <div class="settings-card-header" onclick="toggleSettingsCard(this)">
@@ -2405,6 +2471,64 @@
                                     <li><b>双保</b>：必须同时满足签到和观看两个条件才续期</li>
                                     <li>保号仅对刚过期（3天内）的用户生效，长期过期用户不会被反复续期</li>
                                     <li>保号续期从原到期日计算，不会丢失天数</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 订阅到期提醒 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="business">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>⏰ 订阅到期提醒</h3>
+                            </div>
+                            <span class="status-badge" id="expireRemindStatus">已关闭</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">在用户订阅到期前自动发送提醒通知，促进续费。系统每6小时检查一次。</p>
+
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="expireRemindEnabled">
+                                        <span>启用到期提醒</span>
+                                    </label>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="expireRemindDays">提前提醒天数</label>
+                                    <input type="text" id="expireRemindDays" placeholder="3,7" class="form-input" value="3,7">
+                                    <span class="form-hint">用英文逗号分隔多个天数，如 3,7 表示到期前3天和7天各提醒一次</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>通知渠道</label>
+                                    <div class="checkbox-group" style="margin-top: 8px;">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="expireRemindEmail" checked>
+                                            <span>📧 邮件通知</span>
+                                        </label>
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="expireRemindTelegram" checked>
+                                            <span>📱 Telegram 通知</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveExpireRemindConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 说明</h4>
+                                <ul>
+                                    <li>邮件通知需要先在「邮件服务配置」中启用 SMTP 并且用户绑定了邮箱</li>
+                                    <li>Telegram 通知需要用户绑定了 Telegram</li>
+                                    <li>每个用户每个提醒时间点只会收到一次通知，不会重复发送</li>
                                 </ul>
                             </div>
                         </div>
@@ -3120,6 +3244,45 @@
                     </div>
 
                 </section>
+
+                <!-- 审计日志部分 -->
+                <section id="section-audit" class="admin-section">
+                    <div class="section-header">
+                        <h2>📝 管理员审计日志</h2>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <button class="btn-secondary btn-sm" onclick="cleanupAuditLogs()" title="清理旧日志">
+                                🗑️ 清理日志
+                            </button>
+                            <button class="btn-primary btn-sm" onclick="loadAuditLogs(1)">
+                                🔄 刷新
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 筛选栏 -->
+                    <div class="filter-bar" style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap; align-items:center;">
+                        <select id="auditFilterAdmin" class="form-input" style="width:auto; min-width:140px;" onchange="loadAuditLogs(1)">
+                            <option value="">全部管理员</option>
+                        </select>
+                        <select id="auditFilterAction" class="form-input" style="width:auto; min-width:160px;" onchange="loadAuditLogs(1)">
+                            <option value="">全部操作类型</option>
+                        </select>
+                        <input type="text" id="auditFilterKeyword" class="form-input" style="width:auto; min-width:200px;" 
+                               placeholder="搜索操作详情..." onkeypress="if(event.key==='Enter')loadAuditLogs(1)">
+                        <button class="btn-secondary btn-sm" onclick="document.getElementById('auditFilterAdmin').value='';document.getElementById('auditFilterAction').value='';document.getElementById('auditFilterKeyword').value='';loadAuditLogs(1);">
+                            清除筛选
+                        </button>
+                    </div>
+
+                    <!-- 日志列表 -->
+                    <div class="card">
+                        <div id="auditLogsContainer">
+                            <div class="loading-placeholder">加载中...</div>
+                        </div>
+                        <div id="auditLogsPagination" class="pagination-bar" style="padding:12px 16px; text-align:center;"></div>
+                    </div>
+                </section>
+
             </div>
         </main>
     </div>
