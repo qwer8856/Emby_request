@@ -5941,7 +5941,17 @@ async function loadAdminHistory(page = 1) {
         tbody.innerHTML = records.map(r => {
             const startTime = r.started_at ? new Date(r.started_at).toLocaleString('zh-CN') : '-';
             const typeText = r.item_type === 'Episode' ? '剧集' : '电影';
-            const progress = r.play_percentage ? Math.round(r.play_percentage) + '%' : '-';
+            let progress = '-';
+            if (r.play_percentage && r.play_percentage > 0) {
+                progress = Math.round(r.play_percentage) + '%';
+            } else if (r.play_duration && r.play_duration > 0) {
+                // 没有百分比时显示播放时长
+                const dur = r.play_duration;
+                const h = Math.floor(dur / 3600);
+                const m = Math.floor((dur % 3600) / 60);
+                const s = dur % 60;
+                progress = h > 0 ? `${h}h${m}m` : m > 0 ? `${m}m${s}s` : `${s}s`;
+            }
             
             return `
                 <tr>
@@ -8042,12 +8052,11 @@ function switchDashTab(tab) {
     currentDashTab = tab;
     document.querySelectorAll('.dash-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
     document.querySelectorAll('.dash-tab-content').forEach(c => c.classList.remove('active'));
-    const tabMap = { overview: 'dashTabOverview', analytics: 'dashTabAnalytics', activity: 'dashTabActivity', system: 'dashTabSystem' };
+    const tabMap = { overview: 'dashTabOverview', system: 'dashTabSystem' };
     const el = document.getElementById(tabMap[tab]);
     if (el) el.classList.add('active');
 
     if (tab === 'system') loadSystemStats();
-    if (tab === 'activity') loadFullActivities();
 }
 
 async function loadDashboardStats() {
@@ -8079,23 +8088,6 @@ async function loadDashboardStats() {
 
         // 热播榜
         renderTopList(d.playback.top);
-
-        // 最近活动
-        renderActivities('dash-recent-activities', d.recent_activities);
-
-        // 数据分析 Tab 数据
-        renderCompositionBar('dashUserBar', 'dashUserLegend', [
-            { label: '白名单', value: d.users.whitelist, color: '#22c55e' },
-            { label: '订阅中', value: d.users.subscriber, color: '#3b82f6' },
-            { label: '已过期', value: d.users.expired, color: '#f59e0b' },
-            { label: '已封禁', value: d.users.banned, color: '#ef4444' },
-        ]);
-        renderCompositionBar('dashRequestBar', 'dashRequestLegend', [
-            { label: '待处理', value: d.requests.pending, color: '#f59e0b' },
-            { label: '下载中', value: d.requests.downloading, color: '#3b82f6' },
-            { label: '已完成', value: d.requests.completed, color: '#22c55e' },
-            { label: '已拒绝', value: d.requests.rejected, color: '#ef4444' },
-        ]);
 
         // 加载收入曲线图
         loadRevenueChart();

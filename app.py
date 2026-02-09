@@ -2580,6 +2580,40 @@ class EmbyClient:
                         app.logger.debug(f'获取 {uid} 在 {date_str} 的播放记录失败: {e}')
                         continue
             
+            # 批量补充缺失进度：对没有 play_percentage 但有 play_duration 的记录，批量获取 RunTimeTicks
+            missing_items = [r for r in history if r.get('play_percentage') is None and r.get('play_duration', 0) > 0]
+            if missing_items:
+                # 收集唯一的 item_id
+                unique_ids = list(set(r['item_id'] for r in missing_items if r.get('item_id')))
+                runtime_cache = {}
+                # 批量获取（通过 Items API 的 Ids 参数一次查多个）
+                batch_size = 50
+                for i in range(0, len(unique_ids), batch_size):
+                    batch_ids = unique_ids[i:i+batch_size]
+                    try:
+                        items_url = f"{self.base_url}/Items"
+                        items_params = {
+                            'api_key': self.api_key,
+                            'Ids': ','.join(batch_ids),
+                            'Fields': 'RunTimeTicks'
+                        }
+                        items_resp = self.session.get(items_url, params=items_params, timeout=10)
+                        if items_resp.status_code == 200:
+                            items_data = items_resp.json()
+                            for itm in items_data.get('Items', []):
+                                itm_id = str(itm.get('Id', ''))
+                                rtt = itm.get('RunTimeTicks', 0) or 0
+                                if itm_id and rtt > 0:
+                                    runtime_cache[itm_id] = rtt // 10000000  # ticks -> seconds
+                    except Exception:
+                        pass
+                
+                # 用缓存补充进度
+                for r in missing_items:
+                    total_sec = runtime_cache.get(r['item_id'], 0)
+                    if total_sec > 0 and r['play_duration'] > 0:
+                        r['play_percentage'] = min(100, round(r['play_duration'] / total_sec * 100, 1))
+            
             # 按日期排序
             history.sort(key=lambda x: x.get('started_at', ''), reverse=True)
             

@@ -202,8 +202,6 @@
                     <!-- Tab 切换 -->
                     <div class="dash-tabs">
                         <button class="dash-tab active" data-tab="overview" onclick="switchDashTab('overview')">系统概览</button>
-                        <button class="dash-tab" data-tab="analytics" onclick="switchDashTab('analytics')">数据分析</button>
-                        <button class="dash-tab" data-tab="activity" onclick="switchDashTab('activity')">活动日志</button>
                         <button class="dash-tab" data-tab="system" onclick="switchDashTab('system')">系统状态</button>
                     </div>
 
@@ -360,37 +358,7 @@
                         <!-- 最近活动板块已移除 -->
                     </div>
 
-                    <!-- Tab: 数据分析 -->
-                    <div class="dash-tab-content" id="dashTabAnalytics">
-                        <div class="dash-two-col">
-                            <div class="dash-panel">
-                                <div class="dash-panel-header"><h3>👥 用户构成</h3></div>
-                                <div class="dash-user-composition">
-                                    <div class="composition-bar" id="dashUserBar"></div>
-                                    <div class="composition-legend" id="dashUserLegend"></div>
-                                </div>
-                            </div>
-                            <div class="dash-panel">
-                                <div class="dash-panel-header"><h3>📋 求片状态</h3></div>
-                                <div class="dash-user-composition">
-                                    <div class="composition-bar" id="dashRequestBar"></div>
-                                    <div class="composition-legend" id="dashRequestLegend"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Tab: 活动日志 -->
-                    <div class="dash-tab-content" id="dashTabActivity">
-                        <div class="dash-panel">
-                            <div id="dash-full-activities" class="dash-activity-list">
-                                <div class="dash-chart-loading">加载中...</div>
-                            </div>
-                            <div class="dash-activity-footer">
-                                <button class="btn btn-outline btn-sm" onclick="switchAdminSection('activity', null)">📋 前往活动日志管理</button>
-                            </div>
-                        </div>
-                    </div>
+                    <!-- 数据分析和活动日志Tab已移除 -->
 
                     <!-- Tab: 系统状态 -->
                     <div class="dash-tab-content" id="dashTabSystem">
