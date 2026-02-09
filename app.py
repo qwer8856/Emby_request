@@ -306,7 +306,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SESSION_COOKIE_NAME'] = 'emby_session'  # 使用唯一cookie名称，避免与其他系统冲突
 app.config['SESSION_COOKIE_HTTPONLY'] = True      # 禁止 JS 读取 Cookie，防止 XSS 窃取
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'     # 防止 CSRF 跨站请求伪造
-app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'true').lower() == 'true'  # HTTPS站点应开启
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'auto').lower() == 'true'  # auto=不设置(由Flask根据请求自动判断), true=强制HTTPS, false=关闭
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)  # Session 有效期 7 天
 
 # 减少 werkzeug 日志噪音（过滤掉静态资源和图片代理请求）
