@@ -303,9 +303,11 @@ else:
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Session 安全配置
+app.config['SESSION_COOKIE_NAME'] = 'emby_session'  # 使用唯一cookie名称，避免与其他系统冲突
 app.config['SESSION_COOKIE_HTTPONLY'] = True      # 禁止 JS 读取 Cookie，防止 XSS 窃取
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'     # 防止 CSRF 跨站请求伪造
-app.config['PERMANENT_SESSION_LIFETIME'] = 86400 * 7  # Session 有效期 7 天
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'true').lower() == 'true'  # HTTPS站点应开启
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)  # Session 有效期 7 天
 
 # 减少 werkzeug 日志噪音（过滤掉静态资源和图片代理请求）
 import logging
@@ -5451,6 +5453,7 @@ def login_required(f):
         is_api_request = request.path.startswith('/api/') or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
         
         if 'user_id' not in session:
+            app.logger.warning(f'[AUTH] {request.path} - session中无user_id, session keys: {list(session.keys())}')
             if is_api_request:
                 return jsonify({'success': False, 'error': '请先登录', 'need_login': True}), 401
             return redirect(url_for('login'))
@@ -5459,6 +5462,7 @@ def login_required(f):
         user = db.session.get(User, session['user_id'])
         if not user:
             # 用户不存在，清除session
+            app.logger.warning(f'[AUTH] {request.path} - user_id={session["user_id"]} 用户不存在')
             session.pop('user_id', None)
             session.pop('username', None)
             session.pop('session_token', None)
@@ -5469,6 +5473,7 @@ def login_required(f):
         # 检查session_token是否匹配
         if user.session_token and session.get('session_token') != user.session_token:
             # token不匹配，说明密码已被重置，强制退出
+            app.logger.warning(f'[AUTH] {request.path} - user={user.name} session_token不匹配: session={session.get("session_token", "")[:8]}... db={user.session_token[:8] if user.session_token else "None"}...')
             session.pop('user_id', None)
             session.pop('username', None)
             session.pop('session_token', None)
@@ -6886,6 +6891,8 @@ def login():
             user.session_token = new_token
             db.session.commit()
             
+            # 先清除旧 session 数据，确保干净的登录状态
+            session.clear()
             session.permanent = True  # 使 PERMANENT_SESSION_LIFETIME 生效
             session['user_id'] = user.tg
             session['username'] = user.name
@@ -6893,7 +6900,7 @@ def login():
             session['user_level'] = user.lv
             session['session_token'] = new_token  # 存储token到session
             session.modified = True  # 强制 Flask 发送 Set-Cookie
-            app.logger.info(f'用户 {username} 登录成功')
+            app.logger.info(f'用户 {username} 登录成功, user_id={user.tg}, token={new_token[:8]}...')
             log_user_activity(UserActivityLog.ACTION_LOGIN, user=user, detail='网页登录成功')
             
             # ===== 登录通知（异步，不阻塞登录响应）=====
@@ -9630,6 +9637,7 @@ def admin_login_api():
             if admin_user.password_hash == password_hash:
                 # AdminUser 表密码匹配，直接登录
                 admin_login_limiter.record_success(extra_key='admin')
+                session.clear()
                 session.permanent = True
                 session['admin_logged_in'] = True
                 session['admin_username'] = username
@@ -9663,6 +9671,7 @@ def admin_login_api():
                     admin_user.last_login = datetime.now()
                     db.session.commit()
                     
+                    session.clear()
                     session.permanent = True
                     session['admin_logged_in'] = True
                     session['admin_username'] = username
@@ -9696,6 +9705,7 @@ def admin_login_api():
     
     if username == stored_username and password_hash == stored_password_hash:
         admin_login_limiter.record_success(extra_key='admin')
+        session.clear()
         session.permanent = True
         session['admin_logged_in'] = True
         session['admin_username'] = username
