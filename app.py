@@ -14328,11 +14328,13 @@ def get_type_stats():
 def get_dashboard_stats():
     """获取管理员仪表盘总览统计数据"""
     try:
-        from datetime import date
+        from datetime import date, timedelta
         today = date.today()
         now = datetime.now()
+        last_month_start = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+        this_month_start = today.replace(day=1)
 
-        # 用户
+        # 用户统计
         total_users = User.query.count()
         active_users = User.query.filter(User.lv.in_(['a', 'b']), User.ex > now).count()
         whitelist_users = User.query.filter(User.lv == 'a').count()
@@ -14340,64 +14342,203 @@ def get_dashboard_stats():
         expired_users = User.query.filter(User.lv.in_(['a', 'b']), User.ex <= now).count()
         banned_users = User.query.filter(User.lv == 'c').count()
 
+        # 本月和上月新增用户（用于环比）
+        this_month_users = User.query.filter(db.func.date(User.cr) >= this_month_start).count()
+        last_month_users = User.query.filter(
+            db.func.date(User.cr) >= last_month_start,
+            db.func.date(User.cr) < this_month_start
+        ).count()
+
         # 求片
         total_requests = MovieRequest.query.count()
         pending_requests = MovieRequest.query.filter_by(status='pending').count()
         downloading_requests = MovieRequest.query.filter_by(status='downloading').count()
         completed_requests = MovieRequest.query.filter_by(status='completed').count()
         rejected_requests = MovieRequest.query.filter_by(status='rejected').count()
-        today_requests = MovieRequest.query.filter(db.func.date(MovieRequest.created_at) == today).count()
 
-        # 订单 & 收入
-        paid_orders = Order.query.filter_by(payment_status='paid').count()
-        total_revenue_result = db.session.query(db.func.sum(Order.final_price)).filter_by(payment_status='paid').scalar()
-        total_revenue = float(total_revenue_result) if total_revenue_result else 0.0
-        today_revenue_result = db.session.query(db.func.sum(Order.final_price)).filter(
-            Order.payment_status == 'paid', db.func.date(Order.payment_time) == today
+        # 订单 & 收入 — 本月/上月
+        this_month_revenue_r = db.session.query(db.func.sum(Order.final_price)).filter(
+            Order.payment_status == 'paid', db.func.date(Order.payment_time) >= this_month_start
         ).scalar()
-        today_revenue = float(today_revenue_result) if today_revenue_result else 0.0
+        this_month_revenue = float(this_month_revenue_r) if this_month_revenue_r else 0.0
+        last_month_revenue_r = db.session.query(db.func.sum(Order.final_price)).filter(
+            Order.payment_status == 'paid',
+            db.func.date(Order.payment_time) >= last_month_start,
+            db.func.date(Order.payment_time) < this_month_start
+        ).scalar()
+        last_month_revenue = float(last_month_revenue_r) if last_month_revenue_r else 0.0
 
         # 工单
         open_tickets = SupportTicket.query.filter_by(status='open').count()
+        total_tickets = SupportTicket.query.count()
 
-        # 其他
-        today_checkins = CheckInRecord.query.filter_by(checkin_date=today).count()
-        unused_codes = RedeemCode.query.filter_by(is_used=False, is_active=True).count()
-        today_playbacks = PlaybackRecord.query.filter(db.func.date(PlaybackRecord.started_at) == today).count()
+        # 今日播放详细统计
+        today_plays = PlaybackRecord.query.filter(db.func.date(PlaybackRecord.started_at) == today)
+        play_count = today_plays.count()
+        play_users = db.session.query(db.func.count(db.func.distinct(PlaybackRecord.user_tg))).filter(
+            db.func.date(PlaybackRecord.started_at) == today
+        ).scalar() or 0
+        play_duration_r = db.session.query(db.func.sum(PlaybackRecord.play_duration)).filter(
+            db.func.date(PlaybackRecord.started_at) == today
+        ).scalar()
+        play_duration_sec = int(play_duration_r) if play_duration_r else 0
+        play_movies = today_plays.filter(PlaybackRecord.item_type == 'Movie').count()
+        play_episodes = today_plays.filter(PlaybackRecord.item_type == 'Episode').count()
+        play_transcode = today_plays.filter(PlaybackRecord.play_method == 'Transcode').count()
+
+        # 今日热播 Top 5
+        top_items = db.session.query(
+            PlaybackRecord.item_name, PlaybackRecord.series_name, PlaybackRecord.item_type,
+            db.func.count(PlaybackRecord.id).label('cnt')
+        ).filter(
+            db.func.date(PlaybackRecord.started_at) == today
+        ).group_by(
+            PlaybackRecord.item_name, PlaybackRecord.series_name, PlaybackRecord.item_type
+        ).order_by(db.desc('cnt')).limit(5).all()
+
+        top_list = []
+        for item in top_items:
+            name = item.series_name if item.series_name and item.item_type == 'Episode' else item.item_name
+            top_list.append({'name': name, 'count': item.cnt, 'type': item.item_type or 'Unknown'})
+
+        # 最近活动（最新10条活动日志）
+        recent_activities = []
+        try:
+            logs = UserActivityLog.query.order_by(UserActivityLog.created_at.desc()).limit(10).all()
+            for log in logs:
+                recent_activities.append({
+                    'action': log.action_type,
+                    'details': f"{log.user_name or '未知'} - {log.action_detail or ''}",
+                    'time': log.created_at.isoformat() if log.created_at else None
+                })
+        except Exception:
+            pass
+
+        # 格式化播放时长
+        hours = play_duration_sec // 3600
+        minutes = (play_duration_sec % 3600) // 60
+        duration_str = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
 
         return jsonify({
             'success': True,
             'data': {
                 'users': {
-                    'total': total_users,
-                    'active': active_users,
-                    'whitelist': whitelist_users,
-                    'subscriber': subscriber_users,
-                    'expired': expired_users,
-                    'banned': banned_users
+                    'total': total_users, 'active': active_users,
+                    'whitelist': whitelist_users, 'subscriber': subscriber_users,
+                    'expired': expired_users, 'banned': banned_users,
+                    'this_month': this_month_users, 'last_month': last_month_users
                 },
                 'requests': {
-                    'total': total_requests,
-                    'pending': pending_requests,
-                    'downloading': downloading_requests,
-                    'completed': completed_requests,
-                    'rejected': rejected_requests,
-                    'today': today_requests
+                    'total': total_requests, 'pending': pending_requests,
+                    'downloading': downloading_requests, 'completed': completed_requests,
+                    'rejected': rejected_requests
                 },
-                'orders': {
-                    'paid': paid_orders,
-                    'total_revenue': total_revenue,
-                    'today_revenue': today_revenue
+                'revenue': {
+                    'this_month': this_month_revenue,
+                    'last_month': last_month_revenue
                 },
-                'tickets': { 'open': open_tickets },
-                'checkin': { 'today': today_checkins },
-                'redeem': { 'unused': unused_codes },
-                'playback': { 'today': today_playbacks }
+                'tickets': { 'open': open_tickets, 'total': total_tickets },
+                'playback': {
+                    'count': play_count, 'users': play_users,
+                    'duration': duration_str, 'movies': play_movies,
+                    'episodes': play_episodes, 'transcode': play_transcode,
+                    'top': top_list
+                },
+                'recent_activities': recent_activities
             }
         }), 200
     except Exception as e:
         app.logger.error(f'获取仪表盘统计数据失败: {str(e)}')
+        import traceback
+        app.logger.error(traceback.format_exc())
         return jsonify({ 'success': False, 'error': '获取仪表盘统计数据失败' }), 500
+
+
+@app.route('/api/admin/dashboard-revenue-chart')
+@admin_required
+def get_dashboard_revenue_chart():
+    """获取收入曲线图数据，支持自定义时间范围"""
+    try:
+        from datetime import date, timedelta
+        days = request.args.get('days', 30, type=int)
+        start_date = request.args.get('start')
+        end_date = request.args.get('end')
+
+        if start_date and end_date:
+            start = date.fromisoformat(start_date)
+            end = date.fromisoformat(end_date)
+            # 最长一年
+            if (end - start).days > 366:
+                start = end - timedelta(days=365)
+        else:
+            end = date.today()
+            start = end - timedelta(days=days - 1)
+
+        total_days = (end - start).days + 1
+        chart_data = []
+        total_revenue = 0.0
+        total_orders = 0
+
+        for i in range(total_days):
+            d = start + timedelta(days=i)
+            day_revenue_r = db.session.query(db.func.sum(Order.final_price)).filter(
+                Order.payment_status == 'paid', db.func.date(Order.payment_time) == d
+            ).scalar()
+            day_revenue = float(day_revenue_r) if day_revenue_r else 0.0
+            day_orders = Order.query.filter(
+                Order.payment_status == 'paid', db.func.date(Order.payment_time) == d
+            ).count()
+            total_revenue += day_revenue
+            total_orders += day_orders
+            chart_data.append({
+                'date': d.strftime('%m-%d') if total_days <= 90 else d.strftime('%Y-%m-%d'),
+                'revenue': round(day_revenue, 2),
+                'orders': day_orders
+            })
+
+        avg_revenue = round(total_revenue / max(total_days, 1), 2)
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'chart': chart_data,
+                'summary': {
+                    'total_revenue': round(total_revenue, 2),
+                    'total_orders': total_orders,
+                    'avg_revenue': avg_revenue
+                }
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取收入图表数据失败: {str(e)}')
+        return jsonify({ 'success': False, 'error': '获取收入图表数据失败' }), 500
+
+
+@app.route('/api/admin/dashboard-system')
+@admin_required
+def get_dashboard_system():
+    """获取系统资源状态"""
+    try:
+        import psutil
+        cpu = psutil.cpu_percent(interval=0.5)
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        return jsonify({
+            'success': True,
+            'data': {
+                'cpu': round(cpu, 1),
+                'memory': round(mem.percent, 1),
+                'disk': round(disk.percent, 1),
+                'time': datetime.now().strftime('%H:%M:%S')
+            }
+        }), 200
+    except ImportError:
+        return jsonify({
+            'success': True,
+            'data': { 'cpu': 0, 'memory': 0, 'disk': 0, 'time': datetime.now().strftime('%H:%M:%S'), 'unavailable': True }
+        }), 200
+    except Exception as e:
+        return jsonify({ 'success': False, 'error': str(e) }), 500
 
 
 @app.route('/admin/stats/summary')

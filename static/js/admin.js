@@ -8036,42 +8036,69 @@ async function sendBroadcastEmail() {
 
 // ==================== 仪表盘总览 ====================
 
+let currentDashTab = 'overview';
+
+function switchDashTab(tab) {
+    currentDashTab = tab;
+    document.querySelectorAll('.dash-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    document.querySelectorAll('.dash-tab-content').forEach(c => c.classList.remove('active'));
+    const tabMap = { overview: 'dashTabOverview', analytics: 'dashTabAnalytics', activity: 'dashTabActivity', system: 'dashTabSystem' };
+    const el = document.getElementById(tabMap[tab]);
+    if (el) el.classList.add('active');
+
+    if (tab === 'system') loadSystemStats();
+    if (tab === 'activity') loadFullActivities();
+}
+
 async function loadDashboardStats() {
     try {
         const response = await fetch('/api/admin/dashboard-stats');
         const data = await response.json();
-        if (!data.success) {
-            showToast('错误', data.error || '获取仪表盘数据失败', 'error');
-            return;
-        }
+        if (!data.success) { showToast('错误', data.error || '获取仪表盘数据失败', 'error'); return; }
         const d = data.data;
 
-        // 顶部核心指标
-        setText('dash-total-users', d.users.total);
-        setText('dash-active-users', d.users.active);
-        setText('dash-requests-pending', d.requests.pending);
+        // 顶部4个核心指标
+        setText('dash-total-users', d.users.total.toLocaleString());
+        setText('dash-period-revenue', '¥' + d.revenue.this_month.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1}));
         setText('dash-tickets-open', d.tickets.open);
-        setText('dash-total-revenue', '¥' + d.orders.total_revenue.toFixed(2));
-
-        // 用户概况卡片
-        setText('dash-users-whitelist', d.users.whitelist);
-        setText('dash-users-subscriber', d.users.subscriber);
-        setText('dash-users-expired', d.users.expired);
-        setText('dash-users-banned', d.users.banned);
-        setText('dash-checkin-today', d.checkin.today);
-
-        // 求片概况卡片
+        setText('dash-tickets-total', d.tickets.total);
+        setText('dash-requests-pending', d.requests.pending);
         setText('dash-requests-total', d.requests.total);
-        setText('dash-requests-downloading', d.requests.downloading);
-        setText('dash-requests-completed', d.requests.completed);
-        setText('dash-requests-rejected', d.requests.rejected);
-        setText('dash-requests-today', d.requests.today);
 
-        // 收入概况卡片
-        setText('dash-orders-paid', d.orders.paid);
-        setText('dash-orders-today-revenue', '¥' + d.orders.today_revenue.toFixed(2));
-        setText('dash-redeem-unused', d.redeem.unused);
-        setText('dash-playback-today', d.playback.today);
+        // 环比变化
+        renderChange('dash-users-change', d.users.this_month, d.users.last_month, '上月');
+        renderChange('dash-revenue-change', d.revenue.this_month, d.revenue.last_month, '上月');
+
+        // 今日播放
+        setText('dash-play-count', d.playback.count);
+        setText('dash-play-users', d.playback.users);
+        setText('dash-play-duration', d.playback.duration);
+        setText('dash-play-movies', d.playback.movies);
+        setText('dash-play-episodes', d.playback.episodes);
+        setText('dash-play-transcode', d.playback.transcode);
+
+        // 热播榜
+        renderTopList(d.playback.top);
+
+        // 最近活动
+        renderActivities('dash-recent-activities', d.recent_activities);
+
+        // 数据分析 Tab 数据
+        renderCompositionBar('dashUserBar', 'dashUserLegend', [
+            { label: '白名单', value: d.users.whitelist, color: '#22c55e' },
+            { label: '订阅中', value: d.users.subscriber, color: '#3b82f6' },
+            { label: '已过期', value: d.users.expired, color: '#f59e0b' },
+            { label: '已封禁', value: d.users.banned, color: '#ef4444' },
+        ]);
+        renderCompositionBar('dashRequestBar', 'dashRequestLegend', [
+            { label: '待处理', value: d.requests.pending, color: '#f59e0b' },
+            { label: '下载中', value: d.requests.downloading, color: '#3b82f6' },
+            { label: '已完成', value: d.requests.completed, color: '#22c55e' },
+            { label: '已拒绝', value: d.requests.rejected, color: '#ef4444' },
+        ]);
+
+        // 加载收入曲线图
+        loadRevenueChart();
     } catch (error) {
         console.error('加载仪表盘数据失败:', error);
         showToast('错误', '加载仪表盘数据失败', 'error');
@@ -8081,4 +8108,212 @@ async function loadDashboardStats() {
 function setText(id, value) {
     const el = document.getElementById(id);
     if (el) el.textContent = value;
+}
+
+function renderChange(id, current, previous, label) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (previous === 0 && current === 0) { el.textContent = ''; return; }
+    let pct;
+    if (previous === 0) { pct = current > 0 ? 100 : 0; }
+    else { pct = ((current - previous) / previous * 100).toFixed(1); }
+    const isUp = pct >= 0;
+    el.className = 'highlight-change ' + (isUp ? 'change-up' : 'change-down');
+    el.innerHTML = `${isUp ? '↑' : '↓'} ${isUp ? '+' : ''}${pct}% ${label}`;
+}
+
+async function loadRevenueChart() {
+    const periodSel = document.getElementById('dashRevenuePeriod');
+    const customDiv = document.getElementById('dashCustomDateRange');
+    if (!periodSel) return;
+
+    const val = periodSel.value;
+    customDiv.style.display = val === 'custom' ? 'flex' : 'none';
+
+    let url = '/api/admin/dashboard-revenue-chart';
+    if (val === 'custom') {
+        const s = document.getElementById('dashRevenueStart').value;
+        const e = document.getElementById('dashRevenueEnd').value;
+        if (!s || !e) return;
+        url += `?start=${s}&end=${e}`;
+    } else {
+        url += `?days=${val}`;
+    }
+
+    try {
+        const resp = await fetch(url);
+        const data = await resp.json();
+        if (!data.success) return;
+
+        const d = data.data;
+        setText('dash-chart-total-revenue', '¥' + d.summary.total_revenue.toLocaleString(undefined, {minimumFractionDigits: 2}));
+        setText('dash-chart-total-orders', d.summary.total_orders);
+        setText('dash-chart-avg-revenue', '¥' + d.summary.avg_revenue.toFixed(2));
+
+        renderRevenueChart(d.chart);
+    } catch (e) {
+        console.error('加载收入图表失败:', e);
+    }
+}
+
+function renderRevenueChart(chartData) {
+    const container = document.getElementById('dashRevenueChart');
+    if (!container || !chartData.length) { container.innerHTML = '<div class="dash-chart-empty">暂无数据</div>'; return; }
+
+    const maxRevenue = Math.max(...chartData.map(d => d.revenue), 1);
+    const chartHeight = 200;
+    const barWidth = Math.max(2, Math.min(30, (container.clientWidth - 60) / chartData.length - 2));
+    const totalWidth = Math.max(container.clientWidth - 40, chartData.length * (barWidth + 2));
+
+    // 用 SVG 画曲线图
+    const points = chartData.map((d, i) => {
+        const x = 30 + i * ((totalWidth - 40) / Math.max(chartData.length - 1, 1));
+        const y = 10 + (chartHeight - 20) * (1 - d.revenue / maxRevenue);
+        return { x, y, ...d };
+    });
+
+    // 生成平滑曲线路径
+    let pathD = '';
+    let areaD = '';
+    if (points.length === 1) {
+        pathD = `M ${points[0].x} ${points[0].y}`;
+        areaD = `M ${points[0].x} ${chartHeight} L ${points[0].x} ${points[0].y} L ${points[0].x} ${chartHeight} Z`;
+    } else {
+        pathD = `M ${points[0].x} ${points[0].y}`;
+        areaD = `M ${points[0].x} ${chartHeight}  L ${points[0].x} ${points[0].y}`;
+        for (let i = 1; i < points.length; i++) {
+            const prev = points[i - 1];
+            const cur = points[i];
+            const cpx = (prev.x + cur.x) / 2;
+            pathD += ` C ${cpx} ${prev.y}, ${cpx} ${cur.y}, ${cur.x} ${cur.y}`;
+            areaD += ` C ${cpx} ${prev.y}, ${cpx} ${cur.y}, ${cur.x} ${cur.y}`;
+        }
+        areaD += ` L ${points[points.length - 1].x} ${chartHeight} Z`;
+    }
+
+    // Y 轴标签
+    const yLabels = [0, 1, 2, 3, 4].map(i => {
+        const val = maxRevenue * (1 - i / 4);
+        return { y: 10 + (chartHeight - 20) * i / 4, label: val >= 1000 ? (val / 1000).toFixed(1) + 'k' : val.toFixed(0) };
+    });
+
+    // X 轴标签（间隔显示）
+    const step = Math.max(1, Math.floor(chartData.length / 8));
+
+    let html = `<div class="revenue-chart-scroll"><svg width="${totalWidth}" height="${chartHeight + 40}" class="revenue-svg">`;
+    html += `<defs><linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.3"/>
+        <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.02"/>
+    </linearGradient></defs>`;
+
+    // 网格线
+    yLabels.forEach(yl => {
+        html += `<line x1="30" y1="${yl.y}" x2="${totalWidth}" y2="${yl.y}" stroke="#f1f5f9" stroke-width="1"/>`;
+        html += `<text x="25" y="${yl.y + 4}" fill="#94a3b8" font-size="10" text-anchor="end">${yl.label}</text>`;
+    });
+
+    // 面积 + 曲线
+    html += `<path d="${areaD}" fill="url(#areaGrad)"/>`;
+    html += `<path d="${pathD}" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round"/>`;
+
+    // 数据点 + tooltip
+    points.forEach((p, i) => {
+        html += `<circle cx="${p.x}" cy="${p.y}" r="3.5" fill="#3b82f6" stroke="#fff" stroke-width="2" class="chart-dot">
+            <title>${p.date}: ¥${p.revenue} (${p.orders}单)</title></circle>`;
+    });
+
+    // X 轴标签
+    points.forEach((p, i) => {
+        if (i % step === 0 || i === points.length - 1) {
+            html += `<text x="${p.x}" y="${chartHeight + 20}" fill="#94a3b8" font-size="10" text-anchor="middle">${p.date}</text>`;
+        }
+    });
+
+    html += '</svg></div>';
+    container.innerHTML = html;
+}
+
+function renderTopList(items) {
+    const el = document.getElementById('dash-play-top-list');
+    if (!el) return;
+    if (!items || !items.length) { el.innerHTML = '<div class="dash-chart-empty">今日暂无播放记录</div>'; return; }
+    let html = '';
+    items.forEach((item, i) => {
+        const icon = item.type === 'Episode' ? '📺' : '🎬';
+        html += `<div class="top-item"><span class="top-rank">${i + 1}</span><span class="top-icon">${icon}</span><span class="top-name">${item.name}</span><span class="top-count">${item.count}次</span></div>`;
+    });
+    el.innerHTML = html;
+}
+
+function renderActivities(containerId, activities) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    if (!activities || !activities.length) { el.innerHTML = '<div class="dash-chart-empty">暂无活动记录</div>'; return; }
+    let html = '';
+    activities.forEach(a => {
+        const time = a.time ? new Date(a.time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+        html += `<div class="activity-item"><div class="activity-dot"></div><div class="activity-content"><div class="activity-action">${a.action}</div><div class="activity-detail">${a.details || ''}</div></div><span class="activity-time">${time}</span></div>`;
+    });
+    el.innerHTML = html;
+}
+
+function renderCompositionBar(barId, legendId, segments) {
+    const barEl = document.getElementById(barId);
+    const legendEl = document.getElementById(legendId);
+    if (!barEl || !legendEl) return;
+    const total = segments.reduce((s, seg) => s + seg.value, 0);
+    if (total === 0) { barEl.innerHTML = '<div class="dash-chart-empty" style="height:24px">暂无数据</div>'; legendEl.innerHTML = ''; return; }
+    let barHtml = '';
+    let legendHtml = '';
+    segments.forEach(seg => {
+        const pct = (seg.value / total * 100).toFixed(1);
+        if (seg.value > 0) {
+            barHtml += `<div class="comp-seg" style="width:${pct}%;background:${seg.color}" title="${seg.label}: ${seg.value} (${pct}%)"></div>`;
+        }
+        legendHtml += `<div class="comp-legend-item"><span class="comp-dot" style="background:${seg.color}"></span>${seg.label}: <strong>${seg.value}</strong> (${pct}%)</div>`;
+    });
+    barEl.innerHTML = barHtml;
+    legendEl.innerHTML = legendHtml;
+}
+
+async function loadSystemStats() {
+    try {
+        const resp = await fetch('/api/admin/dashboard-system');
+        const data = await resp.json();
+        if (!data.success) return;
+        const d = data.data;
+        if (d.unavailable) {
+            document.getElementById('dashCpuVal').textContent = '不可用';
+            document.getElementById('dashMemVal').textContent = '不可用';
+            document.getElementById('dashDiskVal').textContent = '不可用';
+            document.getElementById('dashSystemTime').textContent = d.time;
+            return;
+        }
+        setBar('dashCpuBar', 'dashCpuVal', d.cpu);
+        setBar('dashMemBar', 'dashMemVal', d.memory);
+        setBar('dashDiskBar', 'dashDiskVal', d.disk);
+        setText('dashSystemTime', d.time);
+    } catch (e) {
+        console.error('加载系统状态失败:', e);
+    }
+}
+
+function setBar(barId, valId, pct) {
+    const bar = document.getElementById(barId);
+    const val = document.getElementById(valId);
+    if (bar) {
+        bar.style.width = pct + '%';
+        bar.style.background = pct > 80 ? '#ef4444' : pct > 60 ? '#f59e0b' : '#22c55e';
+    }
+    if (val) val.textContent = pct + ' %';
+}
+
+async function loadFullActivities() {
+    try {
+        const resp = await fetch('/api/admin/dashboard-stats');
+        const data = await resp.json();
+        if (data.success) renderActivities('dash-full-activities', data.data.recent_activities);
+    } catch (e) {
+        console.error('加载活动日志失败:', e);
+    }
 }

@@ -193,129 +193,247 @@
                 <!-- 仪表盘总览 -->
                 <section id="section-dashboard" class="admin-section active">
                     <div class="dashboard-header">
-                        <h2 class="dashboard-title">系统总览</h2>
+                        <h2 class="dashboard-title">管理控制台</h2>
                         <button class="btn btn-primary btn-sm" onclick="loadDashboardStats()" title="刷新数据">
-                            🔄 刷新
+                            🔄 刷新数据
                         </button>
                     </div>
 
-                    <!-- 核心指标 -->
-                    <div class="dashboard-highlights">
-                        <div class="highlight-card highlight-users" onclick="switchAdminSection('users', null)">
-                            <div class="highlight-icon">👥</div>
-                            <div class="highlight-info">
+                    <!-- Tab 切换 -->
+                    <div class="dash-tabs">
+                        <button class="dash-tab active" data-tab="overview" onclick="switchDashTab('overview')">系统概览</button>
+                        <button class="dash-tab" data-tab="analytics" onclick="switchDashTab('analytics')">数据分析</button>
+                        <button class="dash-tab" data-tab="activity" onclick="switchDashTab('activity')">活动日志</button>
+                        <button class="dash-tab" data-tab="system" onclick="switchDashTab('system')">系统状态</button>
+                    </div>
+
+                    <!-- Tab: 系统概览 -->
+                    <div class="dash-tab-content active" id="dashTabOverview">
+                        <!-- 4核心指标 -->
+                        <div class="dashboard-highlights">
+                            <div class="highlight-card" onclick="switchAdminSection('users', null)">
+                                <div class="highlight-top">
+                                    <span class="highlight-label">总用户数</span>
+                                    <span class="highlight-icon-sm">👥</span>
+                                </div>
                                 <span class="highlight-value" id="dash-total-users">-</span>
-                                <span class="highlight-label">总用户 · 活跃 <strong id="dash-active-users">-</strong></span>
+                                <div class="highlight-sub">
+                                    <span class="highlight-change" id="dash-users-change"></span>
+                                </div>
+                                <a class="highlight-link" onclick="event.stopPropagation();switchAdminSection('users', null)">查看用户 ↗</a>
                             </div>
-                        </div>
-                        <div class="highlight-card highlight-pending" onclick="switchAdminSection('requests', null)">
-                            <div class="highlight-icon">⏳</div>
-                            <div class="highlight-info">
-                                <span class="highlight-value" id="dash-requests-pending">-</span>
-                                <span class="highlight-label">待处理求片</span>
+                            <div class="highlight-card" onclick="switchAdminSection('orders', null)">
+                                <div class="highlight-top">
+                                    <span class="highlight-label">订阅收入</span>
+                                    <span class="highlight-icon-sm">💰</span>
+                                </div>
+                                <span class="highlight-value" id="dash-period-revenue">-</span>
+                                <div class="highlight-sub">
+                                    <span class="highlight-change" id="dash-revenue-change"></span>
+                                </div>
+                                <a class="highlight-link" onclick="event.stopPropagation();switchAdminSection('orders', null)">查看账单 ↗</a>
                             </div>
-                        </div>
-                        <div class="highlight-card highlight-tickets" onclick="switchAdminSection('tickets', null)">
-                            <div class="highlight-icon">🎫</div>
-                            <div class="highlight-info">
+                            <div class="highlight-card" onclick="switchAdminSection('tickets', null)">
+                                <div class="highlight-top">
+                                    <span class="highlight-label">待处理工单</span>
+                                    <span class="highlight-icon-sm">📋</span>
+                                </div>
                                 <span class="highlight-value" id="dash-tickets-open">-</span>
-                                <span class="highlight-label">待处理工单</span>
+                                <div class="highlight-sub">
+                                    <span class="highlight-sub-text">共 <strong id="dash-tickets-total">-</strong> 个工单</span>
+                                </div>
+                                <a class="highlight-link" onclick="event.stopPropagation();switchAdminSection('tickets', null)">查看工单 ↗</a>
+                            </div>
+                            <div class="highlight-card" onclick="switchAdminSection('requests', null)">
+                                <div class="highlight-top">
+                                    <span class="highlight-label">媒体请求</span>
+                                    <span class="highlight-icon-sm">🎬</span>
+                                </div>
+                                <span class="highlight-value" id="dash-requests-pending">-</span>
+                                <div class="highlight-sub">
+                                    <span class="highlight-sub-text">共 <strong id="dash-requests-total">-</strong> 个请求</span>
+                                </div>
+                                <a class="highlight-link" onclick="event.stopPropagation();switchAdminSection('requests', null)">查看请求 ↗</a>
                             </div>
                         </div>
-                        <div class="highlight-card highlight-revenue" onclick="switchAdminSection('orders', null)">
-                            <div class="highlight-icon">💰</div>
-                            <div class="highlight-info">
-                                <span class="highlight-value" id="dash-total-revenue">-</span>
-                                <span class="highlight-label">累计收入</span>
+
+                        <!-- 两栏布局：收入图表 + 今日播放 -->
+                        <div class="dash-two-col">
+                            <!-- 左栏：收入曲线图 -->
+                            <div class="dash-panel dash-panel-wide">
+                                <div class="dash-panel-header">
+                                    <h3>📈 收入趋势</h3>
+                                    <div class="dash-date-picker">
+                                        <select id="dashRevenuePeriod" onchange="loadRevenueChart()">
+                                            <option value="7">最近 7 天</option>
+                                            <option value="30" selected>最近 30 天</option>
+                                            <option value="90">最近 90 天</option>
+                                            <option value="180">最近半年</option>
+                                            <option value="365">最近一年</option>
+                                            <option value="custom">自定义</option>
+                                        </select>
+                                        <div id="dashCustomDateRange" class="dash-custom-date" style="display:none;">
+                                            <input type="date" id="dashRevenueStart" onchange="loadRevenueChart()">
+                                            <span>至</span>
+                                            <input type="date" id="dashRevenueEnd" onchange="loadRevenueChart()">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="dash-revenue-summary">
+                                    <div class="revenue-stat">
+                                        <span class="revenue-stat-label">期间总收入</span>
+                                        <span class="revenue-stat-value" id="dash-chart-total-revenue">¥0.00</span>
+                                    </div>
+                                    <div class="revenue-stat">
+                                        <span class="revenue-stat-label">期间订单数</span>
+                                        <span class="revenue-stat-value" id="dash-chart-total-orders">0</span>
+                                    </div>
+                                    <div class="revenue-stat">
+                                        <span class="revenue-stat-label">日均收入</span>
+                                        <span class="revenue-stat-value" id="dash-chart-avg-revenue">¥0.00</span>
+                                    </div>
+                                </div>
+                                <div class="dash-chart-container" id="dashRevenueChart">
+                                    <div class="dash-chart-loading">加载中...</div>
+                                </div>
+                            </div>
+
+                            <!-- 右栏：今日播放统计 -->
+                            <div class="dash-panel">
+                                <div class="dash-panel-header">
+                                    <h3>📺 今日播放</h3>
+                                </div>
+                                <div class="dash-play-stats">
+                                    <div class="play-stat-item">
+                                        <div class="play-stat-icon">▶️</div>
+                                        <div class="play-stat-info">
+                                            <span class="play-stat-value" id="dash-play-count">-</span>
+                                            <span class="play-stat-label">播放次数</span>
+                                        </div>
+                                    </div>
+                                    <div class="play-stat-item">
+                                        <div class="play-stat-icon">👤</div>
+                                        <div class="play-stat-info">
+                                            <span class="play-stat-value" id="dash-play-users">-</span>
+                                            <span class="play-stat-label">活跃观众</span>
+                                        </div>
+                                    </div>
+                                    <div class="play-stat-item">
+                                        <div class="play-stat-icon">⏱️</div>
+                                        <div class="play-stat-info">
+                                            <span class="play-stat-value" id="dash-play-duration">-</span>
+                                            <span class="play-stat-label">总播放时长</span>
+                                        </div>
+                                    </div>
+                                    <div class="play-stat-item">
+                                        <div class="play-stat-icon">🎬</div>
+                                        <div class="play-stat-info">
+                                            <span class="play-stat-value" id="dash-play-movies">-</span>
+                                            <span class="play-stat-label">电影播放</span>
+                                        </div>
+                                    </div>
+                                    <div class="play-stat-item">
+                                        <div class="play-stat-icon">📺</div>
+                                        <div class="play-stat-info">
+                                            <span class="play-stat-value" id="dash-play-episodes">-</span>
+                                            <span class="play-stat-label">剧集播放</span>
+                                        </div>
+                                    </div>
+                                    <div class="play-stat-item">
+                                        <div class="play-stat-icon">📡</div>
+                                        <div class="play-stat-info">
+                                            <span class="play-stat-value" id="dash-play-transcode">-</span>
+                                            <span class="play-stat-label">转码播放</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="dash-play-top">
+                                    <h4>🔥 今日热播</h4>
+                                    <div id="dash-play-top-list" class="dash-top-list">
+                                        <div class="dash-chart-loading">加载中...</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 最近活动 -->
+                        <div class="dash-panel">
+                            <div class="dash-panel-header">
+                                <h3>🕐 最近活动</h3>
+                            </div>
+                            <div id="dash-recent-activities" class="dash-activity-list">
+                                <div class="dash-chart-loading">加载中...</div>
+                            </div>
+                            <div class="dash-activity-footer">
+                                <button class="btn btn-outline btn-sm" onclick="switchAdminSection('activity', null)">📋 查看所有活动</button>
                             </div>
                         </div>
                     </div>
 
-                    <!-- 详细统计 -->
-                    <div class="dashboard-grid">
-                        <!-- 用户概况 -->
-                        <div class="dashboard-card" onclick="switchAdminSection('users', null)">
-                            <div class="dashboard-card-header">
-                                <span class="card-icon">👥</span>
-                                <h3>用户概况</h3>
+                    <!-- Tab: 数据分析 -->
+                    <div class="dash-tab-content" id="dashTabAnalytics">
+                        <div class="dash-two-col">
+                            <div class="dash-panel">
+                                <div class="dash-panel-header"><h3>👥 用户构成</h3></div>
+                                <div class="dash-user-composition">
+                                    <div class="composition-bar" id="dashUserBar"></div>
+                                    <div class="composition-legend" id="dashUserLegend"></div>
+                                </div>
                             </div>
-                            <div class="dashboard-card-body">
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">白名单</span>
-                                    <span class="dash-stat-value dash-val-green" id="dash-users-whitelist">-</span>
-                                </div>
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">订阅中</span>
-                                    <span class="dash-stat-value dash-val-blue" id="dash-users-subscriber">-</span>
-                                </div>
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">已过期</span>
-                                    <span class="dash-stat-value dash-val-orange" id="dash-users-expired">-</span>
-                                </div>
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">已封禁</span>
-                                    <span class="dash-stat-value dash-val-red" id="dash-users-banned">-</span>
-                                </div>
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">今日签到</span>
-                                    <span class="dash-stat-value dash-val-purple" id="dash-checkin-today">-</span>
+                            <div class="dash-panel">
+                                <div class="dash-panel-header"><h3>📋 求片状态</h3></div>
+                                <div class="dash-user-composition">
+                                    <div class="composition-bar" id="dashRequestBar"></div>
+                                    <div class="composition-legend" id="dashRequestLegend"></div>
                                 </div>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- 求片概况 -->
-                        <div class="dashboard-card" onclick="switchAdminSection('requests', null)">
-                            <div class="dashboard-card-header">
-                                <span class="card-icon">📋</span>
-                                <h3>求片概况</h3>
+                    <!-- Tab: 活动日志 -->
+                    <div class="dash-tab-content" id="dashTabActivity">
+                        <div class="dash-panel">
+                            <div id="dash-full-activities" class="dash-activity-list">
+                                <div class="dash-chart-loading">加载中...</div>
                             </div>
-                            <div class="dashboard-card-body">
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">总求片</span>
-                                    <span class="dash-stat-value" id="dash-requests-total">-</span>
-                                </div>
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">下载中</span>
-                                    <span class="dash-stat-value dash-val-blue" id="dash-requests-downloading">-</span>
-                                </div>
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">已完成</span>
-                                    <span class="dash-stat-value dash-val-green" id="dash-requests-completed">-</span>
-                                </div>
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">已拒绝</span>
-                                    <span class="dash-stat-value dash-val-red" id="dash-requests-rejected">-</span>
-                                </div>
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">今日新增</span>
-                                    <span class="dash-stat-value dash-val-purple" id="dash-requests-today">-</span>
-                                </div>
+                            <div class="dash-activity-footer">
+                                <button class="btn btn-outline btn-sm" onclick="switchAdminSection('activity', null)">📋 前往活动日志管理</button>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- 收入概况 -->
-                        <div class="dashboard-card" onclick="switchAdminSection('orders', null)">
-                            <div class="dashboard-card-header">
-                                <span class="card-icon">💰</span>
-                                <h3>收入概况</h3>
+                    <!-- Tab: 系统状态 -->
+                    <div class="dash-tab-content" id="dashTabSystem">
+                        <div class="dash-panel">
+                            <div class="dash-panel-header">
+                                <h3>🖥️ 后端系统状态</h3>
+                                <span class="dash-sub-text">实时系统资源使用情况</span>
                             </div>
-                            <div class="dashboard-card-body">
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">已支付订单</span>
-                                    <span class="dash-stat-value dash-val-green" id="dash-orders-paid">-</span>
+                            <div class="dash-system-stats">
+                                <div class="system-stat-row">
+                                    <span class="system-stat-label">CPU使用率</span>
+                                    <div class="system-bar-wrap">
+                                        <div class="system-bar"><div class="system-bar-fill" id="dashCpuBar" style="width:0%"></div></div>
+                                    </div>
+                                    <span class="system-stat-val" id="dashCpuVal">- %</span>
                                 </div>
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">今日收入</span>
-                                    <span class="dash-stat-value dash-val-blue" id="dash-orders-today-revenue">¥-</span>
+                                <div class="system-stat-row">
+                                    <span class="system-stat-label">内存使用率</span>
+                                    <div class="system-bar-wrap">
+                                        <div class="system-bar"><div class="system-bar-fill" id="dashMemBar" style="width:0%"></div></div>
+                                    </div>
+                                    <span class="system-stat-val" id="dashMemVal">- %</span>
                                 </div>
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">兑换码可用</span>
-                                    <span class="dash-stat-value dash-val-orange" id="dash-redeem-unused">-</span>
+                                <div class="system-stat-row">
+                                    <span class="system-stat-label">磁盘使用率</span>
+                                    <div class="system-bar-wrap">
+                                        <div class="system-bar"><div class="system-bar-fill" id="dashDiskBar" style="width:0%"></div></div>
+                                    </div>
+                                    <span class="system-stat-val" id="dashDiskVal">- %</span>
                                 </div>
-                                <div class="dash-stat-row">
-                                    <span class="dash-stat-label">今日播放</span>
-                                    <span class="dash-stat-value dash-val-purple" id="dash-playback-today">-</span>
-                                </div>
+                            </div>
+                            <div class="dash-system-info">
+                                <span class="dash-sub-text">最后更新: <span id="dashSystemTime">-</span></span>
                             </div>
                         </div>
                     </div>
