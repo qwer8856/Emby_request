@@ -7974,8 +7974,6 @@ async function testEmailConfig() {
     showToast('发送中', '正在发送测试邮件...', 'info');
     
     try {
-        await saveEmailConfig();
-        
         const response = await fetch('/api/admin/email/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
