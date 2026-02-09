@@ -6891,8 +6891,9 @@ def login():
             user.session_token = new_token
             db.session.commit()
             
-            # 先清除旧 session 数据，确保干净的登录状态
-            session.clear()
+            # 清除旧的用户 session 字段（保留管理员登录状态，允许同时登录）
+            for _k in ['user_id', 'username', 'is_admin', 'user_level', 'session_token']:
+                session.pop(_k, None)
             session.permanent = True  # 使 PERMANENT_SESSION_LIFETIME 生效
             session['user_id'] = user.tg
             session['username'] = user.name
@@ -9637,7 +9638,9 @@ def admin_login_api():
             if admin_user.password_hash == password_hash:
                 # AdminUser 表密码匹配，直接登录
                 admin_login_limiter.record_success(extra_key='admin')
-                session.clear()
+                # 清除旧的管理员 session 字段（保留用户登录状态，允许同时登录）
+                for _k in ['admin_logged_in', 'admin_username', 'admin_user_id', 'admin_is_super', 'admin_login_time']:
+                    session.pop(_k, None)
                 session.permanent = True
                 session['admin_logged_in'] = True
                 session['admin_username'] = username
@@ -9671,7 +9674,9 @@ def admin_login_api():
                     admin_user.last_login = datetime.now()
                     db.session.commit()
                     
-                    session.clear()
+                    # 清除旧的管理员 session 字段（保留用户登录状态）
+                    for _k in ['admin_logged_in', 'admin_username', 'admin_user_id', 'admin_is_super', 'admin_login_time']:
+                        session.pop(_k, None)
                     session.permanent = True
                     session['admin_logged_in'] = True
                     session['admin_username'] = username
@@ -9705,7 +9710,9 @@ def admin_login_api():
     
     if username == stored_username and password_hash == stored_password_hash:
         admin_login_limiter.record_success(extra_key='admin')
-        session.clear()
+        # 清除旧的管理员 session 字段（保留用户登录状态）
+        for _k in ['admin_logged_in', 'admin_username', 'admin_user_id', 'admin_is_super', 'admin_login_time']:
+            session.pop(_k, None)
         session.permanent = True
         session['admin_logged_in'] = True
         session['admin_username'] = username
