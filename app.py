@@ -5461,11 +5461,10 @@ def login_required(f):
         # 验证session_token是否有效（防止密码重置后继续访问）
         user = db.session.get(User, session['user_id'])
         if not user:
-            # 用户不存在，清除session
+            # 用户不存在，清除用户session
             app.logger.warning(f'[AUTH] {request.path} - user_id={session["user_id"]} 用户不存在')
-            session.pop('user_id', None)
-            session.pop('username', None)
-            session.pop('session_token', None)
+            for _k in ['user_id', 'username', 'session_token', 'is_admin', 'user_level']:
+                session.pop(_k, None)
             if is_api_request:
                 return jsonify({'success': False, 'error': '用户不存在，请重新登录', 'need_login': True}), 401
             return redirect(url_for('login'))
@@ -5474,9 +5473,8 @@ def login_required(f):
         if user.session_token and session.get('session_token') != user.session_token:
             # token不匹配，说明密码已被重置，强制退出
             app.logger.warning(f'[AUTH] {request.path} - user={user.name} session_token不匹配: session={session.get("session_token", "")[:8]}... db={user.session_token[:8] if user.session_token else "None"}...')
-            session.pop('user_id', None)
-            session.pop('username', None)
-            session.pop('session_token', None)
+            for _k in ['user_id', 'username', 'session_token', 'is_admin', 'user_level']:
+                session.pop(_k, None)
             if is_api_request:
                 return jsonify({'success': False, 'error': '登录已过期，请重新登录', 'need_login': True}), 401
             return redirect(url_for('login'))
@@ -5499,9 +5497,8 @@ def admin_required(f):
                     return f(*args, **kwargs)
                 else:
                     # 管理员已被禁用或删除，清除session
-                    session.pop('admin_logged_in', None)
-                    session.pop('admin_user_id', None)
-                    session.pop('admin_username', None)
+                    for _k in ['admin_logged_in', 'admin_user_id', 'admin_username', 'admin_is_super', 'admin_login_time']:
+                        session.pop(_k, None)
                     return jsonify({'error': '管理员账号已被禁用', 'redirect': f'/{ADMIN_SECRET_PATH}'}), 403
             else:
                 # 兼容旧session（超级管理员通过配置文件登录）
@@ -6599,9 +6596,8 @@ def index():
     # 验证session_token
     user = db.session.get(User, session['user_id'])
     if not user or (user.session_token and session.get('session_token') != user.session_token):
-        session.pop('user_id', None)
-        session.pop('username', None)
-        session.pop('session_token', None)
+        for _k in ['user_id', 'username', 'session_token', 'is_admin', 'user_level']:
+            session.pop(_k, None)
         return redirect(url_for('login'))
     return redirect(url_for('dashboard'))
 
@@ -6945,11 +6941,8 @@ def logout():
     if user_id:
         log_user_activity(UserActivityLog.ACTION_LOGOUT, user_tg=user_id, user_name=username, detail='网页登出')
     # 只清除用户相关的session，保留管理员session
-    session.pop('user_id', None)
-    session.pop('username', None)
-    session.pop('emby_username', None)
-    session.pop('user_logged_in', None)
-    session.pop('session_token', None)
+    for _k in ['user_id', 'username', 'emby_username', 'user_logged_in', 'session_token', 'is_admin', 'user_level']:
+        session.pop(_k, None)
     return redirect(url_for('login'))
 
 
@@ -6994,10 +6987,8 @@ def change_password():
         log_user_activity(UserActivityLog.ACTION_PASSWORD_CHANGE, user=user, detail='修改登录密码')
         
         # 密码修改成功后，清除当前用户session，强制重新登录
-        session.pop('user_id', None)
-        session.pop('username', None)
-        session.pop('user_logged_in', None)
-        session.pop('session_token', None)
+        for _k in ['user_id', 'username', 'user_logged_in', 'session_token', 'is_admin', 'user_level']:
+            session.pop(_k, None)
         
         return jsonify({'success': True, 'message': '密码修改成功，请重新登录', 'require_relogin': True}), 200
         
