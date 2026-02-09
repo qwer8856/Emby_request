@@ -4724,6 +4724,7 @@ function renderPlansConfig() {
                     <span class="plan-config-title">${plan.name || '新套餐'}</span>
                 </div>
                 <div class="plan-config-actions">
+                    <span class="plan-badge duration">${plan.duration_days || (plan.duration || 1) * 30}天</span>
                     ${plan.popular ? '<span class="plan-badge popular">推荐</span>' : ''}
                     <button class="btn-icon btn-danger" onclick="deletePlan(${index}); event.stopPropagation();" title="删除套餐">
                         <span>🗑️</span>
@@ -4760,11 +4761,11 @@ function renderPlansConfig() {
                                placeholder="如: 🌱 ⭐ 💎 👑">
                     </div>
                     <div class="plan-config-field">
-                        <label>默认时长（天）</label>
+                        <label>套餐时长（天）</label>
                         <input type="number" value="${plan.duration_days || (plan.duration || 1) * 30}" min="1" max="3650"
-                               onchange="updatePlanField(${index}, 'duration_days', parseInt(this.value) || 30)"
+                               onchange="updatePlanDuration(${index}, parseInt(this.value) || 30)"
                                placeholder="30">
-                        <span class="field-hint">签到兑换套餐使用此天数</span>
+                        <span class="field-hint" id="durationHint_${index}">${formatDurationHint(plan.duration_days || (plan.duration || 1) * 30)}</span>
                     </div>
                     <div class="plan-config-field full-width">
                         <label>套餐描述</label>
@@ -4922,18 +4923,46 @@ function updatePlanField(index, field, value) {
     }
 }
 
+// 更新套餐时长（天数），同步计算月数
+function updatePlanDuration(index, days) {
+    if (!plansConfigData[index]) return;
+    plansConfigData[index].duration_days = days;
+    // 同步更新 duration（月数），用于购买流程兼容
+    plansConfigData[index].duration = Math.max(1, Math.round(days / 30));
+    // 更新提示
+    const hint = document.getElementById(`durationHint_${index}`);
+    if (hint) hint.textContent = formatDurationHint(days);
+}
+
+// 格式化天数提示
+function formatDurationHint(days) {
+    if (days % 365 === 0 && days >= 365) {
+        return `= ${days / 365}年（购买时按${Math.round(days / 30)}个月计算）`;
+    } else if (days % 30 === 0 && days >= 30) {
+        return `= ${days / 30}个月`;
+    } else if (days >= 30) {
+        const months = Math.floor(days / 30);
+        const remainDays = days % 30;
+        return `≈ ${months}个月${remainDays}天（购买时按${Math.max(1, Math.round(days / 30))}个月计算）`;
+    } else {
+        return `不足1个月（购买时按1个月计算）`;
+    }
+}
+
 function addNewPlan() {
     const newPlan = {
         id: `plan_${Date.now()}`,
         type: 'basic',
         name: '新套餐',
         duration: 1,
+        duration_days: 30,
         price: 0,
         price_1m: 0,
         price_3m: 0,
         price_6m: 0,
         price_12m: 0,
         features: [],
+        benefits: [],
         popular: false
     };
     plansConfigData.push(newPlan);
@@ -5290,9 +5319,15 @@ function onRedeemPlanChange() {
     const opt = sel.options[sel.selectedIndex];
     const infoDiv = document.getElementById('redeemPlanInfo');
     if (opt && opt.value) {
-        const dur = opt.dataset.duration;
+        const days = parseInt(opt.dataset.durationDays) || 30;
         const price = opt.dataset.price;
-        document.getElementById('redeemPlanDuration').textContent = dur + '个月（' + (dur * 30) + '天）';
+        let durationText;
+        if (days % 30 === 0 && days >= 30) {
+            durationText = `${days / 30}个月（${days}天）`;
+        } else {
+            durationText = `${days}天`;
+        }
+        document.getElementById('redeemPlanDuration').textContent = durationText;
         document.getElementById('redeemPlanPrice').textContent = '¥' + price;
         infoDiv.style.display = '';
     } else {
@@ -5331,7 +5366,7 @@ async function generateRedeemCodes() {
             return;
         }
         const opt = sel.options[sel.selectedIndex];
-        durationDays = parseInt(opt.dataset.duration) * 30;
+        durationDays = parseInt(opt.dataset.durationDays) || 30;
     }
     
     const btn = document.querySelector('#generateRedeemOverlay .btn-primary');

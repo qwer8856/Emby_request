@@ -3394,7 +3394,7 @@
                         <select id="redeemCustomPlan">
                             <option value="custom">不关联套餐（纯时长）</option>
                             {% for plan in plans %}
-                            <option value="{{ plan.id }}">{{ plan.name }}（{{ plan.duration }}个月）</option>
+                            <option value="{{ plan.id }}">{{ plan.name }}（{{ plan.duration_days|default(plan.duration * 30) }}天）</option>
                             {% endfor %}
                         </select>
                         <span class="form-hint">关联套餐后，兑换记录中会显示套餐名称</span>
@@ -3408,7 +3408,7 @@
                         <select id="redeemPlanType" onchange="onRedeemPlanChange()">
                             <option value="">请选择套餐</option>
                             {% for plan in plans %}
-                            <option value="{{ plan.id }}" data-duration="{{ plan.duration }}" data-price="{{ plan.price }}">{{ plan.name }} - {{ plan.duration }}个月 / ¥{{ plan.price }}</option>
+                            <option value="{{ plan.id }}" data-duration-days="{{ plan.duration_days|default(plan.duration * 30) }}" data-price="{{ plan.price }}">{{ plan.name }} - {{ plan.duration_days|default(plan.duration * 30) }}天 / ¥{{ plan.price }}</option>
                             {% endfor %}
                         </select>
                     </div>

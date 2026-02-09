@@ -3490,6 +3490,12 @@ body.page-admin {
     color: white;
 }
 
+.plan-badge.duration {
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+}
+
 .plan-config-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);

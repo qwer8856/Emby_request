@@ -673,6 +673,7 @@ DEFAULT_PLANS = [
         'icon': '🌱',
         'description': '适合轻度观影用户，满足基本观影需求',
         'duration': 1,
+        'duration_days': 30,
         'price': 15,
         'price_1m': 15,
         'original_price': None,
@@ -686,6 +687,7 @@ DEFAULT_PLANS = [
         'icon': '⭐',
         'description': '适合日常观影用户，享受更多资源',
         'duration': 1,
+        'duration_days': 30,
         'price': 25,
         'price_1m': 25,
         'original_price': None,
@@ -699,6 +701,7 @@ DEFAULT_PLANS = [
         'icon': '⭐',
         'description': '适合日常观影用户，享受更多资源',
         'duration': 3,
+        'duration_days': 90,
         'price': 68,
         'price_3m': 68,
         'original_price': 75,
@@ -712,6 +715,7 @@ DEFAULT_PLANS = [
         'icon': '💎',
         'description': '适合影视爱好者，优先获取热门资源',
         'duration': 1,
+        'duration_days': 30,
         'price': 45,
         'price_1m': 45,
         'original_price': None,
@@ -725,6 +729,7 @@ DEFAULT_PLANS = [
         'icon': '💎',
         'description': '适合影视爱好者，优先获取热门资源',
         'duration': 12,
+        'duration_days': 360,
         'price': 480,
         'price_12m': 480,
         'original_price': 540,
@@ -738,6 +743,7 @@ DEFAULT_PLANS = [
         'icon': '👑',
         'description': '极致体验，尊享全部特权服务',
         'duration': 1,
+        'duration_days': 30,
         'price': 88,
         'price_1m': 88,
         'original_price': None,
@@ -9267,30 +9273,57 @@ def admin_login_api():
     try:
         admin_user = AdminUser.query.filter_by(username=username).first()
         if admin_user:
-            # 用户名存在于 AdminUser 表，在此处完成认证，不回退到 SystemConfig
             if not admin_user.is_active:
                 app.logger.warning(f'管理员 {username} 登录失败: 账号已被禁用')
                 return jsonify({'success': False, 'error': '该管理员账号已被禁用'}), 403
-            if admin_user.password_hash != password_hash:
-                app.logger.warning(f'管理员 {username} 登录失败: 密码错误 (IP: {request.remote_addr})')
-                return jsonify({'success': False, 'error': '用户名或密码错误'}), 401
             
-            session['admin_logged_in'] = True
-            session['admin_username'] = username
-            session['admin_user_id'] = admin_user.id
-            session['admin_is_super'] = admin_user.is_super
-            session['admin_login_time'] = datetime.now().isoformat()
-            admin_user.last_login = datetime.now()
-            db.session.commit()
-            app.logger.info(f'管理员 {username} (ID:{admin_user.id}) 登录成功')
+            if admin_user.password_hash == password_hash:
+                # AdminUser 表密码匹配，直接登录
+                session['admin_logged_in'] = True
+                session['admin_username'] = username
+                session['admin_user_id'] = admin_user.id
+                session['admin_is_super'] = admin_user.is_super
+                session['admin_login_time'] = datetime.now().isoformat()
+                admin_user.last_login = datetime.now()
+                db.session.commit()
+                app.logger.info(f'管理员 {username} (ID:{admin_user.id}) 登录成功')
+                
+                if admin_user.is_super:
+                    admin_config = get_admin_config()
+                    if not admin_config.get('initialized', False):
+                        return jsonify({'success': True, 'redirect': '/admin/setup', 'need_setup': True})
+                
+                return jsonify({'success': True, 'redirect': '/admin'})
             
-            # 超级管理员检查是否需要初始化
+            # AdminUser 表密码不匹配
             if admin_user.is_super:
+                # 超级管理员：再用 SystemConfig 验证（处理密码不同步的情况）
                 admin_config = get_admin_config()
-                if not admin_config.get('initialized', False):
-                    return jsonify({'success': True, 'redirect': '/admin/setup', 'need_setup': True})
+                stored_username = admin_config.get('username', '')
+                stored_password_hash = admin_config.get('password', '')
+                
+                if username == stored_username and password_hash == stored_password_hash:
+                    # SystemConfig 密码匹配，同步到 AdminUser 表并登录
+                    admin_user.password_hash = password_hash
+                    admin_user.last_login = datetime.now()
+                    db.session.commit()
+                    
+                    session['admin_logged_in'] = True
+                    session['admin_username'] = username
+                    session['admin_user_id'] = admin_user.id
+                    session['admin_is_super'] = True
+                    session['admin_login_time'] = datetime.now().isoformat()
+                    
+                    app.logger.info(f'超级管理员 {username} 登录成功（SystemConfig认证，已同步密码到AdminUser表）')
+                    
+                    if not admin_config.get('initialized', False):
+                        return jsonify({'success': True, 'redirect': '/admin/setup', 'need_setup': True})
+                    
+                    return jsonify({'success': True, 'redirect': '/admin'})
             
-            return jsonify({'success': True, 'redirect': '/admin'})
+            # 非超级管理员或所有密码都不匹配
+            app.logger.warning(f'管理员 {username} 登录失败: 密码错误 (IP: {request.remote_addr})')
+            return jsonify({'success': False, 'error': '用户名或密码错误'}), 401
     except Exception as e:
         app.logger.warning(f'AdminUser表查询失败(可能表不存在): {e}')
     
@@ -9328,8 +9361,37 @@ def admin_login_api():
 def _sync_super_admin_to_table(username, password_hash):
     """将超级管理员同步到 AdminUser 表"""
     try:
-        existing = AdminUser.query.filter_by(username=username).first()
-        if not existing:
+        # 先查找是否已有超级管理员记录（无论用户名是否变更）
+        existing_super = AdminUser.query.filter_by(is_super=True).first()
+        existing_by_name = AdminUser.query.filter_by(username=username).first()
+        
+        if existing_super and existing_super.username != username:
+            # 超级管理员改了用户名，更新旧记录的用户名
+            # 如果新用户名已被普通管理员占用，先删除那个普通管理员记录
+            if existing_by_name and existing_by_name.id != existing_super.id:
+                db.session.delete(existing_by_name)
+            existing_super.username = username
+            existing_super.password_hash = password_hash
+            existing_super.last_login = datetime.now()
+            db.session.commit()
+            session['admin_user_id'] = existing_super.id
+        elif existing_super:
+            # 用户名没变，更新密码
+            existing_super.password_hash = password_hash
+            existing_super.is_super = True
+            existing_super.last_login = datetime.now()
+            db.session.commit()
+            session['admin_user_id'] = existing_super.id
+        elif existing_by_name:
+            # 表中有同名用户但不是超级管理员（异常情况），升级为超级管理员
+            existing_by_name.password_hash = password_hash
+            existing_by_name.is_super = True
+            existing_by_name.is_active = True
+            existing_by_name.last_login = datetime.now()
+            db.session.commit()
+            session['admin_user_id'] = existing_by_name.id
+        else:
+            # 完全新建
             admin_user = AdminUser(
                 username=username,
                 password_hash=password_hash,
@@ -9341,12 +9403,6 @@ def _sync_super_admin_to_table(username, password_hash):
             db.session.add(admin_user)
             db.session.commit()
             session['admin_user_id'] = admin_user.id
-        else:
-            existing.password_hash = password_hash
-            existing.is_super = True
-            existing.last_login = datetime.now()
-            db.session.commit()
-            session['admin_user_id'] = existing.id
     except Exception as e:
         db.session.rollback()
         app.logger.warning(f'同步超级管理员失败: {e}')
@@ -17829,13 +17885,20 @@ def save_plans_config_api():
             if not plan.get('id') or not plan.get('name'):
                 continue
                 
+            # 计算 duration_days：优先使用前端传来的值，否则从 duration（月）计算
+            duration_months = int(plan.get('duration', 1))
+            duration_days = int(plan.get('duration_days', 0))
+            if duration_days <= 0:
+                duration_days = duration_months * 30
+            
             validated_plan = {
                 'id': str(plan.get('id', '')).strip(),
                 'type': str(plan.get('type', 'basic')).strip(),
                 'name': str(plan.get('name', '')).strip(),
                 'icon': str(plan.get('icon', '')).strip() if plan.get('icon') else None,
                 'description': str(plan.get('description', '')).strip() if plan.get('description') else None,
-                'duration': int(plan.get('duration', 1)),
+                'duration': duration_months,
+                'duration_days': duration_days,
                 'price': float(plan.get('price', 0)),
                 'original_price': float(plan.get('original_price')) if plan.get('original_price') else None,
                 'features': plan.get('features', []) if isinstance(plan.get('features'), list) else [],
@@ -17845,6 +17908,8 @@ def save_plans_config_api():
                 'price_3m': float(plan.get('price_3m', 0)) if plan.get('price_3m') else None,
                 'price_6m': float(plan.get('price_6m', 0)) if plan.get('price_6m') else None,
                 'price_12m': float(plan.get('price_12m', 0)) if plan.get('price_12m') else None,
+                # 订阅权益
+                'benefits': plan.get('benefits', []) if isinstance(plan.get('benefits'), list) else [],
             }
             validated_plans.append(validated_plan)
         
