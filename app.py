@@ -4018,7 +4018,8 @@ class Order(db.Model):
     user_tg = db.Column(db.BigInteger, db.ForeignKey('emby.tg'), nullable=False)
     plan_type = db.Column(db.String(50), nullable=False)
     plan_name = db.Column(db.String(100), nullable=False)
-    duration_months = db.Column(db.Integer, nullable=False)
+    duration_months = db.Column(db.Integer, nullable=False)  # 兼容旧数据
+    duration_days = db.Column(db.Integer, nullable=True)  # 实际天数（新字段，优先使用）
     original_price = db.Column(db.Float, nullable=False)  # 原价
     discount = db.Column(db.Float, default=0)  # 折扣金额
     final_price = db.Column(db.Float, nullable=False)  # 实付金额
@@ -4036,6 +4037,7 @@ class Order(db.Model):
             'plan_type': self.plan_type,
             'plan_name': self.plan_name,
             'duration_months': self.duration_months,
+            'duration_days': self.duration_days if self.duration_days else (self.duration_months * 30),
             'original_price': self.original_price,
             'discount': self.discount,
             'final_price': self.final_price,
@@ -15764,7 +15766,7 @@ def create_order():
             app.logger.info('orders 表已创建')
         
         plan_type = data.get('plan_type')  # 套餐类型
-        duration = int(data.get('duration', 1))  # 订阅时长
+        duration = int(data.get('duration', 1))  # 订阅时长（月数，用于价格周期选择）
         payment_method = data.get('payment_method', 'alipay')
         
         app.logger.info(f'创建订单参数: plan_type={plan_type}, duration={duration}, payment_method={payment_method}, user={user.name}')
@@ -15781,6 +15783,13 @@ def create_order():
         
         if not plan_config:
             return jsonify({'error': '无效的套餐类型'}), 400
+        
+        # 从套餐配置获取基础天数（duration_days 字段）
+        base_duration_days = int(plan_config.get('duration_days', 30))
+        
+        # 根据购买周期计算实际天数
+        # duration=1 → 基础天数, duration=3 → 基础天数*3, 以此类推
+        actual_duration_days = base_duration_days * duration
         
         # 获取对应周期的价格
         duration_price_map = {
@@ -15811,10 +15820,14 @@ def create_order():
             discount = 0
         
         # 构建套餐名称
-        duration_names = {1: '', 3: '(季付)', 6: '(半年付)', 12: '(年付)'}
         plan_name = plan_config.get('name', '套餐')
-        if duration > 1:
-            plan_name = f"{plan_config.get('name', '套餐')}{duration_names.get(duration, f'({duration}个月)')}"
+        if base_duration_days < 30:
+            # 短期套餐（试用等），直接显示天数
+            if duration > 1:
+                plan_name = f"{plan_name}({actual_duration_days}天)"
+        elif duration > 1:
+            duration_names = {3: '(季付)', 6: '(半年付)', 12: '(年付)'}
+            plan_name = f"{plan_name}{duration_names.get(duration, f'({duration}期)')}"
         
         # 生成订单号
         order_no = f'ORD{int(time.time())}{user.tg % 10000}'
@@ -15826,6 +15839,7 @@ def create_order():
             plan_type=plan_type,
             plan_name=plan_name,
             duration_months=duration,
+            duration_days=actual_duration_days,
             original_price=original_price,
             discount=discount,
             final_price=final_price,
@@ -16252,7 +16266,7 @@ def payment_notify():
             # 计算订阅开始和结束时间 - 在现有订阅基础上叠加
             now = datetime.now()
             start_date = now
-            purchased_days = order.duration_months * 30
+            purchased_days = order.duration_days if order.duration_days else (order.duration_months * 30)
             
             # 如果用户已有未过期的订阅，在此基础上叠加
             if user.ex and user.ex > now:
@@ -16285,16 +16299,16 @@ def payment_notify():
                     app.logger.info(f'用户 {user.name} 续费成功，已恢复Emby账号')
             
             # 邀请返利：检查是否有邀请人，给邀请人返利
-            process_invite_reward(user, order.duration_months * 30, source='易支付通知')
+            process_invite_reward(user, purchased_days, source='易支付通知')
         
         db.session.commit()
-        app.logger.info(f'易支付成功: 订单={out_trade_no}, 交易号={trade_no}')
+        app.logger.info(f'易支付成功: 订单={out_trade_no}, 交易号={trade_no}, 天数={purchased_days if user else "N/A"}')
         
         # 记录支付成功日志
         if user:
             log_user_activity(UserActivityLog.ACTION_PAYMENT_SUCCESS, user=user,
                              detail={'order_no': out_trade_no, 'trade_no': trade_no, 'amount': money,
-                                    'plan_name': order.plan_name, 'duration_months': order.duration_months})
+                                    'plan_name': order.plan_name, 'duration_days': purchased_days})
         
         # 返回success告知易支付不再重复通知
         return 'success'
@@ -16347,7 +16361,7 @@ def payment_callback():
                 # 计算订阅开始和结束时间 - 在现有订阅基础上叠加
                 now = datetime.now()
                 start_date = now
-                purchased_days = order.duration_months * 30
+                purchased_days = order.duration_days if order.duration_days else (order.duration_months * 30)
                 
                 # 如果用户已有未过期的订阅，在此基础上叠加
                 if user.ex and user.ex > now:
@@ -16375,7 +16389,7 @@ def payment_callback():
                     user.lv = 'b'
                 
                 # 邀请返利：检查是否有邀请人，给邀请人返利
-                process_invite_reward(user, order.duration_months * 30, source='支付回调')
+                process_invite_reward(user, purchased_days, source='支付回调')
                 
                 # 恢复Emby账号（如果之前因过期被禁用）
                 if user.embyid and emby_client.is_enabled():
@@ -16460,7 +16474,7 @@ def query_payment():
                     if user:
                         now = datetime.now()
                         start_date = now
-                        purchased_days = order.duration_months * 30
+                        purchased_days = order.duration_days if order.duration_days else (order.duration_months * 30)
                         
                         # 在现有订阅基础上叠加
                         if user.ex and user.ex > now:
@@ -21659,6 +21673,8 @@ def migrate_database():
         ('emby', 'invite_reward_percent', 'FLOAT NULL'),
         # User表邮箱字段
         ('emby', 'email', 'VARCHAR(255) NULL'),
+        # 订单表天数字段（支持自定义天数套餐）
+        ('orders', 'duration_days', 'INTEGER NULL'),
     ]
     
     app.logger.info('开始检查数据库迁移...')

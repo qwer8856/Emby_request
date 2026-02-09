@@ -1867,7 +1867,7 @@ function viewOrder(orderNo) {
                     </div>
                     <div class="detail-item">
                         <span class="detail-label">订阅时长</span>
-                        <span class="detail-value">${order.duration_months || 1} 个月</span>
+                        <span class="detail-value">${order.duration_days ? order.duration_days + ' 天' : (order.duration_months || 1) + ' 个月'}</span>
                     </div>
                 </div>
             </div>
@@ -4937,15 +4937,15 @@ function updatePlanDuration(index, days) {
 // 格式化天数提示
 function formatDurationHint(days) {
     if (days % 365 === 0 && days >= 365) {
-        return `= ${days / 365}年（购买时按${Math.round(days / 30)}个月计算）`;
+        return `= ${days / 365}年`;
     } else if (days % 30 === 0 && days >= 30) {
         return `= ${days / 30}个月`;
     } else if (days >= 30) {
         const months = Math.floor(days / 30);
         const remainDays = days % 30;
-        return `≈ ${months}个月${remainDays}天（购买时按${Math.max(1, Math.round(days / 30))}个月计算）`;
+        return `≈ ${months}个月${remainDays}天`;
     } else {
-        return `不足1个月（购买时按1个月计算）`;
+        return `${days}天`;
     }
 }
 

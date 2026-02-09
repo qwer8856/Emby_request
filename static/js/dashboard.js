@@ -3397,12 +3397,14 @@ async function unbindTelegramId() {
                         
                         // 计算持续时间：赠送类型显示天数，其他显示月数
                         let durationText = '';
-                        if (source === 'gift' && sub.duration_months === 0) {
-                            // 赠送类型且duration_months为0，计算实际天数
-                            const startDate = new Date(sub.start_date);
-                            const endDate = new Date(sub.end_date);
-                            const days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
-                            durationText = `${days}天`;
+                        // 优先根据实际日期计算天数
+                        const subStartDate = new Date(sub.start_date);
+                        const subEndDate = new Date(sub.end_date);
+                        const actualDays = Math.ceil((subEndDate - subStartDate) / (1000 * 60 * 60 * 24));
+                        if (actualDays > 0 && actualDays < 30) {
+                            durationText = `${actualDays}天`;
+                        } else if (source === 'gift' && sub.duration_months === 0) {
+                            durationText = `${actualDays}天`;
                         } else if (sub.duration_months > 0) {
                             durationText = `${sub.duration_months}个月`;
                         } else {
@@ -3949,6 +3951,10 @@ async function unbindTelegramId() {
                 const isUltimate = plan.type === 'ultimate';
                 const cardClass = isPopular ? 'popular' : (isUltimate ? 'ultimate' : '');
                 const monthlyPrice = plan.price_1m || plan.price || 0;
+                const durationDays = plan.duration_days || 30;
+                const isShortTerm = durationDays < 30;
+                const priceDisplay = isShortTerm ? monthlyPrice : monthlyPrice;
+                const pricePeriod = isShortTerm ? `/${durationDays}天` : '/月起';
                 
                 return `
                     <div class="plan-card-new ${cardClass}" data-plan-type="${plan.type}">
@@ -3962,8 +3968,8 @@ async function unbindTelegramId() {
                         
                         <div class="plan-price-display">
                             <span class="price-currency">¥</span>
-                            <span class="price-amount">${monthlyPrice}</span>
-                            <span class="price-period">/月起</span>
+                            <span class="price-amount">${priceDisplay}</span>
+                            <span class="price-period">${pricePeriod}</span>
                         </div>
                         
                         <p class="plan-description">${planDescriptions[plan.type] || plan.description || ''}</p>
@@ -4021,6 +4027,45 @@ async function unbindTelegramId() {
                 planIcons[p.type] = p.icon || defaultPlanIcons[p.type] || '📦';
             });
             const prices = plan ? getPlanPrices(plan) : { 1: 0, 3: 0, 6: 0, 12: 0 };
+            const durationDays = plan ? (plan.duration_days || 30) : 30;
+            const isShortTerm = durationDays < 30;
+            
+            // 短期套餐生成简化的时长选项
+            let durationGridHTML = '';
+            if (isShortTerm) {
+                durationGridHTML = `
+                    <label class="dur-card active" data-duration="1">
+                        <input type="radio" name="dur" value="1" checked onchange="updateDuration(1)">
+                        <span class="dur-name">${durationDays}天</span>
+                        <span class="dur-price">¥${prices[1]}</span>
+                    </label>
+                `;
+            } else {
+                durationGridHTML = `
+                    <label class="dur-card active" data-duration="1">
+                        <input type="radio" name="dur" value="1" checked onchange="updateDuration(1)">
+                        <span class="dur-name">月付</span>
+                        <span class="dur-price">¥${prices[1]}</span>
+                    </label>
+                    <label class="dur-card" data-duration="3">
+                        <input type="radio" name="dur" value="3" onchange="updateDuration(3)">
+                        <span class="dur-name">季付</span>
+                        <span class="dur-price">¥${prices[3]}</span>
+                        <span class="dur-tag">推荐</span>
+                    </label>
+                    <label class="dur-card" data-duration="6">
+                        <input type="radio" name="dur" value="6" onchange="updateDuration(6)">
+                        <span class="dur-name">半年付</span>
+                        <span class="dur-price">¥${prices[6]}</span>
+                    </label>
+                    <label class="dur-card" data-duration="12">
+                        <input type="radio" name="dur" value="12" onchange="updateDuration(12)">
+                        <span class="dur-name">年付</span>
+                        <span class="dur-price">¥${prices[12]}</span>
+                        <span class="dur-tag hot">最划算</span>
+                    </label>
+                `;
+            }
             
             const overlay = document.createElement('div');
             overlay.className = 'confirm-overlay';
@@ -4036,7 +4081,7 @@ async function unbindTelegramId() {
                             <span class="plan-icon-lg">${planIcons[planType] || '📦'}</span>
                             <div class="plan-text">
                                 <h3>${planNames[planType] || '套餐'}</h3>
-                                <p>订阅服务</p>
+                                <p>${isShortTerm ? durationDays + '天体验' : '订阅服务'}</p>
                             </div>
                         </div>
                         <div class="price-display-lg">
@@ -4059,28 +4104,7 @@ async function unbindTelegramId() {
                         <div class="option-group">
                             <div class="option-title">选择时长</div>
                             <div class="duration-grid">
-                                <label class="dur-card active" data-duration="1">
-                                    <input type="radio" name="dur" value="1" checked onchange="updateDuration(1)">
-                                    <span class="dur-name">月付</span>
-                                    <span class="dur-price">¥${prices[1]}</span>
-                                </label>
-                                <label class="dur-card" data-duration="3">
-                                    <input type="radio" name="dur" value="3" onchange="updateDuration(3)">
-                                    <span class="dur-name">季付</span>
-                                    <span class="dur-price">¥${prices[3]}</span>
-                                    <span class="dur-tag">推荐</span>
-                                </label>
-                                <label class="dur-card" data-duration="6">
-                                    <input type="radio" name="dur" value="6" onchange="updateDuration(6)">
-                                    <span class="dur-name">半年付</span>
-                                    <span class="dur-price">¥${prices[6]}</span>
-                                </label>
-                                <label class="dur-card" data-duration="12">
-                                    <input type="radio" name="dur" value="12" onchange="updateDuration(12)">
-                                    <span class="dur-name">年付</span>
-                                    <span class="dur-price">¥${prices[12]}</span>
-                                    <span class="dur-tag hot">最划算</span>
-                                </label>
+                                ${durationGridHTML}
                             </div>
                         </div>
                         
