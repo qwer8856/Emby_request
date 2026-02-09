@@ -117,49 +117,49 @@
             </div>
 
             <nav class="sidebar-nav">
-                <a href="#" class="nav-item active" data-section="dashboard"
+                <a href="#" class="nav-item active" data-section="dashboard" data-perm="dashboard"
                     onclick="switchAdminSection('dashboard', event)">
                     <span class="nav-icon">📊</span>
                     <span class="nav-text">仪表盘</span>
                 </a>
-                <a href="#" class="nav-item" data-section="requests"
+                <a href="#" class="nav-item" data-section="requests" data-perm="requests"
                     onclick="switchAdminSection('requests', event)">
                     <span class="nav-icon">📋</span>
                     <span class="nav-text">求片管理</span>
                 </a>
-                <a href="#" class="nav-item" data-section="users" onclick="switchAdminSection('users', event)">
+                <a href="#" class="nav-item" data-section="users" data-perm="users" onclick="switchAdminSection('users', event)">
                     <span class="nav-icon">👥</span>
                     <span class="nav-text">用户管理</span>
                 </a>
-                <a href="#" class="nav-item" data-section="orders" onclick="switchAdminSection('orders', event)">
+                <a href="#" class="nav-item" data-section="orders" data-perm="orders" onclick="switchAdminSection('orders', event)">
                     <span class="nav-icon">📦</span>
                     <span class="nav-text">订单管理</span>
                 </a>
-                <a href="#" class="nav-item" data-section="redeem" onclick="switchAdminSection('redeem', event)">
+                <a href="#" class="nav-item" data-section="redeem" data-perm="redeem" onclick="switchAdminSection('redeem', event)">
                     <span class="nav-icon">🎟️</span>
                     <span class="nav-text">兑换码管理</span>
                 </a>
-                <a href="#" class="nav-item" data-section="playback" onclick="switchAdminSection('playback', event)">
+                <a href="#" class="nav-item" data-section="playback" data-perm="playback" onclick="switchAdminSection('playback', event)">
                     <span class="nav-icon">📺</span>
                     <span class="nav-text">播放监控</span>
                 </a>
-                <a href="#" class="nav-item" data-section="tickets" onclick="switchAdminSection('tickets', event)">
+                <a href="#" class="nav-item" data-section="tickets" data-perm="tickets" onclick="switchAdminSection('tickets', event)">
                     <span class="nav-icon">🎫</span>
                     <span class="nav-text">工单管理</span>
                 </a>
-                <a href="#" class="nav-item" data-section="invites" onclick="switchAdminSection('invites', event)">
+                <a href="#" class="nav-item" data-section="invites" data-perm="invites" onclick="switchAdminSection('invites', event)">
                     <span class="nav-icon">🎁</span>
                     <span class="nav-text">邀请统计</span>
                 </a>
-                <a href="#" class="nav-item" data-section="plans" onclick="switchAdminSection('plans', event)">
+                <a href="#" class="nav-item" data-section="plans" data-perm="plans" onclick="switchAdminSection('plans', event)">
                     <span class="nav-icon">💰</span>
                     <span class="nav-text">套餐配置</span>
                 </a>
-                <a href="#" class="nav-item" data-section="knowledge" onclick="switchAdminSection('knowledge', event)">
+                <a href="#" class="nav-item" data-section="knowledge" data-perm="knowledge" onclick="switchAdminSection('knowledge', event)">
                     <span class="nav-icon">📚</span>
                     <span class="nav-text">知识库</span>
                 </a>
-                <a href="#" class="nav-item" data-section="settings" onclick="switchAdminSection('settings', event)">
+                <a href="#" class="nav-item" data-section="settings" data-perm="settings" onclick="switchAdminSection('settings', event)">
                     <span class="nav-icon">⚙️</span>
                     <span class="nav-text">系统设置</span>
                 </a>
@@ -185,7 +185,7 @@
                 <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
                 <h1 class="page-title" id="pageTitle">仪表盘</h1>
                 <div class="topbar-actions">
-                    <span class="admin-user">{{ session.get('username', '管理员') }}</span>
+                    <span class="admin-user">{{ admin_info.username or session.get('admin_username', '管理员') }}{% if admin_info and not admin_info.is_super %} <small style="opacity:0.7">(子管理员)</small>{% endif %}</span>
                 </div>
             </div>
 
@@ -3096,9 +3096,59 @@
                         </div>
                     </div>
 
+                    <!-- ==================== 进阶设置 - 管理员管理 ==================== -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="advanced" id="adminManagementCard" style="display:none;">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>👥 管理员管理</h3>
+                            </div>
+                            <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); showAddAdminModal()" style="font-size:12px;">➕ 添加管理员</button>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">管理后台管理员账号，分配不同的操作权限。仅超级管理员可操作。</p>
+                            
+                            <div id="adminListContainer">
+                                <div class="loading-placeholder">加载中...</div>
+                            </div>
+                        </div>
+                    </div>
+
                 </section>
             </div>
         </main>
+    </div>
+
+    <!-- 管理员编辑弹窗 -->
+    <div class="modal" id="adminModal" style="display:none;">
+        <div class="modal-content" style="max-width:520px;">
+            <h3 id="adminModalTitle">添加管理员</h3>
+            <div class="settings-form" style="margin-bottom:16px;">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="adminFormUsername" class="form-input" placeholder="至少2个字符" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="adminFormPassword" class="form-input" placeholder="至少6个字符（编辑时留空不修改）" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label>权限配置</label>
+                    <div class="admin-perm-grid" id="adminPermGrid">
+                        <!-- 权限复选框动态生成 -->
+                    </div>
+                    <div style="margin-top:8px;">
+                        <button class="btn btn-sm" onclick="toggleAllPerms(true)" style="font-size:11px;padding:2px 8px;">全选</button>
+                        <button class="btn btn-sm" onclick="toggleAllPerms(false)" style="font-size:11px;padding:2px 8px;">全不选</button>
+                    </div>
+                </div>
+            </div>
+            <input type="hidden" id="adminFormId" value="">
+            <div class="modal-buttons">
+                <button class="btn-cancel" onclick="closeAdminModal()">取消</button>
+                <button class="btn-confirm" onclick="saveAdmin()">保存</button>
+            </div>
+        </div>
     </div>
 
     <!-- 加载动画遮罩 -->
@@ -3538,7 +3588,12 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/common.js') }}?v=22"></script>
-    <script src="{{ url_for('static', filename='js/admin.js') }}?v=33"></script>
+    <script>
+        // 管理员权限数据（由后端注入）
+        window.ADMIN_INFO = {{ admin_info | default({'is_super': true, 'permissions': [], 'username': '管理员'}) | tojson }};
+        window.PERMISSION_GROUPS = {{ permission_groups | default({}) | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/admin.js') }}?v=34"></script>
     <script src="{{ url_for('static', filename='js/admin-checkin.js') }}?v=7"></script>
 
 </body>

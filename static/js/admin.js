@@ -1,4 +1,4 @@
-// admin.js v31 - 增加批量赠送订阅/批量设白名单/批量延期/批量解禁设备
+// admin.js v32 - 多管理员权限系统
 let currentRequestId = null;
     let currentStatus = null;
     let isBatchMode = false;
@@ -55,6 +55,9 @@ let currentRequestId = null;
                 }
             });
         });
+        
+        // 初始化管理员权限 - 隐藏无权限的菜单
+        initAdminPermissions();
     });
     
     // ==================== 管理员退出登录 ====================
@@ -1547,6 +1550,10 @@ function switchAdminSection(section, event, updateHash = true) {
             loadLines();
             loadAnnouncements();
             loadAllActivityLogs();  // 加载操作日志
+            // 超级管理员加载管理员列表
+            if (window.ADMIN_INFO && window.ADMIN_INFO.is_super) {
+                loadAdminList();
+            }
             break;
     }
 }
@@ -8438,4 +8445,274 @@ function renderPagedLegend(el, items, total) {
     };
     el.dataset.page = 0;
     render();
+}
+
+
+// ==================== 多管理员权限管理 ====================
+
+function initAdminPermissions() {
+    const info = window.ADMIN_INFO || { is_super: true, permissions: [] };
+    const perms = info.permissions || [];
+    const isSuper = info.is_super;
+    
+    // 隐藏无权限的侧边栏菜单
+    document.querySelectorAll('.sidebar-nav .nav-item[data-perm]').forEach(item => {
+        const perm = item.dataset.perm;
+        if (!isSuper && !perms.includes(perm)) {
+            item.style.display = 'none';
+        }
+    });
+    
+    // 超级管理员显示管理员管理卡片
+    const adminCard = document.getElementById('adminManagementCard');
+    if (adminCard && isSuper) {
+        adminCard.style.display = '';
+    }
+    
+    // 如果当前 hash 指向无权限的页面，跳转到第一个有权限的页面
+    const hash = window.location.hash.replace('#', '');
+    if (hash && !isSuper && !perms.includes(hash)) {
+        const firstVisible = document.querySelector('.sidebar-nav .nav-item[data-perm]:not([style*="display: none"])');
+        if (firstVisible) {
+            switchAdminSection(firstVisible.dataset.section, null);
+        }
+    }
+}
+
+
+// 管理员列表数据缓存
+let _adminListCache = [];
+
+async function loadAdminList() {
+    const container = document.getElementById('adminListContainer');
+    if (!container) return;
+    
+    container.innerHTML = '<div class="loading-placeholder">加载中...</div>';
+    
+    try {
+        const res = await fetch('/api/admin/admins');
+        const data = await res.json();
+        
+        if (!data.success) {
+            container.innerHTML = `<div class="empty-state">${data.error || '加载失败'}</div>`;
+            return;
+        }
+        
+        _adminListCache = data.admins || [];
+        const permGroups = data.permission_groups || window.PERMISSION_GROUPS || {};
+        
+        if (_adminListCache.length === 0) {
+            container.innerHTML = '<div class="empty-state">暂无管理员</div>';
+            return;
+        }
+        
+        let html = '<div class="admin-list-table"><table class="data-table"><thead><tr>';
+        html += '<th>用户名</th><th>角色</th><th>权限</th><th>状态</th><th>最后登录</th><th>操作</th>';
+        html += '</tr></thead><tbody>';
+        
+        _adminListCache.forEach(admin => {
+            const role = admin.is_super ? '<span class="badge badge-warning">超级管理员</span>' : '<span class="badge badge-info">管理员</span>';
+            const status = admin.is_active 
+                ? '<span class="badge badge-success">启用</span>' 
+                : '<span class="badge badge-danger">禁用</span>';
+            
+            let permHtml = '';
+            if (admin.is_super) {
+                permHtml = '<span class="perm-tag perm-all">全部权限</span>';
+            } else {
+                const perms = admin.permissions || [];
+                if (perms.length === 0) {
+                    permHtml = '<span class="perm-tag perm-none">无权限</span>';
+                } else {
+                    permHtml = perms.map(p => `<span class="perm-tag">${permGroups[p] || p}</span>`).join('');
+                }
+            }
+            
+            const lastLogin = admin.last_login ? new Date(admin.last_login).toLocaleString('zh-CN') : '从未登录';
+            
+            let actions = '';
+            if (!admin.is_super) {
+                actions = `
+                    <button class="btn btn-sm btn-primary" onclick="editAdmin(${admin.id})" title="编辑">✏️</button>
+                    <button class="btn btn-sm ${admin.is_active ? 'btn-warning' : 'btn-success'}" 
+                        onclick="toggleAdminStatus(${admin.id})" title="${admin.is_active ? '禁用' : '启用'}">
+                        ${admin.is_active ? '🚫' : '✅'}
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteAdmin(${admin.id}, '${admin.username}')" title="删除">🗑️</button>
+                `;
+            } else {
+                actions = '<span style="color:var(--text-tertiary);font-size:12px;">—</span>';
+            }
+            
+            html += `<tr>
+                <td><strong>${admin.username}</strong></td>
+                <td>${role}</td>
+                <td><div class="perm-tags-wrap">${permHtml}</div></td>
+                <td>${status}</td>
+                <td style="font-size:12px;">${lastLogin}</td>
+                <td>${actions}</td>
+            </tr>`;
+        });
+        
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+    } catch (e) {
+        console.error('加载管理员列表失败:', e);
+        container.innerHTML = '<div class="empty-state">加载管理员列表失败</div>';
+    }
+}
+
+
+function showAddAdminModal() {
+    document.getElementById('adminModalTitle').textContent = '添加管理员';
+    document.getElementById('adminFormId').value = '';
+    document.getElementById('adminFormUsername').value = '';
+    document.getElementById('adminFormPassword').value = '';
+    document.getElementById('adminFormPassword').placeholder = '至少6个字符';
+    
+    // 生成权限复选框
+    const permGroups = window.PERMISSION_GROUPS || {};
+    const grid = document.getElementById('adminPermGrid');
+    grid.innerHTML = '';
+    for (const [key, label] of Object.entries(permGroups)) {
+        grid.innerHTML += `
+            <label class="perm-checkbox">
+                <input type="checkbox" name="admin_perm" value="${key}">
+                <span>${label}</span>
+            </label>
+        `;
+    }
+    
+    document.getElementById('adminModal').style.display = 'flex';
+}
+
+
+function editAdmin(adminId) {
+    const admin = _adminListCache.find(a => a.id === adminId);
+    if (!admin) return;
+    
+    document.getElementById('adminModalTitle').textContent = '编辑管理员';
+    document.getElementById('adminFormId').value = admin.id;
+    document.getElementById('adminFormUsername').value = admin.username;
+    document.getElementById('adminFormPassword').value = '';
+    document.getElementById('adminFormPassword').placeholder = '留空不修改密码';
+    
+    const permGroups = window.PERMISSION_GROUPS || {};
+    const grid = document.getElementById('adminPermGrid');
+    grid.innerHTML = '';
+    for (const [key, label] of Object.entries(permGroups)) {
+        const checked = (admin.permissions || []).includes(key) ? 'checked' : '';
+        grid.innerHTML += `
+            <label class="perm-checkbox">
+                <input type="checkbox" name="admin_perm" value="${key}" ${checked}>
+                <span>${label}</span>
+            </label>
+        `;
+    }
+    
+    document.getElementById('adminModal').style.display = 'flex';
+}
+
+
+function closeAdminModal() {
+    document.getElementById('adminModal').style.display = 'none';
+}
+
+
+function toggleAllPerms(selectAll) {
+    document.querySelectorAll('#adminPermGrid input[name="admin_perm"]').forEach(cb => {
+        cb.checked = selectAll;
+    });
+}
+
+
+async function saveAdmin() {
+    const id = document.getElementById('adminFormId').value;
+    const username = document.getElementById('adminFormUsername').value.trim();
+    const password = document.getElementById('adminFormPassword').value.trim();
+    
+    if (!username || username.length < 2) {
+        showToast('用户名至少2个字符', 'error');
+        return;
+    }
+    
+    if (!id && (!password || password.length < 6)) {
+        showToast('密码至少6个字符', 'error');
+        return;
+    }
+    
+    const permissions = [];
+    document.querySelectorAll('#adminPermGrid input[name="admin_perm"]:checked').forEach(cb => {
+        permissions.push(cb.value);
+    });
+    
+    const body = { username, permissions };
+    if (password) body.password = password;
+    
+    try {
+        const url = id ? `/api/admin/admins/${id}` : '/api/admin/admins';
+        const method = id ? 'PUT' : 'POST';
+        
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+            showToast(id ? '管理员已更新' : '管理员已创建', 'success');
+            closeAdminModal();
+            loadAdminList();
+        } else {
+            showToast(data.error || '操作失败', 'error');
+        }
+    } catch (e) {
+        console.error('保存管理员失败:', e);
+        showToast('保存管理员失败', 'error');
+    }
+}
+
+
+async function deleteAdmin(adminId, username) {
+    const confirmed = await showConfirm({
+        title: '删除确认',
+        message: `确定要删除管理员 "${username}" 吗？此操作不可恢复。`,
+        confirmText: '确认删除',
+        cancelText: '取消',
+        type: 'danger'
+    });
+    if (!confirmed) return;
+    
+    try {
+        const res = await fetch(`/api/admin/admins/${adminId}`, { method: 'DELETE' });
+        const data = await res.json();
+        
+        if (data.success) {
+            showToast(data.message || '管理员已删除', 'success');
+            loadAdminList();
+        } else {
+            showToast(data.error || '删除失败', 'error');
+        }
+    } catch (e) {
+        showToast('删除管理员失败', 'error');
+    }
+}
+
+
+async function toggleAdminStatus(adminId) {
+    try {
+        const res = await fetch(`/api/admin/admins/${adminId}/toggle`, { method: 'POST' });
+        const data = await res.json();
+        
+        if (data.success) {
+            showToast(data.message || '操作成功', 'success');
+            loadAdminList();
+        } else {
+            showToast(data.error || '操作失败', 'error');
+        }
+    } catch (e) {
+        showToast('操作失败', 'error');
+    }
 }

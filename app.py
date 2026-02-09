@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, abort, has_app_context as flask_has_app_context
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, abort, has_app_context as flask_has_app_context, g
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import joinedload
 from datetime import datetime, timedelta, timezone
@@ -3576,6 +3576,112 @@ def log_request():
     app.logger.debug(f'{request.method} {request.path}')
 
 
+# URL路径到权限的映射规则
+ADMIN_URL_PERMISSION_MAP = {
+    # 求片管理
+    '/admin/update-request': 'requests',
+    '/api/admin/requests': 'requests',
+    '/api/admin/batch-update': 'requests',
+    '/api/admin/batch-delete': 'requests',
+    '/api/admin/pt-search': 'requests',
+    '/api/admin/pt-download': 'requests',
+    # 用户管理
+    '/api/admin/users': 'users',
+    '/api/admin/user': 'users',
+    '/api/admin/create-emby': 'users',
+    '/api/admin/reset-password': 'users',
+    '/api/admin/delete-emby': 'users',
+    '/api/admin/toggle-ban': 'users',
+    # 订单管理
+    '/api/admin/orders': 'orders',
+    '/api/admin/subscriptions': 'orders',
+    # 兑换码管理
+    '/api/admin/redeem': 'redeem',
+    '/api/admin/generate-codes': 'redeem',
+    # 播放监控
+    '/api/admin/playback': 'playback',
+    '/api/admin/devices': 'playback',
+    '/api/admin/all-playback': 'playback',
+    # 工单管理
+    '/api/admin/tickets': 'tickets',
+    '/api/admin/ticket': 'tickets',
+    # 邀请统计
+    '/api/admin/invites': 'invites',
+    '/api/admin/invite': 'invites',
+    # 套餐配置
+    '/api/admin/plans': 'plans',
+    # 知识库
+    '/api/admin/knowledge': 'knowledge',
+    '/api/admin/announcements': 'knowledge',
+    # 系统设置
+    '/api/admin/config': 'settings',
+    '/api/admin/save-config': 'settings',
+    '/api/admin/change-credentials': 'settings',
+    '/api/admin/setup': 'settings',
+    '/api/admin/test-': 'settings',
+    '/api/admin/lines': 'settings',
+    '/api/admin/email': 'settings',
+    '/api/admin/site': 'settings',
+    '/api/admin/payment': 'settings',
+    '/api/admin/database': 'settings',
+    '/api/admin/logs': 'settings',
+    '/api/admin/category': 'settings',
+    # 仪表盘
+    '/api/admin/dashboard': 'dashboard',
+    '/api/admin/stats': 'dashboard',
+    # 管理员管理 - 仅超级管理员（在API里单独检查）
+}
+
+
+@app.before_request
+def check_admin_permission():
+    """基于URL路径的权限检查中间件"""
+    path = request.path
+    
+    # 只检查管理后台相关路径
+    if not (path.startswith('/admin') or path.startswith('/api/admin')):
+        return
+    
+    # 跳过不需要权限检查的路径
+    skip_paths = ['/admin', '/api/admin-login', '/api/admin-logout', 
+                  '/api/admin/current-permissions', '/api/admin/admins']
+    if path in skip_paths:
+        return
+    
+    # 只有登录的管理员才需要检查权限
+    if not session.get('admin_logged_in'):
+        return
+    
+    admin_id = session.get('admin_user_id')
+    if not admin_id:
+        return  # 旧session兼容，视为超级管理员
+    
+    # 检查是否超级管理员
+    if session.get('admin_is_super'):
+        return
+    
+    try:
+        admin_user = db.session.get(AdminUser, admin_id)
+        if not admin_user or not admin_user.is_active:
+            return  # admin_required 会处理
+        
+        if admin_user.is_super:
+            return
+        
+        # 匹配URL到权限
+        required_perm = None
+        for url_prefix, perm in ADMIN_URL_PERMISSION_MAP.items():
+            if path.startswith(url_prefix):
+                required_perm = perm
+                break
+        
+        if required_perm and not admin_user.has_permission(required_perm):
+            perm_name = ADMIN_PERMISSION_GROUPS.get(required_perm, required_perm)
+            return jsonify({'error': f'无权限执行此操作（需要: {perm_name}）'}), 403
+    except Exception as e:
+        app.logger.warning(f'权限检查异常: {e}')
+
+
 @app.after_request
 def log_response(response):
     """记录响应状态和优化响应头"""
@@ -4644,6 +4750,71 @@ class SystemConfig(db.Model):
             return False
 
 
+# ==================== 多管理员权限系统 ====================
+# 权限分类定义
+ADMIN_PERMISSION_GROUPS = {
+    'requests': '求片管理',
+    'users': '用户管理',
+    'orders': '订单管理',
+    'redeem': '兑换码管理',
+    'playback': '播放监控',
+    'tickets': '工单管理',
+    'invites': '邀请统计',
+    'plans': '套餐配置',
+    'knowledge': '知识库',
+    'settings': '系统设置',
+    'dashboard': '仪表盘',
+}
+
+
+class AdminUser(db.Model):
+    """管理员用户表 - 支持多管理员和权限控制"""
+    __tablename__ = 'admin_users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    is_super = db.Column(db.Boolean, default=False)  # 超级管理员（站点所有者）
+    permissions = db.Column(db.Text, nullable=True)   # JSON 数组，如 ["requests","users","orders"]
+    is_active = db.Column(db.Boolean, default=True)   # 是否启用
+    created_by = db.Column(db.String(100), nullable=True)  # 由谁创建
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now())
+    last_login = db.Column(db.DateTime, nullable=True)
+    
+    def get_permissions(self):
+        """获取权限列表"""
+        if self.is_super:
+            return list(ADMIN_PERMISSION_GROUPS.keys())
+        if self.permissions:
+            try:
+                return json.loads(self.permissions)
+            except:
+                return []
+        return []
+    
+    def set_permissions(self, perm_list):
+        """设置权限列表"""
+        self.permissions = json.dumps(perm_list, ensure_ascii=False)
+    
+    def has_permission(self, perm):
+        """检查是否有某项权限"""
+        if self.is_super:
+            return True
+        return perm in self.get_permissions()
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'username': self.username,
+            'is_super': self.is_super,
+            'permissions': self.get_permissions(),
+            'is_active': self.is_active,
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_login': self.last_login.isoformat() if self.last_login else None,
+        }
+
+
 class CheckInRecord(db.Model):
     """签到记录表"""
     __tablename__ = 'checkin_records'
@@ -5095,35 +5266,81 @@ def login_required(f):
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # 检查管理员权限（两种方式）
-        # 方式1: 通过安全入口登录
+        # 检查管理员权限
+        # 方式1: 通过安全入口登录（多管理员系统）
         if session.get('admin_logged_in'):
-            app.logger.info(f'管理员 {session.get("admin_username", "unknown")} 访问管理后台')
-            return f(*args, **kwargs)
+            admin_id = session.get('admin_user_id')
+            if admin_id:
+                admin_user = db.session.get(AdminUser, admin_id)
+                if admin_user and admin_user.is_active:
+                    g.current_admin = admin_user
+                    return f(*args, **kwargs)
+                else:
+                    # 管理员已被禁用或删除，清除session
+                    session.pop('admin_logged_in', None)
+                    session.pop('admin_user_id', None)
+                    session.pop('admin_username', None)
+                    return jsonify({'error': '管理员账号已被禁用', 'redirect': f'/{ADMIN_SECRET_PATH}'}), 403
+            else:
+                # 兼容旧session（超级管理员通过配置文件登录）
+                g.current_admin = None
+                return f(*args, **kwargs)
         
-        # 方式2: 用户表中的管理员
+        # 方式2: 用户表中的管理员（保留兼容）
         if 'user_id' in session:
             user = db.session.get(User, session['user_id'])
             if user and user.is_admin:
-                app.logger.info(f'管理员用户 {user.name} 访问管理后台')
+                g.current_admin = None
                 return f(*args, **kwargs)
         
         app.logger.warning('访问管理后台失败: 无管理员权限')
-        # 返回 403 而不是重定向，避免暴露安全入口
         return jsonify({'error': '需要管理员权限', 'redirect': f'/{ADMIN_SECRET_PATH}'}), 403
     return decorated_function
 
 
-def is_admin_user():
-    """检查当前用户是否有管理员权限（支持两种方式）
-    1. 通过安全入口登录的管理员 (session['admin_logged_in'])
-    2. 用户表中标记为管理员的用户 (user.is_admin)
-    """
-    # 方式1: 通过安全入口登录
+def permission_required(perm):
+    """权限检查装饰器 - 在 admin_required 之后使用"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            admin = getattr(g, 'current_admin', None)
+            if admin is None:
+                # 超级管理员（旧方式登录），拥有所有权限
+                return f(*args, **kwargs)
+            if admin.is_super or admin.has_permission(perm):
+                return f(*args, **kwargs)
+            return jsonify({'error': f'无权限执行此操作（需要: {ADMIN_PERMISSION_GROUPS.get(perm, perm)}）'}), 403
+        return decorated_function
+    return decorator
+
+
+def get_current_admin():
+    """获取当前登录的管理员对象"""
+    admin = getattr(g, 'current_admin', None)
+    if admin:
+        return admin
+    # 兼容：如果没有 admin 对象但有 session，创建一个虚拟超级管理员
     if session.get('admin_logged_in'):
-        return True
+        return type('SuperAdmin', (), {
+            'id': 0,
+            'username': session.get('admin_username', 'admin'),
+            'is_super': True,
+            'is_active': True,
+            'has_permission': lambda self, p: True,
+            'get_permissions': lambda self: list(ADMIN_PERMISSION_GROUPS.keys()),
+        })()
+    return None
+
+
+def is_admin_user():
+    """检查当前用户是否有管理员权限"""
+    if session.get('admin_logged_in'):
+        admin_id = session.get('admin_user_id')
+        if admin_id:
+            admin_user = db.session.get(AdminUser, admin_id)
+            return admin_user and admin_user.is_active
+        return True  # 兼容旧session
     
-    # 方式2: 用户表中的管理员
     if 'user_id' in session:
         user = db.session.get(User, session['user_id'])
         if user and user.is_admin:
@@ -9033,7 +9250,7 @@ def admin_dynamic_entry(secret_path):
 
 @app.route('/api/admin-login', methods=['POST'])
 def admin_login_api():
-    """管理员登录API"""
+    """管理员登录API - 支持多管理员"""
     data = request.get_json()
     username = data.get('username', '').strip()
     password = data.get('password', '').strip()
@@ -9041,7 +9258,32 @@ def admin_login_api():
     if not username or not password:
         return jsonify({'success': False, 'error': '请输入用户名和密码'}), 400
     
-    # 从配置文件获取管理员信息
+    password_hash = hash_admin_password(password)
+    
+    # 优先检查 AdminUser 表（多管理员）
+    try:
+        admin_user = AdminUser.query.filter_by(username=username).first()
+        if admin_user and admin_user.password_hash == password_hash and admin_user.is_active:
+            session['admin_logged_in'] = True
+            session['admin_username'] = username
+            session['admin_user_id'] = admin_user.id
+            session['admin_is_super'] = admin_user.is_super
+            session['admin_login_time'] = datetime.now().isoformat()
+            admin_user.last_login = datetime.now()
+            db.session.commit()
+            app.logger.info(f'管理员 {username} (ID:{admin_user.id}) 登录成功')
+            
+            # 超级管理员检查是否需要初始化
+            if admin_user.is_super:
+                admin_config = get_admin_config()
+                if not admin_config.get('initialized', False):
+                    return jsonify({'success': True, 'redirect': '/admin/setup', 'need_setup': True})
+            
+            return jsonify({'success': True, 'redirect': '/admin'})
+    except Exception as e:
+        app.logger.warning(f'AdminUser表查询失败(可能表不存在): {e}')
+    
+    # 回退：检查 SystemConfig 中的超级管理员配置
     admin_config = get_admin_config()
     stored_username = admin_config.get('username', '')
     stored_password_hash = admin_config.get('password', '')
@@ -9049,15 +9291,20 @@ def admin_login_api():
     if not stored_username:
         return jsonify({'success': False, 'error': '管理员未配置，请联系系统管理员'}), 500
     
-    # 验证管理员账号密码
-    password_hash = hash_admin_password(password)
     if username == stored_username and password_hash == stored_password_hash:
         session['admin_logged_in'] = True
         session['admin_username'] = username
+        session['admin_is_super'] = True
         session['admin_login_time'] = datetime.now().isoformat()
-        app.logger.info(f'管理员 {username} 登录成功')
         
-        # 检查是否需要强制修改配置
+        # 尝试同步到 AdminUser 表（确保超级管理员存在于表中）
+        try:
+            _sync_super_admin_to_table(username, password_hash)
+        except Exception as e:
+            app.logger.warning(f'同步超级管理员到AdminUser表失败: {e}')
+        
+        app.logger.info(f'超级管理员 {username} 登录成功（配置文件认证）')
+        
         if not admin_config.get('initialized', False):
             return jsonify({'success': True, 'redirect': '/admin/setup', 'need_setup': True})
         
@@ -9065,6 +9312,33 @@ def admin_login_api():
     else:
         app.logger.warning(f'管理员登录失败: 用户名或密码错误 (尝试用户名: {username}, IP: {request.remote_addr})')
         return jsonify({'success': False, 'error': '用户名或密码错误'}), 401
+
+
+def _sync_super_admin_to_table(username, password_hash):
+    """将超级管理员同步到 AdminUser 表"""
+    try:
+        existing = AdminUser.query.filter_by(username=username).first()
+        if not existing:
+            admin_user = AdminUser(
+                username=username,
+                password_hash=password_hash,
+                is_super=True,
+                is_active=True,
+                created_by='system',
+                last_login=datetime.now()
+            )
+            db.session.add(admin_user)
+            db.session.commit()
+            session['admin_user_id'] = admin_user.id
+        else:
+            existing.password_hash = password_hash
+            existing.is_super = True
+            existing.last_login = datetime.now()
+            db.session.commit()
+            session['admin_user_id'] = existing.id
+    except Exception as e:
+        db.session.rollback()
+        app.logger.warning(f'同步超级管理员失败: {e}')
 
 
 @app.route('/admin/setup')
@@ -9120,6 +9394,12 @@ def admin_setup_api():
     }
     
     if save_system_config(config):
+        # 同步超级管理员到 AdminUser 表
+        try:
+            _sync_super_admin_to_table(new_username, hash_admin_password(new_password))
+        except Exception as e:
+            app.logger.warning(f'Setup: 同步超级管理员到AdminUser表失败: {e}')
+        
         # 清除登录状态，强制重新登录
         session.clear()
         app.logger.info(f'管理员配置已更新: username={new_username}, path={new_path}')
@@ -9163,6 +9443,14 @@ def admin_change_credentials():
             config['admin']['secret_path'] = new_path
     
     if save_system_config(config):
+        # 同步超级管理员到 AdminUser 表
+        try:
+            final_username = config['admin']['username']
+            final_password_hash = config['admin']['password']
+            _sync_super_admin_to_table(final_username, final_password_hash)
+        except Exception as e:
+            app.logger.warning(f'修改凭据: 同步超级管理员到AdminUser表失败: {e}')
+        
         # 清除登录状态
         session.clear()
         return jsonify({
@@ -9181,8 +9469,227 @@ def admin_logout_api():
     session.pop('admin_logged_in', None)
     session.pop('admin_username', None)
     session.pop('admin_login_time', None)
+    session.pop('admin_user_id', None)
+    session.pop('admin_is_super', None)
     app.logger.info(f'管理员 {username} 已登出')
     return jsonify({'success': True, 'message': '已退出登录'})
+
+
+# ==================== 多管理员管理 API ====================
+
+@app.route('/api/admin/admins', methods=['GET'])
+@admin_required
+def get_admin_list():
+    """获取管理员列表 - 仅超级管理员"""
+    current_admin = get_current_admin()
+    if not current_admin or not current_admin.is_super:
+        return jsonify({'error': '仅超级管理员可管理管理员'}), 403
+    
+    try:
+        admins = AdminUser.query.order_by(AdminUser.is_super.desc(), AdminUser.created_at.asc()).all()
+        return jsonify({
+            'success': True,
+            'admins': [a.to_dict() for a in admins],
+            'permission_groups': ADMIN_PERMISSION_GROUPS
+        })
+    except Exception as e:
+        app.logger.error(f'获取管理员列表失败: {e}')
+        return jsonify({'error': '获取管理员列表失败'}), 500
+
+
+@app.route('/api/admin/admins', methods=['POST'])
+@admin_required
+def create_admin():
+    """创建管理员 - 仅超级管理员"""
+    current_admin = get_current_admin()
+    if not current_admin or not current_admin.is_super:
+        return jsonify({'error': '仅超级管理员可创建管理员'}), 403
+    
+    data = request.get_json()
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+    permissions = data.get('permissions', [])
+    
+    if not username or len(username) < 2:
+        return jsonify({'error': '用户名至少2个字符'}), 400
+    if not password or len(password) < 6:
+        return jsonify({'error': '密码至少6个字符'}), 400
+    
+    # 检查用户名是否已存在
+    existing = AdminUser.query.filter_by(username=username).first()
+    if existing:
+        return jsonify({'error': '用户名已存在'}), 400
+    
+    # 也检查系统配置中的超级管理员用户名
+    admin_config = get_admin_config()
+    if username == admin_config.get('username', ''):
+        existing_super = AdminUser.query.filter_by(username=username).first()
+        if existing_super:
+            return jsonify({'error': '用户名已存在'}), 400
+    
+    # 验证权限
+    valid_perms = [p for p in permissions if p in ADMIN_PERMISSION_GROUPS]
+    
+    try:
+        admin_user = AdminUser(
+            username=username,
+            password_hash=hash_admin_password(password),
+            is_super=False,
+            is_active=True,
+            created_by=current_admin.username
+        )
+        admin_user.set_permissions(valid_perms)
+        db.session.add(admin_user)
+        db.session.commit()
+        
+        app.logger.info(f'超级管理员 {current_admin.username} 创建了新管理员 {username}，权限: {valid_perms}')
+        return jsonify({'success': True, 'admin': admin_user.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'创建管理员失败: {e}')
+        return jsonify({'error': '创建管理员失败'}), 500
+
+
+@app.route('/api/admin/admins/<int:admin_id>', methods=['PUT'])
+@admin_required
+def update_admin(admin_id):
+    """更新管理员信息 - 仅超级管理员"""
+    current_admin = get_current_admin()
+    if not current_admin or not current_admin.is_super:
+        return jsonify({'error': '仅超级管理员可修改管理员'}), 403
+    
+    admin_user = db.session.get(AdminUser, admin_id)
+    if not admin_user:
+        return jsonify({'error': '管理员不存在'}), 404
+    
+    # 不能修改自己的超级管理员状态
+    if admin_user.is_super and admin_user.username == current_admin.username:
+        data = request.get_json()
+        # 超级管理员只能改密码
+        new_password = data.get('password', '').strip()
+        if new_password and len(new_password) >= 6:
+            admin_user.password_hash = hash_admin_password(new_password)
+            # 同步更新系统配置
+            config = load_system_config()
+            config['admin']['password'] = hash_admin_password(new_password)
+            save_system_config(config)
+            db.session.commit()
+            return jsonify({'success': True, 'admin': admin_user.to_dict(), 'message': '密码已更新'})
+        return jsonify({'error': '超级管理员只能在此处修改密码'}), 400
+    
+    data = request.get_json()
+    
+    # 更新用户名
+    new_username = data.get('username', '').strip()
+    if new_username and new_username != admin_user.username:
+        if len(new_username) < 2:
+            return jsonify({'error': '用户名至少2个字符'}), 400
+        existing = AdminUser.query.filter_by(username=new_username).first()
+        if existing:
+            return jsonify({'error': '用户名已存在'}), 400
+        admin_user.username = new_username
+    
+    # 更新密码
+    new_password = data.get('password', '').strip()
+    if new_password:
+        if len(new_password) < 6:
+            return jsonify({'error': '密码至少6个字符'}), 400
+        admin_user.password_hash = hash_admin_password(new_password)
+    
+    # 更新权限
+    permissions = data.get('permissions')
+    if permissions is not None and not admin_user.is_super:
+        valid_perms = [p for p in permissions if p in ADMIN_PERMISSION_GROUPS]
+        admin_user.set_permissions(valid_perms)
+    
+    # 更新启用状态
+    is_active = data.get('is_active')
+    if is_active is not None and not admin_user.is_super:
+        admin_user.is_active = bool(is_active)
+    
+    try:
+        db.session.commit()
+        app.logger.info(f'超级管理员 {current_admin.username} 更新了管理员 {admin_user.username}')
+        return jsonify({'success': True, 'admin': admin_user.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'更新管理员失败: {e}')
+        return jsonify({'error': '更新管理员失败'}), 500
+
+
+@app.route('/api/admin/admins/<int:admin_id>', methods=['DELETE'])
+@admin_required
+def delete_admin(admin_id):
+    """删除管理员 - 仅超级管理员"""
+    current_admin = get_current_admin()
+    if not current_admin or not current_admin.is_super:
+        return jsonify({'error': '仅超级管理员可删除管理员'}), 403
+    
+    admin_user = db.session.get(AdminUser, admin_id)
+    if not admin_user:
+        return jsonify({'error': '管理员不存在'}), 404
+    
+    if admin_user.is_super:
+        return jsonify({'error': '不能删除超级管理员'}), 400
+    
+    try:
+        username = admin_user.username
+        db.session.delete(admin_user)
+        db.session.commit()
+        app.logger.info(f'超级管理员 {current_admin.username} 删除了管理员 {username}')
+        return jsonify({'success': True, 'message': f'管理员 {username} 已删除'})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'删除管理员失败: {e}')
+        return jsonify({'error': '删除管理员失败'}), 500
+
+
+@app.route('/api/admin/admins/<int:admin_id>/toggle', methods=['POST'])
+@admin_required
+def toggle_admin_status(admin_id):
+    """启用/禁用管理员 - 仅超级管理员"""
+    current_admin = get_current_admin()
+    if not current_admin or not current_admin.is_super:
+        return jsonify({'error': '仅超级管理员可操作'}), 403
+    
+    admin_user = db.session.get(AdminUser, admin_id)
+    if not admin_user:
+        return jsonify({'error': '管理员不存在'}), 404
+    
+    if admin_user.is_super:
+        return jsonify({'error': '不能禁用超级管理员'}), 400
+    
+    admin_user.is_active = not admin_user.is_active
+    try:
+        db.session.commit()
+        status = '启用' if admin_user.is_active else '禁用'
+        app.logger.info(f'超级管理员 {current_admin.username} {status}了管理员 {admin_user.username}')
+        return jsonify({'success': True, 'admin': admin_user.to_dict(), 'message': f'管理员已{status}'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': '操作失败'}), 500
+
+
+@app.route('/api/admin/current-permissions', methods=['GET'])
+@admin_required
+def get_current_admin_permissions():
+    """获取当前管理员的权限信息"""
+    current_admin = get_current_admin()
+    if current_admin:
+        return jsonify({
+            'success': True,
+            'username': current_admin.username,
+            'is_super': current_admin.is_super,
+            'permissions': current_admin.get_permissions(),
+            'permission_groups': ADMIN_PERMISSION_GROUPS
+        })
+    return jsonify({
+        'success': True,
+        'username': session.get('admin_username', '管理员'),
+        'is_super': True,
+        'permissions': list(ADMIN_PERMISSION_GROUPS.keys()),
+        'permission_groups': ADMIN_PERMISSION_GROUPS
+    })
 
 
 @app.route('/admin')
@@ -9259,6 +9766,14 @@ def admin_panel():
     else:
         tmdb_image_base = 'https://image.tmdb.org/t/p/w500'
     
+    # 获取当前管理员权限信息
+    current_admin = get_current_admin()
+    admin_info = {
+        'username': current_admin.username if current_admin else session.get('admin_username', '管理员'),
+        'is_super': current_admin.is_super if current_admin else True,
+        'permissions': current_admin.get_permissions() if current_admin else list(ADMIN_PERMISSION_GROUPS.keys()),
+    }
+    
     return render_template('admin.html', 
                          requests=pagination.items,
                          pagination=pagination,
@@ -9267,7 +9782,9 @@ def admin_panel():
                          tmdb_image_base=tmdb_image_base,
                          plans=plans_data,
                          mp_enabled=mp_enabled,
-                         site_config=site_config)
+                         site_config=site_config,
+                         admin_info=admin_info,
+                         permission_groups=ADMIN_PERMISSION_GROUPS)
 
 
 @app.route('/admin/update-request/<int:request_id>', methods=['POST'])
