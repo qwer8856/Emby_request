@@ -8091,6 +8091,8 @@ async function loadDashboardStats() {
 
         // 加载收入曲线图
         loadRevenueChart();
+        // 加载统计分析环形图
+        loadDashboardAnalytics();
     } catch (error) {
         console.error('加载仪表盘数据失败:', error);
         showToast('错误', '加载仪表盘数据失败', 'error');
@@ -8308,4 +8310,129 @@ async function loadFullActivities() {
     } catch (e) {
         console.error('加载活动日志失败:', e);
     }
+}
+
+// ==================== 仪表盘统计分析（环形图） ====================
+
+const DONUT_COLORS = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316','#84cc16','#6366f1'];
+
+async function loadDashboardAnalytics() {
+    const sel = document.getElementById('dashAnalyticsPeriod');
+    const days = sel ? sel.value : 30;
+    setText('dashAnalyticsDays', days);
+    setText('dashMediaDays', days);
+
+    try {
+        const resp = await fetch(`/api/admin/dashboard-analytics?days=${days}`);
+        const data = await resp.json();
+        if (!data.success) return;
+        const d = data.data;
+
+        renderDonutChart('donutUsers', 'legendUsers', d.users);
+        renderDonutChart('donutClients', 'legendClients', d.clients);
+        renderDonutChart('donutDevices', 'legendDevices', d.devices);
+        renderDonutChart('donutMovies', 'legendMovies', d.movies, true);
+        renderDonutChart('donutSeries', 'legendSeries', d.series, true);
+    } catch (e) {
+        console.error('加载统计分析失败:', e);
+    }
+}
+
+function renderDonutChart(chartId, legendId, items, paged) {
+    const chartEl = document.getElementById(chartId);
+    const legendEl = document.getElementById(legendId);
+    if (!chartEl || !legendEl) return;
+
+    if (!items || !items.length) {
+        chartEl.innerHTML = '<div class="dash-chart-empty">暂无数据</div>';
+        legendEl.innerHTML = '';
+        return;
+    }
+
+    const total = items.reduce((s, i) => s + i.value, 0);
+    if (total === 0) {
+        chartEl.innerHTML = '<div class="dash-chart-empty">暂无数据</div>';
+        legendEl.innerHTML = '';
+        return;
+    }
+
+    // SVG 环形图
+    const size = 160;
+    const cx = size / 2, cy = size / 2;
+    const outerR = 65, innerR = 42;
+    let startAngle = -Math.PI / 2;
+    let paths = '';
+
+    items.forEach((item, i) => {
+        const pct = item.value / total;
+        if (pct <= 0) return;
+        const angle = pct * Math.PI * 2;
+        const endAngle = startAngle + angle;
+        const largeArc = angle > Math.PI ? 1 : 0;
+        const color = DONUT_COLORS[i % DONUT_COLORS.length];
+
+        const x1o = cx + outerR * Math.cos(startAngle);
+        const y1o = cy + outerR * Math.sin(startAngle);
+        const x2o = cx + outerR * Math.cos(endAngle);
+        const y2o = cy + outerR * Math.sin(endAngle);
+        const x1i = cx + innerR * Math.cos(endAngle);
+        const y1i = cy + innerR * Math.sin(endAngle);
+        const x2i = cx + innerR * Math.cos(startAngle);
+        const y2i = cy + innerR * Math.sin(startAngle);
+
+        paths += `<path d="M ${x1o} ${y1o} A ${outerR} ${outerR} 0 ${largeArc} 1 ${x2o} ${y2o} L ${x1i} ${y1i} A ${innerR} ${innerR} 0 ${largeArc} 0 ${x2i} ${y2i} Z" fill="${color}" stroke="#fff" stroke-width="1.5">
+            <title>${item.name}: ${item.value} (${(pct*100).toFixed(1)}%)</title></path>`;
+
+        startAngle = endAngle;
+    });
+
+    chartEl.innerHTML = `<svg viewBox="0 0 ${size} ${size}" class="donut-svg">${paths}
+        <text x="${cx}" y="${cy - 6}" text-anchor="middle" class="donut-center-value">${total}</text>
+        <text x="${cx}" y="${cy + 12}" text-anchor="middle" class="donut-center-label">总计</text>
+    </svg>`;
+
+    // 图例（分页模式最多显示3个 + 翻页）
+    if (paged && items.length > 3) {
+        renderPagedLegend(legendEl, items, total);
+    } else {
+        let lHtml = '';
+        items.forEach((item, i) => {
+            const color = DONUT_COLORS[i % DONUT_COLORS.length];
+            lHtml += `<span class="donut-legend-item"><span class="donut-dot" style="background:${color}"></span>${item.name}</span>`;
+        });
+        legendEl.innerHTML = lHtml;
+    }
+}
+
+function renderPagedLegend(el, items, total) {
+    const perPage = 3;
+    const pages = Math.ceil(items.length / perPage);
+    let page = 0;
+
+    function render() {
+        const start = page * perPage;
+        const slice = items.slice(start, start + perPage);
+        let html = '<div class="donut-legend-items">';
+        slice.forEach((item, i) => {
+            const ci = start + i;
+            const color = DONUT_COLORS[ci % DONUT_COLORS.length];
+            html += `<span class="donut-legend-item"><span class="donut-dot" style="background:${color}"></span>${item.name}</span>`;
+        });
+        html += '</div>';
+        if (pages > 1) {
+            html += `<div class="donut-legend-pager">
+                <button class="donut-page-btn" onclick="this.closest('.donut-legend-paged').dataset.page=Math.max(0,${page-1});this.closest('.donut-legend-paged')._render()">◀</button>
+                <span>${page+1}/${pages}</span>
+                <button class="donut-page-btn" onclick="this.closest('.donut-legend-paged').dataset.page=Math.min(${pages-1},${page+1});this.closest('.donut-legend-paged')._render()">▶</button>
+            </div>`;
+        }
+        el.innerHTML = html;
+    }
+
+    el._render = function() {
+        page = parseInt(el.dataset.page || 0);
+        render();
+    };
+    el.dataset.page = 0;
+    render();
 }

@@ -14575,6 +14575,117 @@ def get_dashboard_system():
         return jsonify({ 'success': False, 'error': str(e) }), 500
 
 
+@app.route('/api/admin/dashboard-analytics')
+@admin_required
+def get_dashboard_analytics():
+    """获取仪表盘统计分析数据：用户播放分布、客户端分布、设备分布、热门电影/剧集"""
+    try:
+        from datetime import date, timedelta
+        days = request.args.get('days', 30, type=int)
+        days = min(days, 90)
+        since = datetime.now() - timedelta(days=days)
+
+        # --- 用户播放统计（按播放次数 Top 10） ---
+        user_play_stats = db.session.query(
+            PlaybackRecord.user_tg,
+            db.func.count(PlaybackRecord.id).label('cnt')
+        ).filter(
+            PlaybackRecord.started_at >= since
+        ).group_by(PlaybackRecord.user_tg).order_by(db.desc('cnt')).limit(10).all()
+
+        user_stats = []
+        for row in user_play_stats:
+            user = User.query.filter_by(tg=row[0]).first()
+            name = (user.emby_name or user.name or str(row[0])) if user else str(row[0])
+            user_stats.append({'name': name, 'value': row.cnt})
+
+        # --- 客户端分布 ---
+        # 优先从 PlaybackRecord 关联的 UserDevice 获取
+        client_stats_raw = db.session.query(
+            UserDevice.client,
+            db.func.count(PlaybackRecord.id).label('cnt')
+        ).join(
+            UserDevice, PlaybackRecord.device_id == UserDevice.id
+        ).filter(
+            PlaybackRecord.started_at >= since,
+            UserDevice.client.isnot(None),
+            UserDevice.client != ''
+        ).group_by(UserDevice.client).order_by(db.desc('cnt')).limit(10).all()
+
+        client_stats = [{'name': row.client or '未知', 'value': row.cnt} for row in client_stats_raw]
+
+        # 如果没有关联数据，从 play_method 做备用统计
+        if not client_stats:
+            method_stats = db.session.query(
+                PlaybackRecord.play_method,
+                db.func.count(PlaybackRecord.id).label('cnt')
+            ).filter(
+                PlaybackRecord.started_at >= since,
+                PlaybackRecord.play_method.isnot(None),
+                PlaybackRecord.play_method != ''
+            ).group_by(PlaybackRecord.play_method).order_by(db.desc('cnt')).all()
+            client_stats = [{'name': row.play_method or '未知', 'value': row.cnt} for row in method_stats]
+
+        # --- 设备分布 ---
+        device_stats_raw = db.session.query(
+            UserDevice.device_name,
+            db.func.count(PlaybackRecord.id).label('cnt')
+        ).join(
+            UserDevice, PlaybackRecord.device_id == UserDevice.id
+        ).filter(
+            PlaybackRecord.started_at >= since,
+            UserDevice.device_name.isnot(None),
+            UserDevice.device_name != ''
+        ).group_by(UserDevice.device_name).order_by(db.desc('cnt')).limit(10).all()
+
+        device_stats = [{'name': row.device_name or '未知', 'value': row.cnt} for row in device_stats_raw]
+
+        # --- 热门电影 Top 10 ---
+        movie_stats_raw = db.session.query(
+            PlaybackRecord.item_name,
+            db.func.count(PlaybackRecord.id).label('cnt'),
+            db.func.sum(PlaybackRecord.play_duration).label('total_dur')
+        ).filter(
+            PlaybackRecord.started_at >= since,
+            PlaybackRecord.item_type == 'Movie'
+        ).group_by(PlaybackRecord.item_name).order_by(db.desc('cnt')).limit(10).all()
+
+        movie_stats = [{'name': row.item_name or '未知', 'value': row.cnt,
+                        'duration': row.total_dur or 0} for row in movie_stats_raw]
+
+        # --- 热门剧集 Top 10（按 series_name 聚合） ---
+        series_stats_raw = db.session.query(
+            PlaybackRecord.series_name,
+            db.func.count(PlaybackRecord.id).label('cnt'),
+            db.func.sum(PlaybackRecord.play_duration).label('total_dur')
+        ).filter(
+            PlaybackRecord.started_at >= since,
+            PlaybackRecord.item_type == 'Episode',
+            PlaybackRecord.series_name.isnot(None),
+            PlaybackRecord.series_name != ''
+        ).group_by(PlaybackRecord.series_name).order_by(db.desc('cnt')).limit(10).all()
+
+        series_stats = [{'name': row.series_name or '未知', 'value': row.cnt,
+                         'duration': row.total_dur or 0} for row in series_stats_raw]
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'days': days,
+                'users': user_stats,
+                'clients': client_stats,
+                'devices': device_stats,
+                'movies': movie_stats,
+                'series': series_stats
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取仪表盘统计分析数据失败: {str(e)}')
+        import traceback
+        app.logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': '获取统计分析数据失败'}), 500
+
+
 @app.route('/admin/stats/summary')
 @admin_required
 def get_stats_summary():

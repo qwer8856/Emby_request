@@ -356,6 +356,56 @@
 
                         <!-- 最近活动 -->
                         <!-- 最近活动板块已移除 -->
+
+                        <!-- 统计分析（环形图） -->
+                        <div class="dash-panel">
+                            <div class="dash-panel-header">
+                                <h3>📊 统计分析 (最近 <span id="dashAnalyticsDays">30</span> 天)</h3>
+                                <div class="dash-date-picker">
+                                    <select id="dashAnalyticsPeriod" onchange="loadDashboardAnalytics()">
+                                        <option value="7">最近 7 天</option>
+                                        <option value="30" selected>最近 30 天</option>
+                                        <option value="90">最近 90 天</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="dash-donut-row">
+                                <div class="dash-donut-card">
+                                    <h4>👤 用户统计</h4>
+                                    <div class="donut-chart-wrap" id="donutUsers"></div>
+                                    <div class="donut-legend" id="legendUsers"></div>
+                                </div>
+                                <div class="dash-donut-card">
+                                    <h4>📱 客户端统计</h4>
+                                    <div class="donut-chart-wrap" id="donutClients"></div>
+                                    <div class="donut-legend" id="legendClients"></div>
+                                </div>
+                                <div class="dash-donut-card">
+                                    <h4>🖥️ 设备统计</h4>
+                                    <div class="donut-chart-wrap" id="donutDevices"></div>
+                                    <div class="donut-legend" id="legendDevices"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 媒体统计（环形图） -->
+                        <div class="dash-panel">
+                            <div class="dash-panel-header">
+                                <h3>🎬 媒体统计 (最近 <span id="dashMediaDays">30</span> 天)</h3>
+                            </div>
+                            <div class="dash-donut-row dash-donut-row-2">
+                                <div class="dash-donut-card dash-donut-card-lg">
+                                    <h4>🎬 电影统计</h4>
+                                    <div class="donut-chart-wrap donut-chart-lg" id="donutMovies"></div>
+                                    <div class="donut-legend donut-legend-paged" id="legendMovies"></div>
+                                </div>
+                                <div class="dash-donut-card dash-donut-card-lg">
+                                    <h4>📺 剧集统计</h4>
+                                    <div class="donut-chart-wrap donut-chart-lg" id="donutSeries"></div>
+                                    <div class="donut-legend donut-legend-paged" id="legendSeries"></div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- 数据分析和活动日志Tab已移除 -->
