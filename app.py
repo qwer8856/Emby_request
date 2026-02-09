@@ -15999,8 +15999,8 @@ def use_redeem_code():
                     plan_name = plan.get('name', redeem.plan_type)
                     break
         
-        # 计算月数
-        duration_months = max(1, redeem.duration_days // 30)
+        # 计算月数（向上取整，保证 Subscription.duration_months 不为 0）
+        duration_months = max(1, -(-redeem.duration_days // 30))  # ceil division
         
         # 计算订阅时间 - 所有类型都立即生效，在现有到期时间基础上叠加
         now = datetime.now()
@@ -21234,6 +21234,8 @@ def admin_mark_order_paid(order_no):
         from datetime import timedelta
         user_tg = order.user_tg
         duration_months = order.duration_months or 1
+        # 优先使用 duration_days（支持短期套餐），回退到 duration_months * 30
+        purchased_days = order.duration_days if order.duration_days else (duration_months * 30)
         
         # 获取用户
         user = db.session.get(User, user_tg)
@@ -21242,7 +21244,7 @@ def admin_mark_order_paid(order_no):
         
         # 计算订阅结束时间
         start_date = datetime.now()
-        end_date = start_date + timedelta(days=30 * duration_months)
+        end_date = start_date + timedelta(days=purchased_days)
         
         # 查找现有有效订阅
         existing_sub = Subscription.query.filter_by(
@@ -21252,7 +21254,7 @@ def admin_mark_order_paid(order_no):
         
         if existing_sub:
             # 延长现有订阅
-            existing_sub.end_date = existing_sub.end_date + timedelta(days=30 * duration_months)
+            existing_sub.end_date = existing_sub.end_date + timedelta(days=purchased_days)
             existing_sub.duration_months = (existing_sub.duration_months or 0) + duration_months
             end_date = existing_sub.end_date
         else:
@@ -21274,17 +21276,17 @@ def admin_mark_order_paid(order_no):
         now = datetime.now()
         if user.ex and user.ex > now:
             # 如果用户还有有效期，在原有基础上延长
-            user.ex = user.ex + timedelta(days=30 * duration_months)
+            user.ex = user.ex + timedelta(days=purchased_days)
         else:
             # 否则从现在开始计算
-            user.ex = now + timedelta(days=30 * duration_months)
+            user.ex = now + timedelta(days=purchased_days)
         
         # 如果是访客/封禁等级，升级为注册用户（不降级白名单）
         if user.lv not in ['a', 'b']:
             user.lv = 'b'
         
         # 邀请返利：检查是否有邀请人，给邀请人返利
-        process_invite_reward(user, duration_months * 30, source='手工标记付款')
+        process_invite_reward(user, purchased_days, source='手工标记付款')
         
         db.session.commit()
         

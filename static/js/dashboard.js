@@ -3953,7 +3953,6 @@ async function unbindTelegramId() {
                 const monthlyPrice = plan.price_1m || plan.price || 0;
                 const durationDays = plan.duration_days || 30;
                 const isShortTerm = durationDays < 30;
-                const priceDisplay = isShortTerm ? monthlyPrice : monthlyPrice;
                 const pricePeriod = isShortTerm ? `/${durationDays}天` : '/月起';
                 
                 return `
@@ -3968,7 +3967,7 @@ async function unbindTelegramId() {
                         
                         <div class="plan-price-display">
                             <span class="price-currency">¥</span>
-                            <span class="price-amount">${priceDisplay}</span>
+                            <span class="price-amount">${monthlyPrice}</span>
                             <span class="price-period">${pricePeriod}</span>
                         </div>
                         
@@ -4380,6 +4379,7 @@ async function unbindTelegramId() {
                         <div class="order-info">
                             <div class="order-main">
                                 <span class="order-plan">${order.plan_name || order.plan_type}</span>
+                                <span class="order-duration">${order.duration_days ? order.duration_days + '天' : (order.duration_months || 1) + '个月'}</span>
                                 <span class="order-status ${status.class}">${status.text}</span>
                             </div>
                             <div class="order-meta">
