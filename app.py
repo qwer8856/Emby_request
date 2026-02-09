@@ -5916,8 +5916,6 @@ def _build_default_notification_full(vars):
     title_text = vars.get('title', '未知')
     if vars.get('year'):
         title_text += f" ({vars['year']})"
-    if vars.get('season_episode'):
-        title_text += f" {vars['season_episode']}"
     
     # 构建消息
     lines = []
@@ -5929,6 +5927,10 @@ def _build_default_notification_full(vars):
     # 信息区域
     info_lines = []
     info_lines.append(f"📚 <b>类型：</b>{type_name}")
+    
+    # 剧集入库详情（显示具体哪些集）
+    if vars.get('season_episode'):
+        info_lines.append(f"📋 <b>入库剧集：</b>{vars['season_episode']}")
     
     if vars.get('vote_average'):
         try:
