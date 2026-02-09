@@ -2051,6 +2051,71 @@
                                     </div>
                                     <span class="form-hint">启用后，删除 Emby 账号时也会删除网站用户数据；不启用则仅删除 Emby 账号，用户可重新绑定</span>
                                 </div>
+
+                                <hr style="border: none; border-top: 1px dashed #e0e0e0; margin: 20px 0;">
+
+                                <!-- 保号功能 -->
+                                <div class="form-group">
+                                    <label for="retentionMode">🛡️ 保号模式</label>
+                                    <select id="retentionMode" class="form-input" onchange="toggleRetentionSettings()">
+                                        <option value="off">关闭保号</option>
+                                        <option value="checkin">签到保号（签到+扣币续期）</option>
+                                        <option value="watch">观看保号（有观看记录续期）</option>
+                                        <option value="both">双保（签到+观看同时满足）</option>
+                                    </select>
+                                    <span class="form-hint">开启后，满足条件的过期用户将自动续期而不被禁用</span>
+                                </div>
+
+                                <div id="retentionRenewGroup" class="form-group" style="display:none;">
+                                    <label for="retentionRenewDays">保号续期天数</label>
+                                    <div class="input-with-hint">
+                                        <input type="number" id="retentionRenewDays" placeholder="30" class="form-input" min="1" max="365" value="30">
+                                        <span class="unit-label">天</span>
+                                    </div>
+                                    <span class="form-hint">满足保号条件后，自动续期的天数</span>
+                                </div>
+
+                                <!-- 签到保号配置 -->
+                                <div id="retentionCheckinGroup" style="display:none; background:#f8f9ff; border-radius:8px; padding:15px; margin-top:10px;">
+                                    <h4 style="margin:0 0 10px 0; color:#5b6abf;">📅 签到保号条件</h4>
+                                    <div class="form-group">
+                                        <label for="retentionCheckinDays">每月签到天数要求</label>
+                                        <div class="input-with-hint">
+                                            <input type="number" id="retentionCheckinDays" placeholder="20" class="form-input" min="1" max="31" value="20">
+                                            <span class="unit-label">天</span>
+                                        </div>
+                                        <span class="form-hint">用户过去 30 天内需签到的天数（达到后才能续期）</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="retentionCheckinCost">续期扣除积分</label>
+                                        <div class="input-with-hint">
+                                            <input type="number" id="retentionCheckinCost" placeholder="10" class="form-input" min="0" value="10">
+                                            <span class="unit-label" id="retentionCoinUnit">积分</span>
+                                        </div>
+                                        <span class="form-hint">签到达标后自动扣除的积分数量（0 表示免费续期）</span>
+                                    </div>
+                                </div>
+
+                                <!-- 观看保号配置 -->
+                                <div id="retentionWatchGroup" style="display:none; background:#f8fff8; border-radius:8px; padding:15px; margin-top:10px;">
+                                    <h4 style="margin:0 0 10px 0; color:#2d9d4e;">▶️ 观看保号条件</h4>
+                                    <div class="form-group">
+                                        <label for="retentionWatchDays">观看检查天数</label>
+                                        <div class="input-with-hint">
+                                            <input type="number" id="retentionWatchDays" placeholder="30" class="form-input" min="1" max="365" value="30">
+                                            <span class="unit-label">天内</span>
+                                        </div>
+                                        <span class="form-hint">检查过去 N 天内的观看记录</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="retentionWatchMinutes">最低观看时长</label>
+                                        <div class="input-with-hint">
+                                            <input type="number" id="retentionWatchMinutes" placeholder="30" class="form-input" min="1" value="30">
+                                            <span class="unit-label">分钟</span>
+                                        </div>
+                                        <span class="form-hint">累计观看时长达到此值才满足条件</span>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="settings-actions">
@@ -2070,6 +2135,14 @@
                                     <li>过期删除 Emby 账号：从 Emby 服务器删除账号</li>
                                     <li>同时删除网站账号：连同网站用户数据一起删除</li>
                                     <li>建议设置删除天数（如30天），给用户续费的缓冲时间</li>
+                                </ul>
+                                <h4 style="margin-top:12px;">🛡️ 保号说明</h4>
+                                <ul>
+                                    <li><b>签到保号</b>：过去30天内签到达标 + 积分足够 → 自动扣币续期</li>
+                                    <li><b>观看保号</b>：指定天数内有足够观看时长 → 自动免费续期</li>
+                                    <li><b>双保</b>：必须同时满足签到和观看两个条件才续期</li>
+                                    <li>保号仅对刚过期（3天内）的用户生效，长期过期用户不会被反复续期</li>
+                                    <li>保号续期从原到期日计算，不会丢失天数</li>
                                 </ul>
                             </div>
                         </div>

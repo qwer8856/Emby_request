@@ -3215,11 +3215,34 @@ async function loadSystemConfig() {
                 if (expireAutoDisable) expireAutoDisable.checked = config.subscription_expire.auto_disable !== false;
                 if (expireDeleteDays) expireDeleteDays.value = config.subscription_expire.delete_days || 0;
                 if (expireDeleteWebAccount) expireDeleteWebAccount.checked = config.subscription_expire.delete_web_account === true;
+                
+                // 保号配置
+                const retentionMode = document.getElementById('retentionMode');
+                if (retentionMode) retentionMode.value = config.subscription_expire.retention_mode || 'off';
+                const retCheckinDays = document.getElementById('retentionCheckinDays');
+                if (retCheckinDays) retCheckinDays.value = config.subscription_expire.retention_checkin_days ?? 20;
+                const retCheckinCost = document.getElementById('retentionCheckinCost');
+                if (retCheckinCost) retCheckinCost.value = config.subscription_expire.retention_checkin_cost ?? 10;
+                const retWatchDays = document.getElementById('retentionWatchDays');
+                if (retWatchDays) retWatchDays.value = config.subscription_expire.retention_watch_days ?? 30;
+                const retWatchMinutes = document.getElementById('retentionWatchMinutes');
+                if (retWatchMinutes) retWatchMinutes.value = config.subscription_expire.retention_watch_minutes ?? 30;
+                const retRenewDays = document.getElementById('retentionRenewDays');
+                if (retRenewDays) retRenewDays.value = config.subscription_expire.retention_renew_days ?? 30;
+                
+                toggleRetentionSettings();
             } else {
                 // 设置默认值
                 if (expireAutoDisable) expireAutoDisable.checked = true;
                 if (expireDeleteDays) expireDeleteDays.value = 0;
                 if (expireDeleteWebAccount) expireDeleteWebAccount.checked = false;
+                toggleRetentionSettings();
+            }
+            
+            // 更新保号积分单位名称
+            if (config.checkin && config.checkin.coin_name) {
+                const coinUnit = document.getElementById('retentionCoinUnit');
+                if (coinUnit) coinUnit.textContent = config.checkin.coin_name;
             }
             
             // 填充邀请返利配置
@@ -3332,6 +3355,12 @@ async function saveSubscriptionExpireConfig() {
     const autoDisable = document.getElementById('expireAutoDisable').checked;
     const deleteDays = parseInt(document.getElementById('expireDeleteDays').value) || 0;
     const deleteWebAccount = document.getElementById('expireDeleteWebAccount').checked;
+    const retentionMode = document.getElementById('retentionMode')?.value || 'off';
+    const retentionCheckinDays = parseInt(document.getElementById('retentionCheckinDays')?.value) || 20;
+    const retentionCheckinCost = parseInt(document.getElementById('retentionCheckinCost')?.value) || 10;
+    const retentionWatchDays = parseInt(document.getElementById('retentionWatchDays')?.value) || 30;
+    const retentionWatchMinutes = parseInt(document.getElementById('retentionWatchMinutes')?.value) || 30;
+    const retentionRenewDays = parseInt(document.getElementById('retentionRenewDays')?.value) || 30;
     
     try {
         const response = await fetch('/api/admin/system-config', {
@@ -3341,7 +3370,13 @@ async function saveSubscriptionExpireConfig() {
                 subscription_expire: {
                     auto_disable: autoDisable,
                     delete_days: deleteDays,
-                    delete_web_account: deleteWebAccount
+                    delete_web_account: deleteWebAccount,
+                    retention_mode: retentionMode,
+                    retention_checkin_days: retentionCheckinDays,
+                    retention_checkin_cost: retentionCheckinCost,
+                    retention_watch_days: retentionWatchDays,
+                    retention_watch_minutes: retentionWatchMinutes,
+                    retention_renew_days: retentionRenewDays
                 }
             })
         });
@@ -3365,6 +3400,21 @@ async function saveSubscriptionExpireConfig() {
 function loadSubscriptionExpireConfig() {
     loadSystemConfig();
     showToast('成功', '已重新加载配置', 'success');
+}
+
+function toggleRetentionSettings() {
+    const mode = document.getElementById('retentionMode')?.value || 'off';
+    const checkinGroup = document.getElementById('retentionCheckinGroup');
+    const watchGroup = document.getElementById('retentionWatchGroup');
+    const renewGroup = document.getElementById('retentionRenewGroup');
+    
+    const showCheckin = mode === 'checkin' || mode === 'both';
+    const showWatch = mode === 'watch' || mode === 'both';
+    const showRenew = mode !== 'off';
+    
+    if (checkinGroup) checkinGroup.style.display = showCheckin ? 'block' : 'none';
+    if (watchGroup) watchGroup.style.display = showWatch ? 'block' : 'none';
+    if (renewGroup) renewGroup.style.display = showRenew ? 'block' : 'none';
 }
 
 // 邀请返利配置

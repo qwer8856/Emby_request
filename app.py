@@ -1149,7 +1149,13 @@ DEFAULT_SYSTEM_CONFIG = {
     'subscription_expire': {
         'auto_disable': True,           # 过期后自动禁用 Emby 账号
         'delete_days': 0,               # 过期后多少天删除 Emby 账号（0表示不删除）
-        'delete_web_account': False     # 删除 Emby 账号时是否同时删除网站账号
+        'delete_web_account': False,    # 删除 Emby 账号时是否同时删除网站账号
+        'retention_mode': 'off',        # 保号模式: off=关闭, checkin=签到保号, watch=观看保号, both=双保（签到+观看）
+        'retention_checkin_days': 20,   # 签到保号：每月需签到的天数
+        'retention_checkin_cost': 10,   # 签到保号：自动扣除的积分数
+        'retention_watch_days': 30,     # 观看保号：N天内需有观看记录
+        'retention_watch_minutes': 30,  # 观看保号：累计观看时长（分钟）
+        'retention_renew_days': 30,     # 保号续期天数
     },
     'telegram': {
         'bot_token': '',
@@ -1363,7 +1369,13 @@ def get_default_system_config():
         'subscription_expire': {
             'auto_disable': True,
             'delete_days': 0,
-            'delete_web_account': False
+            'delete_web_account': False,
+            'retention_mode': 'off',
+            'retention_checkin_days': 20,
+            'retention_checkin_cost': 10,
+            'retention_watch_days': 30,
+            'retention_watch_minutes': 30,
+            'retention_renew_days': 30,
         },
         'invite_reward': {
             'enabled': True,
@@ -16245,6 +16257,20 @@ def save_system_config_api():
                 current_config['subscription_expire']['delete_days'] = int(expire['delete_days'])
             if 'delete_web_account' in expire:
                 current_config['subscription_expire']['delete_web_account'] = bool(expire['delete_web_account'])
+            if 'retention_mode' in expire:
+                mode = expire['retention_mode']
+                if mode in ('off', 'checkin', 'watch', 'both'):
+                    current_config['subscription_expire']['retention_mode'] = mode
+            if 'retention_checkin_days' in expire:
+                current_config['subscription_expire']['retention_checkin_days'] = max(1, min(31, int(expire['retention_checkin_days'])))
+            if 'retention_checkin_cost' in expire:
+                current_config['subscription_expire']['retention_checkin_cost'] = max(0, int(expire['retention_checkin_cost']))
+            if 'retention_watch_days' in expire:
+                current_config['subscription_expire']['retention_watch_days'] = max(1, min(365, int(expire['retention_watch_days'])))
+            if 'retention_watch_minutes' in expire:
+                current_config['subscription_expire']['retention_watch_minutes'] = max(1, int(expire['retention_watch_minutes']))
+            if 'retention_renew_days' in expire:
+                current_config['subscription_expire']['retention_renew_days'] = max(1, min(365, int(expire['retention_renew_days'])))
         
         # 更新邀请返利配置
         if 'invite_reward' in data:
@@ -20891,7 +20917,7 @@ last_subscription_check_time = None
 
 
 def check_expired_subscriptions():
-    """检查订阅到期用户并禁用/删除其Emby账号"""
+    """检查订阅到期用户并禁用/删除其Emby账号（含保号自动续期逻辑）"""
     with app.app_context():
         try:
             now = datetime.now()
@@ -20903,7 +20929,19 @@ def check_expired_subscriptions():
             delete_days = expire_config.get('delete_days', 0)
             delete_web_account = expire_config.get('delete_web_account', False)
             
-            # 查找需要禁用的用户：
+            # 保号配置
+            retention_mode = expire_config.get('retention_mode', 'off')
+            retention_checkin_days = expire_config.get('retention_checkin_days', 20)
+            retention_checkin_cost = expire_config.get('retention_checkin_cost', 10)
+            retention_watch_days = expire_config.get('retention_watch_days', 30)
+            retention_watch_minutes = expire_config.get('retention_watch_minutes', 30)
+            retention_renew_days = expire_config.get('retention_renew_days', 30)
+            
+            # 获取签到货币名称（用于日志和交易记录）
+            checkin_config = config.get('checkin', {})
+            coin_name = checkin_config.get('coin_name', '积分')
+            
+            # 查找需要处理的用户：
             # 1. 普通用户(lv='b') + 有Emby账号
             # 2. 订阅已过期(ex < now) 或 从未订阅(ex=None)
             from sqlalchemy import or_
@@ -20927,6 +20965,7 @@ def check_expired_subscriptions():
             disabled_count = 0
             emby_deleted_count = 0
             web_deleted_count = 0
+            retention_count = 0
             
             for user in expired_users:
                 try:
@@ -20940,8 +20979,21 @@ def check_expired_subscriptions():
                     if not user.embyid:  # 已无Emby账号，跳过
                         continue
                     
-                    # 计算过期天数（如果 ex 为 None，视为刚刚过期）
-                    days_expired = (now - user.ex).days if user.ex else 0
+                    # ==================== 保号检查 ====================
+                    # 仅对刚过期（3天内）的用户执行保号检查，避免对长期过期用户重复续期
+                    days_expired = (now - user.ex).days if user.ex else 999
+                    
+                    if retention_mode != 'off' and user.ex and days_expired <= 3:
+                        retention_ok = _check_user_retention(
+                            user, now, retention_mode,
+                            retention_checkin_days, retention_checkin_cost,
+                            retention_watch_days, retention_watch_minutes,
+                            retention_renew_days, coin_name
+                        )
+                        if retention_ok:
+                            retention_count += 1
+                            continue  # 已自动续期，跳过禁用/删除
+                    # ==================== 保号检查结束 ====================
                     
                     # 如果配置了删除天数，且过期超过该天数，则删除 Emby 账号
                     if delete_days > 0 and user.ex and days_expired >= delete_days:
@@ -21018,12 +21070,130 @@ def check_expired_subscriptions():
                 app.logger.info(f'[订阅检查] 本次共删除 {emby_deleted_count} 个Emby账号')
             if web_deleted_count > 0:
                 app.logger.info(f'[订阅检查] 本次共删除 {web_deleted_count} 个网站账号')
+            if retention_count > 0:
+                app.logger.info(f'[订阅检查] 本次保号自动续期 {retention_count} 个用户')
                 
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'[订阅检查] 检查过期订阅失败: {e}')
         finally:
             db.session.remove()
+
+
+def _check_user_retention(user, now, mode, checkin_days, checkin_cost,
+                          watch_days, watch_minutes, renew_days, coin_name):
+    """检查用户是否满足保号条件，满足则自动续期并扣费
+    
+    Args:
+        user: User 对象
+        now: 当前时间
+        mode: 'checkin' / 'watch' / 'both'
+        checkin_days: 签到保号要求的天数（过去30天内签到天数）
+        checkin_cost: 签到保号自动扣除的积分
+        watch_days: 观看保号检查的天数范围
+        watch_minutes: 观看保号要求的累计观看分钟数
+        renew_days: 续期天数
+        coin_name: 货币名称
+    
+    Returns:
+        True 如果保号成功（已续期），False 如果不满足条件
+    """
+    user_name = user.emby_name or user.name
+    
+    try:
+        # ===== 签到保号检查 =====
+        checkin_ok = False
+        if mode in ('checkin', 'both'):
+            from datetime import timedelta
+            # 检查过去30天内的签到天数
+            thirty_days_ago = (now - timedelta(days=30)).date()
+            checkin_count = CheckInRecord.query.filter(
+                CheckInRecord.user_tg == user.tg,
+                CheckInRecord.checkin_date >= thirty_days_ago
+            ).count()
+            
+            if checkin_count >= checkin_days:
+                # 检查积分是否足够
+                if (user.coins or 0) >= checkin_cost:
+                    checkin_ok = True
+                else:
+                    app.logger.info(f'[保号] {user_name}: 签到{checkin_count}天✓ 但{coin_name}不足({user.coins or 0}<{checkin_cost})，不续期')
+                    if mode == 'checkin':
+                        return False
+            else:
+                app.logger.info(f'[保号] {user_name}: 签到天数不足({checkin_count}<{checkin_days})，不续期')
+                if mode == 'checkin':
+                    return False
+        
+        # ===== 观看保号检查 =====
+        watch_ok = False
+        if mode in ('watch', 'both'):
+            from datetime import timedelta
+            watch_since = now - timedelta(days=watch_days)
+            
+            # 查询观看时长（秒）
+            from sqlalchemy import func
+            total_seconds = db.session.query(
+                func.coalesce(func.sum(PlaybackRecord.play_duration), 0)
+            ).filter(
+                PlaybackRecord.user_tg == user.tg,
+                PlaybackRecord.started_at >= watch_since
+            ).scalar() or 0
+            
+            total_minutes = total_seconds / 60
+            
+            if total_minutes >= watch_minutes:
+                watch_ok = True
+            else:
+                app.logger.info(f'[保号] {user_name}: 观看{total_minutes:.0f}分钟 < 要求{watch_minutes}分钟，不续期')
+                if mode == 'watch':
+                    return False
+        
+        # ===== 判断最终结果 =====
+        if mode == 'checkin' and checkin_ok:
+            pass  # 满足签到保号
+        elif mode == 'watch' and watch_ok:
+            pass  # 满足观看保号
+        elif mode == 'both' and checkin_ok and watch_ok:
+            pass  # 满足双保
+        else:
+            if mode == 'both':
+                app.logger.info(f'[保号] {user_name}: 双保条件不同时满足（签到:{checkin_ok}, 观看:{watch_ok}），不续期')
+            return False
+        
+        # ===== 执行续期 =====
+        from datetime import timedelta
+        # 从过期时间起续期（而不是从当前时间），保证不丢天数
+        new_ex = (user.ex or now) + timedelta(days=renew_days)
+        user.ex = new_ex
+        
+        # 签到保号需要扣积分
+        if mode in ('checkin', 'both') and checkin_cost > 0:
+            user.coins = (user.coins or 0) - checkin_cost
+            # 记录积分交易
+            try:
+                coin_tx = CoinTransaction(
+                    user_tg=user.tg,
+                    amount=-checkin_cost,
+                    balance_after=user.coins,
+                    trans_type='retention',
+                    description=f'保号自动续期{renew_days}天，扣除{checkin_cost}{coin_name}',
+                    created_at=now
+                )
+                db.session.add(coin_tx)
+            except Exception:
+                pass  # 积分记录失败不影响续期
+        
+        db.session.commit()
+        
+        cost_info = f'，扣除{checkin_cost}{coin_name}' if mode in ('checkin', 'both') and checkin_cost > 0 else ''
+        app.logger.info(f'[保号] ✅ {user_name}: 保号成功，续期{renew_days}天至{new_ex.strftime("%Y-%m-%d")}{cost_info}')
+        return True
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'[保号] {user_name}: 保号检查异常: {e}')
+        return False
 
 
 @app.before_request
