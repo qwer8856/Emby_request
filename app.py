@@ -14650,6 +14650,19 @@ def api_my_requests():
 @app.route('/api/subscription/benefits', methods=['GET'])
 @login_required
 def get_subscription_benefits():
+    user = User.query.filter_by(tg=session.get('user_id')).first()
+    config = load_system_config()
+    benefits = {
+        'request_limit': config.get('request_limit', {}),
+        'plans': load_plans_config(),
+        'subscription_expire': {
+            'auto_disable': config.get('subscription_expire', {}).get('auto_disable', True),
+            'delete_days': config.get('subscription_expire', {}).get('delete_days', 0),
+            'delete_web_account': config.get('subscription_expire', {}).get('delete_web_account', False),
+            'retention_mode': config.get('subscription_expire', {}).get('retention_mode', 'off')
+        }
+    }
+    return jsonify({'success': True, 'benefits': benefits})
     """根据用户订阅状态获取对应的权益配置"""
     try:
         user = db.session.get(User, session.get('user_id'))
