@@ -5016,7 +5016,7 @@ async function loadRedeemCodes() {
         return;
     }
     
-    tableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;">加载中...</td></tr>';
+    tableBody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;">加载中...</td></tr>';
     
     // 获取筛选参数
     const typeFilter = document.getElementById('codeTypeFilter')?.value || '';
@@ -5047,11 +5047,11 @@ async function loadRedeemCodes() {
                 if (usedEl) usedEl.textContent = data.stats.used || 0;
             }
         } else {
-            tableBody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:#ef4444;">加载失败: ${data.error || '未知错误'}</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:40px;color:#ef4444;">加载失败: ${data.error || '未知错误'}</td></tr>`;
         }
     } catch (error) {
         console.error('加载兑换码失败:', error);
-        tableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#ef4444;">加载失败: ' + error.message + '</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#ef4444;">加载失败: ' + error.message + '</td></tr>';
     }
 }
 
@@ -5082,9 +5082,14 @@ function renderRedeemCodesTable() {
         const usedInfo = code.is_used ? `${code.used_by_name || '-'}` : '-';
         const usedTime = code.is_used && code.used_at ? new Date(code.used_at).toLocaleString() : '-';
         
-        // 将天数转为月数显示
-        const durationMonths = Math.round(code.duration_days / 30);
-        const durationText = durationMonths > 0 ? `${durationMonths}个月` : `${code.duration_days}天`;
+        // 智能显示天数/月数
+        let durationText;
+        if (code.duration_days % 30 === 0 && code.duration_days >= 30) {
+            const months = code.duration_days / 30;
+            durationText = `${months}个月`;
+        } else {
+            durationText = `${code.duration_days}天`;
+        }
         
         return `
             <tr data-code-id="${code.id}">
@@ -5120,6 +5125,10 @@ function renderRedeemCodesTable() {
     if (pageInfo) {
         pageInfo.textContent = `第 ${redeemCurrentPage} / ${totalPages || 1} 页，共 ${redeemCodesData.length} 条`;
     }
+    const prevBtn = document.getElementById('redeemPrevBtn');
+    const nextBtn = document.getElementById('redeemNextBtn');
+    if (prevBtn) prevBtn.disabled = redeemCurrentPage <= 1;
+    if (nextBtn) nextBtn.disabled = redeemCurrentPage >= totalPages;
 }
 
 // 全选/取消全选兑换码
@@ -5232,6 +5241,23 @@ function changeRedeemPage(direction) {
 
 // 显示生成兑换码弹窗
 function showGenerateRedeemDialog() {
+    // 重置表单状态
+    _redeemMode = 'custom';
+    document.querySelectorAll('.redeem-mode-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.mode === 'custom');
+    });
+    document.getElementById('redeemCustomMode').style.display = '';
+    document.getElementById('redeemPlanMode').style.display = 'none';
+    document.getElementById('redeemCodeType').value = 'new';
+    document.getElementById('redeemCustomDays').value = '30';
+    document.getElementById('redeemCustomPlan').value = 'custom';
+    document.getElementById('redeemPlanType').value = '';
+    document.getElementById('redeemExpiresDays').value = '';
+    document.getElementById('redeemCount').value = '1';
+    document.getElementById('redeemRemark').value = '';
+    const planInfo = document.getElementById('redeemPlanInfo');
+    if (planInfo) planInfo.style.display = 'none';
+    
     document.getElementById('generateRedeemOverlay').classList.add('show');
 }
 
@@ -5240,25 +5266,73 @@ function hideGenerateRedeemDialog() {
     document.getElementById('generateRedeemOverlay').classList.remove('show');
 }
 
-// 生成兑换码
+// ==================== 兑换码生成模式切换 ====================
+let _redeemMode = 'custom'; // 'custom' 或 'plan'
+
+function switchRedeemMode(mode, btn) {
+    _redeemMode = mode;
+    document.querySelectorAll('.redeem-mode-tab').forEach(t => t.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    
+    const customDiv = document.getElementById('redeemCustomMode');
+    const planDiv = document.getElementById('redeemPlanMode');
+    if (mode === 'custom') {
+        customDiv.style.display = '';
+        planDiv.style.display = 'none';
+    } else {
+        customDiv.style.display = 'none';
+        planDiv.style.display = '';
+    }
+}
+
+function onRedeemPlanChange() {
+    const sel = document.getElementById('redeemPlanType');
+    const opt = sel.options[sel.selectedIndex];
+    const infoDiv = document.getElementById('redeemPlanInfo');
+    if (opt && opt.value) {
+        const dur = opt.dataset.duration;
+        const price = opt.dataset.price;
+        document.getElementById('redeemPlanDuration').textContent = dur + '个月（' + (dur * 30) + '天）';
+        document.getElementById('redeemPlanPrice').textContent = '¥' + price;
+        infoDiv.style.display = '';
+    } else {
+        infoDiv.style.display = 'none';
+    }
+}
+
 async function generateRedeemCodes() {
     const codeType = document.getElementById('redeemCodeType').value;
-    const planType = document.getElementById('redeemPlanType').value;
-    const durationMonths = parseInt(document.getElementById('redeemDuration').value);
     const count = parseInt(document.getElementById('redeemCount').value);
-    
-    if (!planType) {
-        showToast('警告', '请选择套餐类型', 'warning');
-        return;
-    }
+    const expiresDays = document.getElementById('redeemExpiresDays').value;
+    const remark = (document.getElementById('redeemRemark').value || '').trim();
     
     if (count < 1 || count > 100) {
-        showToast('警告', '生成数量需在1-100之间', 'warning');
+        showToast('警告', '生成数量需在1-100之间', 'error');
         return;
     }
     
-    // 将月数转为天数
-    const durationDays = durationMonths * 30;
+    let planType, durationDays;
+    
+    if (_redeemMode === 'custom') {
+        // 自定义天数模式
+        durationDays = parseInt(document.getElementById('redeemCustomDays').value);
+        planType = document.getElementById('redeemCustomPlan').value;
+        
+        if (!durationDays || durationDays < 1 || durationDays > 3650) {
+            showToast('警告', '请输入有效的天数（1-3650）', 'error');
+            return;
+        }
+    } else {
+        // 套餐模式
+        const sel = document.getElementById('redeemPlanType');
+        planType = sel.value;
+        if (!planType) {
+            showToast('警告', '请选择套餐', 'error');
+            return;
+        }
+        const opt = sel.options[sel.selectedIndex];
+        durationDays = parseInt(opt.dataset.duration) * 30;
+    }
     
     const btn = document.querySelector('#generateRedeemOverlay .btn-primary');
     const originalText = btn.innerHTML;
@@ -5266,15 +5340,19 @@ async function generateRedeemCodes() {
     btn.innerHTML = '生成中...';
     
     try {
+        const body = {
+            code_type: codeType,
+            plan_type: planType,
+            duration_days: durationDays,
+            count: count,
+            remark: remark
+        };
+        if (expiresDays) body.expires_days = parseInt(expiresDays);
+        
         const response = await fetch('/api/admin/redeem-codes/batch-generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                code_type: codeType,
-                plan_type: planType,
-                duration_days: durationDays,
-                count: count
-            })
+            body: JSON.stringify(body)
         });
         
         const data = await response.json();
@@ -5284,7 +5362,6 @@ async function generateRedeemCodes() {
             hideGenerateRedeemDialog();
             loadRedeemCodes();
             
-            // 显示生成的兑换码
             if (data.codes && data.codes.length > 0) {
                 showGeneratedCodes(data.codes.map(c => c.code));
             }
@@ -5305,6 +5382,10 @@ function showGeneratedCodes(codes) {
     const codesText = codes.join('\n');
     const dialog = document.createElement('div');
     dialog.className = 'modal-overlay show';
+    // 点击遮罩层关闭
+    dialog.onclick = function(e) {
+        if (e.target === dialog) dialog.remove();
+    };
     dialog.innerHTML = `
         <div class="modal-content" style="max-width:500px;">
             <div class="modal-header">
@@ -5317,22 +5398,37 @@ function showGeneratedCodes(codes) {
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">关闭</button>
-                <button class="btn btn-primary" onclick="copyGeneratedCodes('${codesText.replace(/\n/g, '\\n')}')">
+                <button class="btn btn-primary" onclick="copyGeneratedCodes(this)">
                     📋 复制全部
                 </button>
             </div>
         </div>
     `;
+    // 存储codes数据到DOM元素上，供复制使用
+    dialog._codesText = codesText;
     document.body.appendChild(dialog);
 }
 
 // 复制生成的兑换码
-function copyGeneratedCodes(codesText) {
-    const text = codesText.replace(/\\n/g, '\n');
+function copyGeneratedCodes(btn) {
+    const overlay = btn.closest('.modal-overlay');
+    const text = overlay ? overlay._codesText : '';
+    if (!text) {
+        showToast('失败', '没有可复制的内容', 'error');
+        return;
+    }
     navigator.clipboard.writeText(text).then(() => {
         showToast('成功', '已复制到剪贴板', 'success');
     }).catch(() => {
-        showToast('失败', '复制失败', 'error');
+        // fallback: 从textarea获取
+        const textarea = overlay.querySelector('textarea');
+        if (textarea) {
+            textarea.select();
+            document.execCommand('copy');
+            showToast('成功', '已复制到剪贴板', 'success');
+        } else {
+            showToast('失败', '复制失败', 'error');
+        }
     });
 }
 

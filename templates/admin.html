@@ -1010,6 +1010,11 @@
                             </tr>
                         </tbody>
                     </table>
+                    <div class="redeem-pagination">
+                        <button onclick="changeRedeemPage(-1)" id="redeemPrevBtn">上一页</button>
+                        <span id="redeemPageInfo">第 1 / 1 页</span>
+                        <button onclick="changeRedeemPage(1)" id="redeemNextBtn">下一页</button>
+                    </div>
                 </section>
 
                 <!-- 播放监控部分 -->
@@ -3352,51 +3357,96 @@
     </div>
 
     <!-- 生成兑换码弹窗 -->
-    <div class="modal-overlay" id="generateRedeemOverlay">
-        <div class="modal-content">
+    <div class="modal-overlay" id="generateRedeemOverlay" onclick="if(event.target===this)hideGenerateRedeemDialog()">
+        <div class="modal-content" style="max-width:520px;">
             <div class="modal-header">
                 <h3>🎫 生成兑换码</h3>
                 <button class="modal-close" onclick="hideGenerateRedeemDialog()">&times;</button>
             </div>
             <div class="modal-body">
+                <!-- 模式切换 -->
+                <div class="form-group">
+                    <label>生成模式</label>
+                    <div class="redeem-mode-tabs">
+                        <button class="redeem-mode-tab active" data-mode="custom" onclick="switchRedeemMode('custom', this)">⏱️ 自定义天数</button>
+                        <button class="redeem-mode-tab" data-mode="plan" onclick="switchRedeemMode('plan', this)">📦 套餐兑换码</button>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label for="redeemCodeType">兑换类型</label>
                     <select id="redeemCodeType">
-                        <option value="new">新购套餐</option>
-                        <option value="renew">套餐续费</option>
+                        <option value="new">新购（开通账号）</option>
+                        <option value="renew">续费（延长订阅）</option>
                     </select>
-                    <span class="form-hint">新购：用于新开通套餐 | 续费：用于延长现有套餐</span>
+                    <span class="form-hint">新购：仅限未开通账号 | 续费：仅限已有账号</span>
+                </div>
+
+                <!-- 自定义天数模式 -->
+                <div id="redeemCustomMode">
+                    <div class="form-group">
+                        <label for="redeemCustomDays">订阅天数</label>
+                        <input type="number" id="redeemCustomDays" min="1" max="3650" value="30" class="form-input">
+                        <span class="form-hint">用户兑换后获得的订阅天数（1-3650天）</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="redeemCustomPlan">关联套餐（可选）</label>
+                        <select id="redeemCustomPlan">
+                            <option value="custom">不关联套餐（纯时长）</option>
+                            {% for plan in plans %}
+                            <option value="{{ plan.id }}">{{ plan.name }}（{{ plan.duration }}个月）</option>
+                            {% endfor %}
+                        </select>
+                        <span class="form-hint">关联套餐后，兑换记录中会显示套餐名称</span>
+                    </div>
+                </div>
+
+                <!-- 套餐兑换码模式 -->
+                <div id="redeemPlanMode" style="display:none;">
+                    <div class="form-group">
+                        <label for="redeemPlanType">选择套餐</label>
+                        <select id="redeemPlanType" onchange="onRedeemPlanChange()">
+                            <option value="">请选择套餐</option>
+                            {% for plan in plans %}
+                            <option value="{{ plan.id }}" data-duration="{{ plan.duration }}" data-price="{{ plan.price }}">{{ plan.name }} - {{ plan.duration }}个月 / ¥{{ plan.price }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group" id="redeemPlanInfo" style="display:none;">
+                        <div class="redeem-plan-summary">
+                            <span>📋 套餐时长：<strong id="redeemPlanDuration">-</strong></span>
+                            <span>💰 套餐价格：<strong id="redeemPlanPrice">-</strong></span>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="form-group">
-                    <label for="redeemPlanType">套餐类型</label>
-                    <select id="redeemPlanType">
-                        <option value="">请选择套餐</option>
-                        {% for plan in plans %}
-                        <option value="{{ plan.id }}">{{ plan.name }}</option>
-                        {% endfor %}
+                    <label for="redeemExpiresDays">兑换码有效期（可选）</label>
+                    <select id="redeemExpiresDays">
+                        <option value="">永不过期</option>
+                        <option value="7">7天内有效</option>
+                        <option value="30">30天内有效</option>
+                        <option value="90">90天内有效</option>
+                        <option value="180">180天内有效</option>
+                        <option value="365">365天内有效</option>
                     </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="redeemDuration">有效时长（月）</label>
-                    <select id="redeemDuration">
-                        <option value="1">1个月</option>
-                        <option value="3">3个月</option>
-                        <option value="6">6个月</option>
-                        <option value="12">12个月</option>
-                    </select>
+                    <span class="form-hint">兑换码本身的过期时间，超过后用户无法使用</span>
                 </div>
 
                 <div class="form-group">
                     <label for="redeemCount">生成数量</label>
-                    <input type="number" id="redeemCount" min="1" max="100" value="1">
+                    <input type="number" id="redeemCount" min="1" max="100" value="1" class="form-input">
                     <span class="form-hint">单次最多生成100个</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="redeemRemark">备注（可选）</label>
+                    <input type="text" id="redeemRemark" class="form-input" placeholder="如：送给VIP用户">
                 </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="hideGenerateRedeemDialog()">取消</button>
-                <button class="btn btn-primary" onclick="generateRedeemCodes()">生成</button>
+                <button class="btn btn-primary" onclick="generateRedeemCodes()">生成兑换码</button>
             </div>
         </div>
     </div>

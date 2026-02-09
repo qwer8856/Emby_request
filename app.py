@@ -4196,11 +4196,14 @@ class RedeemCode(db.Model):
         
         # 获取套餐名称
         plan_name = self.plan_type
-        plans = load_plans_config()
-        for plan in plans:
-            if plan.get('id') == self.plan_type:
-                plan_name = plan.get('name', self.plan_type)
-                break
+        if self.plan_type == 'custom':
+            plan_name = '自定义时长'
+        else:
+            plans = load_plans_config()
+            for plan in plans:
+                if plan.get('id') == self.plan_type:
+                    plan_name = plan.get('name', self.plan_type)
+                    break
         
         return {
             'id': self.id,
@@ -15918,10 +15921,13 @@ def use_redeem_code():
         
         # 从配置中获取套餐名称
         plan_name = redeem.plan_type
-        for plan in plans_config:
-            if plan.get('id') == redeem.plan_type:
-                plan_name = plan.get('name', redeem.plan_type)
-                break
+        if redeem.plan_type == 'custom':
+            plan_name = '自定义时长'
+        else:
+            for plan in plans_config:
+                if plan.get('id') == redeem.plan_type:
+                    plan_name = plan.get('name', redeem.plan_type)
+                    break
         
         # 计算月数
         duration_months = max(1, redeem.duration_days // 30)
