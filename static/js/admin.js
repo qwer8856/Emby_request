@@ -5944,13 +5944,6 @@ async function loadAdminHistory(page = 1) {
             let progress = '-';
             if (r.play_percentage && r.play_percentage > 0) {
                 progress = Math.round(r.play_percentage) + '%';
-            } else if (r.play_duration && r.play_duration > 0) {
-                // 没有百分比时显示播放时长
-                const dur = r.play_duration;
-                const h = Math.floor(dur / 3600);
-                const m = Math.floor((dur % 3600) / 60);
-                const s = dur % 60;
-                progress = h > 0 ? `${h}h${m}m` : m > 0 ? `${m}m${s}s` : `${s}s`;
             }
             
             return `

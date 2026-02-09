@@ -2595,7 +2595,8 @@ class EmbyClient:
                         items_params = {
                             'api_key': self.api_key,
                             'Ids': ','.join(batch_ids),
-                            'Fields': 'RunTimeTicks'
+                            'Fields': 'RunTimeTicks',
+                            'Recursive': 'true'
                         }
                         items_resp = self.session.get(items_url, params=items_params, timeout=10)
                         if items_resp.status_code == 200:
@@ -2605,14 +2606,18 @@ class EmbyClient:
                                 rtt = itm.get('RunTimeTicks', 0) or 0
                                 if itm_id and rtt > 0:
                                     runtime_cache[itm_id] = rtt // 10000000  # ticks -> seconds
-                    except Exception:
-                        pass
+                        app.logger.debug(f'RunTimeTicks 批量获取: 请求 {len(batch_ids)} 个, 命中 {len(runtime_cache)} 个')
+                    except Exception as e:
+                        app.logger.debug(f'批量获取 RunTimeTicks 失败: {e}')
                 
                 # 用缓存补充进度
+                filled = 0
                 for r in missing_items:
                     total_sec = runtime_cache.get(r['item_id'], 0)
                     if total_sec > 0 and r['play_duration'] > 0:
                         r['play_percentage'] = min(100, round(r['play_duration'] / total_sec * 100, 1))
+                        filled += 1
+                app.logger.debug(f'RunTimeTicks 补充进度: {filled}/{len(missing_items)} 条')
             
             # 按日期排序
             history.sort(key=lambda x: x.get('started_at', ''), reverse=True)
@@ -8485,6 +8490,7 @@ def admin_get_all_playback_history():
             paged_history = history[start:end]
             
             # 补充进度数据：从本地数据库获取 webhook 记录的精确播放进度
+            still_missing = []
             for record in paged_history:
                 if record.get('play_percentage') is not None and record['play_percentage'] > 0:
                     continue  # 已有进度数据，跳过
@@ -8504,8 +8510,44 @@ def admin_get_all_playback_history():
                             
                             if local_record and local_record.play_percentage and local_record.play_percentage > 0:
                                 record['play_percentage'] = round(local_record.play_percentage, 1)
+                                continue
                     except Exception:
                         pass
+                
+                # 仍缺少进度，加入待补充列表
+                if record.get('play_percentage') is None and record.get('play_duration', 0) > 0:
+                    still_missing.append(record)
+            
+            # 对仍缺少进度的记录，通过 Emby Items API 批量获取 RunTimeTicks 计算百分比
+            if still_missing and emby_client.is_enabled():
+                try:
+                    unique_ids = list(set(r['item_id'] for r in still_missing if r.get('item_id')))
+                    runtime_cache = {}
+                    batch_size = 50
+                    for i in range(0, len(unique_ids), batch_size):
+                        batch_ids = unique_ids[i:i+batch_size]
+                        items_url = f"{emby_client.base_url}/Items"
+                        items_params = {
+                            'api_key': emby_client.api_key,
+                            'Ids': ','.join(batch_ids),
+                            'Fields': 'RunTimeTicks',
+                            'Recursive': 'true'
+                        }
+                        items_resp = emby_client.session.get(items_url, params=items_params, timeout=10)
+                        if items_resp.status_code == 200:
+                            items_data = items_resp.json()
+                            for itm in items_data.get('Items', []):
+                                itm_id = str(itm.get('Id', ''))
+                                rtt = itm.get('RunTimeTicks', 0) or 0
+                                if itm_id and rtt > 0:
+                                    runtime_cache[itm_id] = rtt // 10000000
+                    
+                    for r in still_missing:
+                        total_sec = runtime_cache.get(r['item_id'], 0)
+                        if total_sec > 0 and r['play_duration'] > 0:
+                            r['play_percentage'] = min(100, round(r['play_duration'] / total_sec * 100, 1))
+                except Exception as e:
+                    app.logger.debug(f'播放历史页补充 RunTimeTicks 失败: {e}')
             
             return jsonify({
                 'success': True,
