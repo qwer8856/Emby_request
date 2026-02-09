@@ -16302,20 +16302,31 @@ def payment_notify():
 
 @app.route('/api/payment/callback', methods=['POST'])
 def payment_callback():
-    """支付回调（兼容旧接口）"""
+    """支付回调（兼容旧接口）- 需要验证签名"""
     try:
-        # 这里应该验证支付回调的签名
         data = request.json or request.form.to_dict()
         
-        order_no = data.get('order_no')
+        # 验证签名
+        epay_config = get_epay_config()
+        epay_key = epay_config['epay_key']
+        
+        if epay_key and not epay_verify_sign(data, epay_key):
+            app.logger.warning(f'支付回调签名验证失败: {data}')
+            return jsonify({'error': '签名验证失败'}), 403
+        
+        order_no = data.get('order_no') or data.get('out_trade_no')
         trade_no = data.get('trade_no')
-        status = data.get('status')
+        status = data.get('status') or data.get('trade_status')
         
         order = Order.query.filter_by(order_no=order_no).first()
         if not order:
             return jsonify({'error': '订单不存在'}), 404
         
-        if status == 'success':
+        # 检查是否已处理
+        if order.payment_status == 'paid':
+            return jsonify({'success': True, 'message': '订单已处理'}), 200
+        
+        if status in ('success', 'TRADE_SUCCESS'):
             order.payment_status = 'paid'
             order.payment_time = datetime.now()
             order.trade_no = trade_no
