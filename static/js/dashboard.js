@@ -4387,7 +4387,7 @@ async function unbindTelegramId() {
                                 <span class="order-time">${createTime}</span>
                             </div>
                         </div>
-                        <span class="order-price">¥${order.final_price}</span>
+                        <span class="order-price">¥${parseFloat(order.final_price || 0).toFixed(2)}</span>
                         <div class="order-actions">
                             ${isPending ? `
                                 <button class="order-btn pay" onclick="continuePayOrder('${order.order_no}')">继续支付</button>
@@ -4521,7 +4521,7 @@ async function unbindTelegramId() {
                     <h3>即将跳转支付</h3>
                     <div class="payment-info">
                         <p>订单号: ${order.order_no}</p>
-                        <p>金额: <strong style="color: #f59e0b; font-size: 24px;">¥${order.final_price}</strong></p>
+                        <p>金额: <strong style="color: #f59e0b; font-size: 24px;">¥${parseFloat(order.final_price || 0).toFixed(2)}</strong></p>
                         <p>支付方式: ${selectedPayment === 'alipay' ? '支付宝' : selectedPayment === 'wxpay' ? '微信支付' : 'QQ钱包'}</p>
                     </div>
                     <p class="payment-tip">点击下方按钮跳转到支付页面完成支付</p>
@@ -4554,7 +4554,7 @@ async function unbindTelegramId() {
                     <h3>扫码支付</h3>
                     <div class="payment-info">
                         <p>订单号: ${order.order_no}</p>
-                        <p>金额: ¥${order.final_price}</p>
+                        <p>金额: ¥${parseFloat(order.final_price || 0).toFixed(2)}</p>
                     </div>
                     <div class="qr-code">
                         <img src="${qrCodeUrl}" alt="支付二维码">

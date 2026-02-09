@@ -15829,6 +15829,16 @@ def create_order():
             duration_names = {3: '(季付)', 6: '(半年付)', 12: '(年付)'}
             plan_name = f"{plan_name}{duration_names.get(duration, f'({duration}期)')}"
         
+        # 自动取消该用户同一套餐的旧待支付订单（防止订单堆积）
+        stale_orders = Order.query.filter_by(
+            user_tg=user.tg,
+            plan_type=plan_type,
+            payment_status='pending'
+        ).all()
+        for stale in stale_orders:
+            stale.payment_status = 'cancelled'
+            app.logger.info(f'自动取消旧待支付订单: {stale.order_no}')
+        
         # 生成订单号
         order_no = f'ORD{int(time.time())}{user.tg % 10000}'
         
@@ -16133,8 +16143,16 @@ def create_payment():
         if not order:
             return jsonify({'error': '订单不存在'}), 404
         
+        # 验证订单归属（防止用户支付别人的订单）
+        user = db.session.get(User, session.get('user_id'))
+        if not user or order.user_tg != user.tg:
+            return jsonify({'error': '无权操作此订单'}), 403
+        
         if order.payment_status == 'paid':
             return jsonify({'error': '订单已支付'}), 400
+        
+        if order.payment_status == 'cancelled':
+            return jsonify({'error': '订单已取消，请重新下单'}), 400
         
         # 动态获取易支付配置
         epay_config = get_epay_config()
