@@ -16232,6 +16232,11 @@ def payment_notify():
             app.logger.info(f'订单已处理: {out_trade_no}')
             return 'success'
         
+        # 已取消的订单不能再被激活
+        if order.payment_status == 'cancelled':
+            app.logger.warning(f'已取消的订单收到支付通知，忽略: {out_trade_no}')
+            return 'order cancelled'
+        
         # 验证金额（可选，但推荐）
         if money and float(money) != float(order.final_price):
             app.logger.warning(f'金额不匹配: 订单金额={order.final_price}, 实付={money}')
@@ -16326,6 +16331,11 @@ def payment_callback():
         if order.payment_status == 'paid':
             return jsonify({'success': True, 'message': '订单已处理'}), 200
         
+        # 已取消的订单不能再被激活
+        if order.payment_status == 'cancelled':
+            app.logger.warning(f'已取消的订单收到支付回调，忽略: {order_no}')
+            return jsonify({'error': '订单已取消，无法处理支付'}), 400
+        
         if status in ('success', 'TRADE_SUCCESS'):
             order.payment_status = 'paid'
             order.payment_time = datetime.now()
@@ -16409,6 +16419,16 @@ def query_payment():
                 'has_emby_account': has_emby_account
             }), 200
         
+        # 已取消的订单不再查询支付状态，直接返回未支付
+        if order.payment_status == 'cancelled':
+            return jsonify({
+                'success': True,
+                'paid': False,
+                'order_no': order_no,
+                'status': 'cancelled'
+            }), 200
+        
+        # 只有 pending 状态的订单才去易支付查询
         # 动态获取易支付配置
         epay_config = get_epay_config()
         epay_url = epay_config['epay_url'].rstrip('/') if epay_config['epay_url'] else ''
