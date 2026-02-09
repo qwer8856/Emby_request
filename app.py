@@ -9263,7 +9263,15 @@ def admin_login_api():
     # 优先检查 AdminUser 表（多管理员）
     try:
         admin_user = AdminUser.query.filter_by(username=username).first()
-        if admin_user and admin_user.password_hash == password_hash and admin_user.is_active:
+        if admin_user:
+            # 用户名存在于 AdminUser 表，在此处完成认证，不回退到 SystemConfig
+            if not admin_user.is_active:
+                app.logger.warning(f'管理员 {username} 登录失败: 账号已被禁用')
+                return jsonify({'success': False, 'error': '该管理员账号已被禁用'}), 403
+            if admin_user.password_hash != password_hash:
+                app.logger.warning(f'管理员 {username} 登录失败: 密码错误 (IP: {request.remote_addr})')
+                return jsonify({'success': False, 'error': '用户名或密码错误'}), 401
+            
             session['admin_logged_in'] = True
             session['admin_username'] = username
             session['admin_user_id'] = admin_user.id

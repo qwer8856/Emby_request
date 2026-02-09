@@ -8538,7 +8538,7 @@ async function loadAdminList() {
                         onclick="toggleAdminStatus(${admin.id})" title="${admin.is_active ? '禁用' : '启用'}">
                         ${admin.is_active ? '🚫' : '✅'}
                     </button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteAdmin(${admin.id}, '${admin.username}')" title="删除">🗑️</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteAdmin(${admin.id})" title="删除">🗑️</button>
                 `;
             } else {
                 actions = '<span style="color:var(--text-tertiary);font-size:12px;">—</span>';
@@ -8583,7 +8583,10 @@ function showAddAdminModal() {
         `;
     }
     
-    document.getElementById('adminModal').style.display = 'flex';
+    const modal = document.getElementById('adminModal');
+    modal.classList.add('show');
+    // 点击遮罩关闭
+    modal.onclick = function(e) { if (e.target === modal) closeAdminModal(); };
 }
 
 
@@ -8610,12 +8613,14 @@ function editAdmin(adminId) {
         `;
     }
     
-    document.getElementById('adminModal').style.display = 'flex';
+    const modal = document.getElementById('adminModal');
+    modal.classList.add('show');
+    modal.onclick = function(e) { if (e.target === modal) closeAdminModal(); };
 }
 
 
 function closeAdminModal() {
-    document.getElementById('adminModal').style.display = 'none';
+    document.getElementById('adminModal').classList.remove('show');
 }
 
 
@@ -8632,12 +8637,17 @@ async function saveAdmin() {
     const password = document.getElementById('adminFormPassword').value.trim();
     
     if (!username || username.length < 2) {
-        showToast('用户名至少2个字符', 'error');
+        showToast('输入错误', '用户名至少2个字符', 'error');
         return;
     }
     
     if (!id && (!password || password.length < 6)) {
-        showToast('密码至少6个字符', 'error');
+        showToast('输入错误', '密码至少6个字符', 'error');
+        return;
+    }
+    
+    if (id && password && password.length > 0 && password.length < 6) {
+        showToast('输入错误', '密码至少6个字符', 'error');
         return;
     }
     
@@ -8662,23 +8672,26 @@ async function saveAdmin() {
         const data = await res.json();
         
         if (data.success) {
-            showToast(id ? '管理员已更新' : '管理员已创建', 'success');
+            showToast('操作成功', id ? '管理员已更新' : '管理员已创建', 'success');
             closeAdminModal();
             loadAdminList();
         } else {
-            showToast(data.error || '操作失败', 'error');
+            showToast('操作失败', data.error || '未知错误', 'error');
         }
     } catch (e) {
         console.error('保存管理员失败:', e);
-        showToast('保存管理员失败', 'error');
+        showToast('操作失败', '保存管理员失败', 'error');
     }
 }
 
 
-async function deleteAdmin(adminId, username) {
+async function deleteAdmin(adminId) {
+    const admin = _adminListCache.find(a => a.id === adminId);
+    if (!admin) return;
+    
     const confirmed = await showConfirm({
         title: '删除确认',
-        message: `确定要删除管理员 "${username}" 吗？此操作不可恢复。`,
+        message: `确定要删除管理员 "${admin.username}" 吗？此操作不可恢复。`,
         confirmText: '确认删除',
         cancelText: '取消',
         type: 'danger'
@@ -8690,13 +8703,13 @@ async function deleteAdmin(adminId, username) {
         const data = await res.json();
         
         if (data.success) {
-            showToast(data.message || '管理员已删除', 'success');
+            showToast('删除成功', data.message || '管理员已删除', 'success');
             loadAdminList();
         } else {
-            showToast(data.error || '删除失败', 'error');
+            showToast('删除失败', data.error || '未知错误', 'error');
         }
     } catch (e) {
-        showToast('删除管理员失败', 'error');
+        showToast('删除失败', '删除管理员失败', 'error');
     }
 }
 
@@ -8707,12 +8720,12 @@ async function toggleAdminStatus(adminId) {
         const data = await res.json();
         
         if (data.success) {
-            showToast(data.message || '操作成功', 'success');
+            showToast('操作成功', data.message || '状态已更新', 'success');
             loadAdminList();
         } else {
-            showToast(data.error || '操作失败', 'error');
+            showToast('操作失败', data.error || '未知错误', 'error');
         }
     } catch (e) {
-        showToast('操作失败', 'error');
+        showToast('操作失败', '请检查网络连接', 'error');
     }
 }
