@@ -16996,7 +16996,9 @@ def save_payment_config_api():
 @app.route('/api/admin/site-config', methods=['GET'])
 @admin_required
 def get_site_config_api():
-    """获取前端配置（管理员）"""
+    """获取前端配置（管理员）- 不使用缓存确保读取最新值"""
+    # 清除缓存确保读到最新值
+    clear_db_config_cache(CONFIG_KEY_SITE)
     config = get_site_config()
     return jsonify({
         'success': True,
@@ -17014,10 +17016,10 @@ def save_site_config_api():
         # 获取当前配置作为基础
         current_config = get_site_config()
         
-        # 更新允许的字段
+        # 更新允许的字段（字符串类型）
         allowed_fields = [
             'site_name', 'site_subtitle', 'site_title', 'site_logo', 'shop_url',
-            'panel_url', 'telegram_group', 'support_email', 'register_mode',
+            'panel_url', 'telegram_group', 'telegram_bot_username', 'support_email', 'register_mode',
             'footer_text', 'welcome_message', 'docs_intro',
             'custom_css', 'custom_js'
         ]
@@ -17025,6 +17027,10 @@ def save_site_config_api():
         for field in allowed_fields:
             if field in data:
                 current_config[field] = str(data[field]).strip() if data[field] else ''
+        
+        # 单独处理布尔类型字段
+        if 'use_image_proxy' in data:
+            current_config['use_image_proxy'] = bool(data['use_image_proxy'])
         
         # 单独处理 custom_links（列表类型）
         if 'custom_links' in data:
