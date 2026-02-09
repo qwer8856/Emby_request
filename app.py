@@ -19130,10 +19130,32 @@ def log_view_lines():
         line_name = data.get('line_name', '')
         line_index = data.get('line_index', -1)
         
+        # 判断用户类型
+        now = datetime.now()
+        is_whitelist = user.lv == 'a'
+        is_subscriber = user.lv == 'b' and user.ex and user.ex > now
+        user_type = '白名单用户' if is_whitelist else '订阅用户'
+        
+        # 查询用户可见的所有线路名称
+        lines = ServerLine.query.filter_by(is_active=True).order_by(
+            ServerLine.sort_order.asc(), ServerLine.id.asc()
+        ).all()
+        
+        visible_line_names = []
+        for line in lines:
+            if is_whitelist:
+                visible_line_names.append(line.name)
+            elif is_subscriber and line.access_level in ['subscriber', 'all']:
+                visible_line_names.append(line.name)
+        
         log_user_activity(UserActivityLog.ACTION_VIEW_LINES, user=user,
                          detail={
                              'line_name': line_name,
-                             'action': '查看线路'
+                             'action': '查看线路',
+                             'user_type': user_type,
+                             'is_whitelist': is_whitelist,
+                             'lines': visible_line_names,
+                             'lines_count': len(visible_line_names)
                          })
         
         return jsonify({'success': True}), 200
