@@ -6715,7 +6715,13 @@ def send_email(to_email, subject, html_content):
             server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15)
         else:
             server = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
-            server.starttls()
+            try:
+                server.starttls()
+            except smtplib.SMTPNotSupportedError:
+                # 服务器不支持 STARTTLS，使用明文连接
+                app.logger.debug(f'SMTP 服务器 {smtp_host}:{smtp_port} 不支持 STARTTLS，使用明文连接')
+            except Exception:
+                pass
         
         server.login(smtp_user, smtp_password)
         server.sendmail(smtp_user, to_email, msg.as_string())

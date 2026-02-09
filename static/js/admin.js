@@ -7956,8 +7956,20 @@ async function saveEmailConfig() {
 }
 
 async function testEmailConfig() {
-    const testEmail = prompt('请输入测试收件邮箱地址:');
-    if (!testEmail) return;
+    const testEmail = await showPrompt({
+        title: '📧 发送测试邮件',
+        message: '请输入测试收件邮箱地址：',
+        placeholder: 'test@example.com',
+        confirmText: '发送测试',
+        type: 'info'
+    });
+    if (!testEmail || !testEmail.trim()) return;
+    
+    const email = testEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        showToast('错误', '请输入有效的邮箱地址', 'error');
+        return;
+    }
     
     showToast('发送中', '正在发送测试邮件...', 'info');
     
@@ -7967,7 +7979,7 @@ async function testEmailConfig() {
         const response = await fetch('/api/admin/email/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ test_email: testEmail })
+            body: JSON.stringify({ test_email: email })
         });
         const data = await response.json();
         
