@@ -1150,9 +1150,9 @@ DEFAULT_SYSTEM_CONFIG = {
         'auto_disable': True,           # 过期后自动禁用 Emby 账号
         'delete_days': 0,               # 过期后多少天删除 Emby 账号（0表示不删除）
         'delete_web_account': False,    # 删除 Emby 账号时是否同时删除网站账号
-        'retention_mode': 'off',        # 保号模式: off=关闭, checkin=签到保号, watch=观看保号, both=双保（签到+观看）
-        'retention_checkin_days': 20,   # 签到保号：每月需签到的天数
-        'retention_checkin_cost': 10,   # 签到保号：自动扣除的积分数
+        'retention_mode': 'off',        # 保号模式: off=关闭, checkin=积分保号, watch=观看保号, both=双保（积分+观看）
+        'retention_checkin_days': 20,   # （已弃用，保留兼容）
+        'retention_checkin_cost': 10,   # 积分保号：积分足够时自动扣除的积分数
         'retention_watch_days': 30,     # 观看保号：N天内需有观看记录
         'retention_watch_minutes': 30,  # 观看保号：累计观看时长（分钟）
         'retention_renew_days': 30,     # 保号续期天数
@@ -21088,8 +21088,8 @@ def _check_user_retention(user, now, mode, checkin_days, checkin_cost,
         user: User 对象
         now: 当前时间
         mode: 'checkin' / 'watch' / 'both'
-        checkin_days: 签到保号要求的天数（过去30天内签到天数）
-        checkin_cost: 签到保号自动扣除的积分
+        checkin_days: （已弃用，保留兼容）
+        checkin_cost: 积分保号自动扣除的积分（积分足够即可续期）
         watch_days: 观看保号检查的天数范围
         watch_minutes: 观看保号要求的累计观看分钟数
         renew_days: 续期天数
@@ -21104,24 +21104,11 @@ def _check_user_retention(user, now, mode, checkin_days, checkin_cost,
         # ===== 签到保号检查 =====
         checkin_ok = False
         if mode in ('checkin', 'both'):
-            from datetime import timedelta
-            # 检查过去30天内的签到天数
-            thirty_days_ago = (now - timedelta(days=30)).date()
-            checkin_count = CheckInRecord.query.filter(
-                CheckInRecord.user_tg == user.tg,
-                CheckInRecord.checkin_date >= thirty_days_ago
-            ).count()
-            
-            if checkin_count >= checkin_days:
-                # 检查积分是否足够
-                if (user.coins or 0) >= checkin_cost:
-                    checkin_ok = True
-                else:
-                    app.logger.info(f'[保号] {user_name}: 签到{checkin_count}天✓ 但{coin_name}不足({user.coins or 0}<{checkin_cost})，不续期')
-                    if mode == 'checkin':
-                        return False
+            # 只检查积分是否足够，不再要求签到天数
+            if (user.coins or 0) >= checkin_cost:
+                checkin_ok = True
             else:
-                app.logger.info(f'[保号] {user_name}: 签到天数不足({checkin_count}<{checkin_days})，不续期')
+                app.logger.info(f'[保号] {user_name}: {coin_name}不足({user.coins or 0}<{checkin_cost})，不续期')
                 if mode == 'checkin':
                     return False
         

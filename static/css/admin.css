@@ -7697,7 +7697,7 @@ select.custom-select:focus,
         margin-bottom: 6px;
     }
     
-    .form-group input,
+    .form-group input:not([type="checkbox"]):not([type="radio"]),
     .form-group select,
     .form-group textarea {
         width: 100%;
@@ -7705,6 +7705,15 @@ select.custom-select:focus,
         font-size: 15px;
         border-radius: 10px;
         -webkit-appearance: none;
+    }
+
+    /* 移动端 checkbox/radio 保持原生外观 */
+    .form-group input[type="checkbox"],
+    .form-group input[type="radio"] {
+        width: auto;
+        padding: 0;
+        -webkit-appearance: auto;
+        appearance: auto;
     }
     
     .form-group textarea {

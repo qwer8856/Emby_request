@@ -3219,8 +3219,6 @@ async function loadSystemConfig() {
                 // 保号配置
                 const retentionMode = document.getElementById('retentionMode');
                 if (retentionMode) retentionMode.value = config.subscription_expire.retention_mode || 'off';
-                const retCheckinDays = document.getElementById('retentionCheckinDays');
-                if (retCheckinDays) retCheckinDays.value = config.subscription_expire.retention_checkin_days ?? 20;
                 const retCheckinCost = document.getElementById('retentionCheckinCost');
                 if (retCheckinCost) retCheckinCost.value = config.subscription_expire.retention_checkin_cost ?? 10;
                 const retWatchDays = document.getElementById('retentionWatchDays');
@@ -3356,7 +3354,6 @@ async function saveSubscriptionExpireConfig() {
     const deleteDays = parseInt(document.getElementById('expireDeleteDays').value) || 0;
     const deleteWebAccount = document.getElementById('expireDeleteWebAccount').checked;
     const retentionMode = document.getElementById('retentionMode')?.value || 'off';
-    const retentionCheckinDays = parseInt(document.getElementById('retentionCheckinDays')?.value) || 20;
     const retentionCheckinCost = parseInt(document.getElementById('retentionCheckinCost')?.value) || 10;
     const retentionWatchDays = parseInt(document.getElementById('retentionWatchDays')?.value) || 30;
     const retentionWatchMinutes = parseInt(document.getElementById('retentionWatchMinutes')?.value) || 30;
@@ -3372,7 +3369,6 @@ async function saveSubscriptionExpireConfig() {
                     delete_days: deleteDays,
                     delete_web_account: deleteWebAccount,
                     retention_mode: retentionMode,
-                    retention_checkin_days: retentionCheckinDays,
                     retention_checkin_cost: retentionCheckinCost,
                     retention_watch_days: retentionWatchDays,
                     retention_watch_minutes: retentionWatchMinutes,

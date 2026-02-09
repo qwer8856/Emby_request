@@ -1686,8 +1686,9 @@
 
                             <div class="settings-form">
                                 <div class="form-group">
-                                    <label>
-                                        <input type="checkbox" id="emailEnabled" onchange="toggleEmailFields()"> 启用邮件功能
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="emailEnabled" onchange="toggleEmailFields()">
+                                        <span>启用邮件功能</span>
                                     </label>
                                     <span class="form-hint">开启后用户可绑定邮箱、通过邮箱找回密码</span>
                                 </div>
@@ -1706,8 +1707,9 @@
                                     </div>
 
                                     <div class="form-group">
-                                        <label>
-                                            <input type="checkbox" id="smtpSsl" checked> 使用 SSL 加密
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="smtpSsl" checked>
+                                            <span>使用 SSL 加密</span>
                                         </label>
                                         <span class="form-hint">端口465通常使用SSL，端口587通常使用STARTTLS</span>
                                     </div>
@@ -1730,8 +1732,9 @@
                                             <input type="text" id="emailSenderName" placeholder="Emby管理系统" class="form-input">
                                         </div>
                                         <div class="form-group">
-                                            <label>
-                                                <input type="checkbox" id="requireEmailRegister"> 注册时强制绑定邮箱
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" id="requireEmailRegister">
+                                                <span>注册时强制绑定邮箱</span>
                                             </label>
                                             <span class="form-hint">开启后用户注册时必须填写邮箱</span>
                                         </div>
@@ -2059,9 +2062,9 @@
                                     <label for="retentionMode">🛡️ 保号模式</label>
                                     <select id="retentionMode" class="form-input" onchange="toggleRetentionSettings()">
                                         <option value="off">关闭保号</option>
-                                        <option value="checkin">签到保号（签到+扣币续期）</option>
+                                        <option value="checkin">积分保号（积分足够自动扣币续期）</option>
                                         <option value="watch">观看保号（有观看记录续期）</option>
-                                        <option value="both">双保（签到+观看同时满足）</option>
+                                        <option value="both">双保（积分+观看同时满足）</option>
                                     </select>
                                     <span class="form-hint">开启后，满足条件的过期用户将自动续期而不被禁用</span>
                                 </div>
@@ -2075,24 +2078,16 @@
                                     <span class="form-hint">满足保号条件后，自动续期的天数</span>
                                 </div>
 
-                                <!-- 签到保号配置 -->
+                                <!-- 积分保号配置 -->
                                 <div id="retentionCheckinGroup" style="display:none; background:#f8f9ff; border-radius:8px; padding:15px; margin-top:10px;">
-                                    <h4 style="margin:0 0 10px 0; color:#5b6abf;">📅 签到保号条件</h4>
-                                    <div class="form-group">
-                                        <label for="retentionCheckinDays">每月签到天数要求</label>
-                                        <div class="input-with-hint">
-                                            <input type="number" id="retentionCheckinDays" placeholder="20" class="form-input" min="1" max="31" value="20">
-                                            <span class="unit-label">天</span>
-                                        </div>
-                                        <span class="form-hint">用户过去 30 天内需签到的天数（达到后才能续期）</span>
-                                    </div>
+                                    <h4 style="margin:0 0 10px 0; color:#5b6abf;">💰 积分保号条件</h4>
                                     <div class="form-group">
                                         <label for="retentionCheckinCost">续期扣除积分</label>
                                         <div class="input-with-hint">
                                             <input type="number" id="retentionCheckinCost" placeholder="10" class="form-input" min="0" value="10">
                                             <span class="unit-label" id="retentionCoinUnit">积分</span>
                                         </div>
-                                        <span class="form-hint">签到达标后自动扣除的积分数量（0 表示免费续期）</span>
+                                        <span class="form-hint">用户积分 ≥ 此值时自动扣除并续期（0 表示免费续期）</span>
                                     </div>
                                 </div>
 
@@ -3139,8 +3134,9 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>
-                            <input type="checkbox" id="announcementPinned"> 置顶显示
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="announcementPinned">
+                            <span>置顶显示</span>
                         </label>
                     </div>
                 </div>
