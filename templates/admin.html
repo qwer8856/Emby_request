@@ -3806,7 +3806,7 @@
         window.ADMIN_INFO = {{ admin_info | default({'is_super': true, 'permissions': [], 'username': '管理员'}) | tojson }};
         window.PERMISSION_GROUPS = {{ permission_groups | default({}) | tojson }};
     </script>
-    <script src="{{ url_for('static', filename='js/admin.js') }}?v=35"></script>
+    <script src="{{ url_for('static', filename='js/admin.js') }}?v=36"></script>
     <script src="{{ url_for('static', filename='js/admin-checkin.js') }}?v=8"></script>
 
 </body>

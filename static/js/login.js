@@ -118,19 +118,28 @@
                         
                         // 延迟跳转，使用多重保障确保跳转成功
                         const targetUrl = data.redirect || '/dashboard';
+                        
+                        // 第一次尝试：500ms 后跳转
                         setTimeout(() => {
-                            try {
-                                window.location.replace(targetUrl);
-                            } catch (e) {
-                                window.location.href = targetUrl;
-                            }
-                            // 兜底：如果 replace 没生效，1.5秒后强制跳转
-                            setTimeout(() => {
-                                if (window.location.pathname !== targetUrl) {
-                                    window.location.href = targetUrl;
-                                }
-                            }, 1500);
+                            console.log('[Login] 开始跳转到:', targetUrl);
+                            window.location.href = targetUrl;
                         }, 500);
+                        
+                        // 第二次兜底：2秒后检查并重试
+                        setTimeout(() => {
+                            if (window.location.pathname !== '/dashboard') {
+                                console.log('[Login] 兜底跳转');
+                                window.location.replace(targetUrl);
+                            }
+                        }, 2000);
+                        
+                        // 第三次兜底：4秒后强制刷新
+                        setTimeout(() => {
+                            if (window.location.pathname !== '/dashboard') {
+                                console.log('[Login] 强制跳转');
+                                window.location = targetUrl;
+                            }
+                        }, 4000);
                     } else {
                         console.warn('登录失败，服务器返回:', data);
                         showToast('登录失败', data.error || '请检查用户名和密码', 'error');

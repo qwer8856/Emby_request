@@ -3558,6 +3558,7 @@ async function loadSystemConfig() {
             }
             
             // 填充登录通知配置
+            console.log('[LoginNotify] 加载配置:', config.login_notify);
             if (config.login_notify) {
                 const lnEnabled = document.getElementById('loginNotifyEnabled');
                 const lnEmail = document.getElementById('loginNotifyEmail');
@@ -3637,9 +3638,15 @@ async function saveEmbyConfig() {
 
 // 登录安全通知配置
 async function saveLoginNotifyConfig() {
-    const enabled = document.getElementById('loginNotifyEnabled')?.checked || false;
-    const email = document.getElementById('loginNotifyEmail')?.checked || false;
-    const telegram = document.getElementById('loginNotifyTelegram')?.checked || false;
+    const enabledEl = document.getElementById('loginNotifyEnabled');
+    const emailEl = document.getElementById('loginNotifyEmail');
+    const telegramEl = document.getElementById('loginNotifyTelegram');
+    
+    const enabled = enabledEl ? enabledEl.checked : false;
+    const email = emailEl ? emailEl.checked : false;
+    const telegram = telegramEl ? telegramEl.checked : false;
+    
+    console.log('[LoginNotify] 保存配置:', { enabled, email, telegram });
     
     try {
         const response = await fetch('/api/admin/system-config', {
@@ -3650,13 +3657,16 @@ async function saveLoginNotifyConfig() {
             })
         });
         const data = await response.json();
+        console.log('[LoginNotify] 保存响应:', data);
         if (data.success) {
             showToast('成功', '登录通知配置已保存', 'success');
+            // 清除配置缓存后重新加载
             setTimeout(() => loadSystemConfig(), 500);
         } else {
             showToast('失败', data.error || '保存失败', 'error');
         }
     } catch (error) {
+        console.error('[LoginNotify] 保存错误:', error);
         showToast('错误', '保存失败: ' + error.message, 'error');
     }
 }

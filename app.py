@@ -1373,65 +1373,69 @@ def get_admin_config():
     return config.get('admin', {})
 
 
-def load_system_config():
-    """加载系统配置 - 优先从数据库读取，回退到文件"""
+def load_system_config(use_cache=True):
+    """加载系统配置 - 优先从数据库读取，回退到文件
+    
+    Args:
+        use_cache: 是否使用内存缓存，默认True。管理员保存后重新加载时传False以确保读取最新值。
+    """
     config = get_default_system_config()
     
     # 尝试从数据库读取各配置项
     try:
         if has_app_context():
             # 从数据库读取各配置项
-            db_admin = get_db_config(CONFIG_KEY_ADMIN)
+            db_admin = get_db_config(CONFIG_KEY_ADMIN, use_cache=use_cache)
             if db_admin:
                 config['admin'] = db_admin
             
-            db_emby = get_db_config(CONFIG_KEY_EMBY)
+            db_emby = get_db_config(CONFIG_KEY_EMBY, use_cache=use_cache)
             if db_emby:
                 config['emby'].update(db_emby)
             
-            db_telegram = get_db_config(CONFIG_KEY_TELEGRAM)
+            db_telegram = get_db_config(CONFIG_KEY_TELEGRAM, use_cache=use_cache)
             if db_telegram:
                 if 'templates' not in db_telegram:
                     db_telegram['templates'] = {'request': '', 'completion': ''}
                 config['telegram'].update(db_telegram)
             
-            db_search = get_db_config(CONFIG_KEY_SEARCH)
+            db_search = get_db_config(CONFIG_KEY_SEARCH, use_cache=use_cache)
             if db_search:
                 config['search'].update(db_search)
             
-            db_tmdb = get_db_config(CONFIG_KEY_TMDB)
+            db_tmdb = get_db_config(CONFIG_KEY_TMDB, use_cache=use_cache)
             if db_tmdb:
                 config['tmdb'].update(db_tmdb)
             
-            db_request_limit = get_db_config(CONFIG_KEY_REQUEST_LIMIT)
+            db_request_limit = get_db_config(CONFIG_KEY_REQUEST_LIMIT, use_cache=use_cache)
             if db_request_limit:
                 config['request_limit'].update(db_request_limit)
             
-            db_category = get_db_config(CONFIG_KEY_CATEGORY)
+            db_category = get_db_config(CONFIG_KEY_CATEGORY, use_cache=use_cache)
             if db_category:
                 config['category'] = db_category
             
-            db_checkin = get_db_config(CONFIG_KEY_CHECKIN)
+            db_checkin = get_db_config(CONFIG_KEY_CHECKIN, use_cache=use_cache)
             if db_checkin:
                 config['checkin'] = db_checkin
             
-            db_subscription_expire = get_db_config(CONFIG_KEY_SUBSCRIPTION_EXPIRE)
+            db_subscription_expire = get_db_config(CONFIG_KEY_SUBSCRIPTION_EXPIRE, use_cache=use_cache)
             if db_subscription_expire:
                 config['subscription_expire'] = db_subscription_expire
             
-            db_invite_reward = get_db_config(CONFIG_KEY_INVITE_REWARD)
+            db_invite_reward = get_db_config(CONFIG_KEY_INVITE_REWARD, use_cache=use_cache)
             if db_invite_reward:
                 config['invite_reward'] = db_invite_reward
             
-            db_email = get_db_config(CONFIG_KEY_EMAIL)
+            db_email = get_db_config(CONFIG_KEY_EMAIL, use_cache=use_cache)
             if db_email:
                 config['email'] = db_email
             
-            db_login_notify = get_db_config(CONFIG_KEY_LOGIN_NOTIFY)
+            db_login_notify = get_db_config(CONFIG_KEY_LOGIN_NOTIFY, use_cache=use_cache)
             if db_login_notify:
                 config['login_notify'] = db_login_notify
             
-            db_expire_remind = get_db_config(CONFIG_KEY_EXPIRE_REMIND)
+            db_expire_remind = get_db_config(CONFIG_KEY_EXPIRE_REMIND, use_cache=use_cache)
             if db_expire_remind:
                 config['expire_remind'] = db_expire_remind
             
@@ -1552,52 +1556,55 @@ def save_system_config(config):
     """保存系统配置 - 同时保存到数据库和文件"""
     db_success = True
     file_success = True
+    _save_failures = []
     
     # 保存到数据库
     try:
         if has_app_context():
             if 'admin' in config:
                 if not set_db_config(CONFIG_KEY_ADMIN, config['admin'], '管理员配置'):
-                    print(f"[WARNING] 保存 admin 配置失败")
+                    _save_failures.append('admin')
             if 'emby' in config:
                 if not set_db_config(CONFIG_KEY_EMBY, config['emby'], 'Emby 服务器配置'):
-                    print(f"[WARNING] 保存 emby 配置失败")
+                    _save_failures.append('emby')
             if 'telegram' in config:
                 if not set_db_config(CONFIG_KEY_TELEGRAM, config['telegram'], 'Telegram BOT配置'):
-                    print(f"[WARNING] 保存 telegram 配置失败")
-                    db_success = False
+                    _save_failures.append('telegram')
             if 'search' in config:
                 if not set_db_config(CONFIG_KEY_SEARCH, config['search'], '搜索策略配置'):
-                    print(f"[WARNING] 保存 search 配置失败")
+                    _save_failures.append('search')
             if 'tmdb' in config:
                 if not set_db_config(CONFIG_KEY_TMDB, config['tmdb'], 'TMDB API 配置'):
-                    print(f"[WARNING] 保存 tmdb 配置失败")
+                    _save_failures.append('tmdb')
             if 'request_limit' in config:
                 if not set_db_config(CONFIG_KEY_REQUEST_LIMIT, config['request_limit'], '求片限制配置'):
-                    print(f"[WARNING] 保存 request_limit 配置失败")
+                    _save_failures.append('request_limit')
             if 'category' in config:
                 if not set_db_config(CONFIG_KEY_CATEGORY, config['category'], '二级分类策略'):
-                    print(f"[WARNING] 保存 category 配置失败")
+                    _save_failures.append('category')
             if 'checkin' in config:
                 if not set_db_config(CONFIG_KEY_CHECKIN, config['checkin'], '签到系统配置'):
-                    print(f"[WARNING] 保存 checkin 配置失败")
+                    _save_failures.append('checkin')
             if 'subscription_expire' in config:
                 if not set_db_config(CONFIG_KEY_SUBSCRIPTION_EXPIRE, config['subscription_expire'], '订阅过期管理配置'):
-                    print(f"[WARNING] 保存 subscription_expire 配置失败")
+                    _save_failures.append('subscription_expire')
             if 'invite_reward' in config:
                 if not set_db_config(CONFIG_KEY_INVITE_REWARD, config['invite_reward'], '邀请返利配置'):
-                    print(f"[WARNING] 保存 invite_reward 配置失败")
+                    _save_failures.append('invite_reward')
             if 'email' in config:
                 if not set_db_config(CONFIG_KEY_EMAIL, config['email'], '邮件SMTP配置'):
-                    print(f"[WARNING] 保存 email 配置失败")
+                    _save_failures.append('email')
             if 'login_notify' in config:
                 if not set_db_config(CONFIG_KEY_LOGIN_NOTIFY, config['login_notify'], '登录通知配置'):
-                    print(f"[WARNING] 保存 login_notify 配置失败")
+                    _save_failures.append('login_notify')
             if 'expire_remind' in config:
                 if not set_db_config(CONFIG_KEY_EXPIRE_REMIND, config['expire_remind'], '到期提醒配置'):
-                    print(f"[WARNING] 保存 expire_remind 配置失败")
+                    _save_failures.append('expire_remind')
             
-            if db_success:
+            if _save_failures:
+                db_success = False
+                print(f"[WARNING] 以下配置保存到数据库失败: {', '.join(_save_failures)}")
+            else:
                 print("[CONFIG] 配置已保存到数据库")
         else:
             print("[WARNING] 无应用上下文，跳过数据库保存")
@@ -6879,11 +6886,13 @@ def login():
             user.session_token = new_token
             db.session.commit()
             
+            session.permanent = True  # 使 PERMANENT_SESSION_LIFETIME 生效
             session['user_id'] = user.tg
             session['username'] = user.name
             session['is_admin'] = user.is_admin
             session['user_level'] = user.lv
             session['session_token'] = new_token  # 存储token到session
+            session.modified = True  # 强制 Flask 发送 Set-Cookie
             app.logger.info(f'用户 {username} 登录成功')
             log_user_activity(UserActivityLog.ACTION_LOGIN, user=user, detail='网页登录成功')
             
@@ -8139,90 +8148,94 @@ def dynamic_manifest():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    user = db.session.get(User, session['user_id'])
-    
-    if not user:
-        session.clear()
-        return redirect(url_for('login'))
-    
-    # 检查用户是否被封禁
-    is_banned = user.lv == 'c'
-    
-    today_count = user.get_today_request_count()
-    
-    # 管理员显示无限制
-    if user.is_admin:
-        daily_limit = '无限制'
-        remaining = '无限制'
-    else:
-        daily_limit = user.get_daily_limit()
-        remaining = daily_limit - today_count
-    
-    # 优化：使用单个查询获取求片记录和总数
-    requests_query = MovieRequest.query.options(joinedload(MovieRequest.download_task)).filter_by(user_tg=user.tg).order_by(MovieRequest.created_at.desc())
-    requests = requests_query.limit(100).all()  # 限制返回数量，提升性能
-    total_requests = requests_query.count()
-    
-    # 用户等级显示名称 - 根据实际订阅状态判断
-    if user.lv == 'c':
-        level_name = '账号已封禁'
-    elif user.lv == 'a':
-        level_name = '白名单用户'
-    elif user.ex and user.ex > datetime.now():
-        level_name = '订阅用户'
-    else:
-        level_name = '未订阅用户'
-    
-    # 检查用户是否已绑定 Telegram Bot
-    user_has_bot = bool(user.tg)
-    bot_username = os.getenv('BOT_USERNAME', 'YourBotUsername')
-    
-    # 获取Emby媒体库数量统计
-    library_counts = emby_client.get_library_counts() if emby_client.is_enabled() else {'movies': 0, 'series': 0, 'episodes': 0, 'total': 0}
-    
-    # 加载前端配置
-    site_config = get_site_config()
-    # 如果配置中设置了 bot_username，优先使用配置的值
-    if site_config.get('telegram_bot_username'):
-        bot_username = site_config['telegram_bot_username']
-    
-    # 根据配置决定是否使用图片代理
-    # 大陆用户建议开启代理，海外用户可关闭以加速
-    if site_config.get('use_image_proxy', True):
-        tmdb_image_base = '/api/tmdb-image/w500'
-    else:
-        tmdb_image_base = 'https://image.tmdb.org/t/p/w500'
-    
-    # 获取邀请返利开关状态
-    _invite_cfg = get_system_config().get('invite_reward', {})
-    invite_reward_enabled = _invite_cfg.get('enabled', True)
-    invite_reward_percent = _invite_cfg.get('reward_percent', 10)
-    
-    # 获取邮箱功能开关状态
-    _email_cfg = get_system_config().get('email', {})
-    email_enabled = _email_cfg.get('enabled', False)
-    
-    return render_template('dashboard.html', 
-                         user=user, 
-                         today_count=today_count, 
-                         remaining=remaining,
-                         max_daily=daily_limit,
-                         total_requests=total_requests,
-                         level_name=level_name,
-                         requests=requests,
-                         tmdb_image_base=tmdb_image_base,
-                         announcement_enabled=ANNOUNCEMENT_ENABLED,
-                         announcement_content=ANNOUNCEMENT_CONTENT,
-                         user_has_bot=user_has_bot,
-                         bot_username=bot_username,
-                         library_counts=library_counts,
-                         is_banned=is_banned,
-                         now=datetime.now(),
-                         site_config=site_config,
-                         invite_reward_enabled=invite_reward_enabled,
-                         invite_reward_percent=invite_reward_percent,
-                         email_enabled=email_enabled,
-                         app_version=APP_VERSION)
+    try:
+        user = db.session.get(User, session['user_id'])
+        
+        if not user:
+            session.clear()
+            return redirect(url_for('login'))
+        
+        # 检查用户是否被封禁
+        is_banned = user.lv == 'c'
+        
+        today_count = user.get_today_request_count()
+        
+        # 管理员显示无限制
+        if user.is_admin:
+            daily_limit = '无限制'
+            remaining = '无限制'
+        else:
+            daily_limit = user.get_daily_limit()
+            remaining = daily_limit - today_count
+        
+        # 优化：使用单个查询获取求片记录和总数
+        requests_query = MovieRequest.query.options(joinedload(MovieRequest.download_task)).filter_by(user_tg=user.tg).order_by(MovieRequest.created_at.desc())
+        requests = requests_query.limit(100).all()  # 限制返回数量，提升性能
+        total_requests = requests_query.count()
+        
+        # 用户等级显示名称 - 根据实际订阅状态判断
+        if user.lv == 'c':
+            level_name = '账号已封禁'
+        elif user.lv == 'a':
+            level_name = '白名单用户'
+        elif user.ex and user.ex > datetime.now():
+            level_name = '订阅用户'
+        else:
+            level_name = '未订阅用户'
+        
+        # 检查用户是否已绑定 Telegram Bot
+        user_has_bot = bool(user.tg)
+        bot_username = os.getenv('BOT_USERNAME', 'YourBotUsername')
+        
+        # 获取Emby媒体库数量统计
+        library_counts = emby_client.get_library_counts() if emby_client.is_enabled() else {'movies': 0, 'series': 0, 'episodes': 0, 'total': 0}
+        
+        # 加载前端配置
+        site_config = get_site_config()
+        # 如果配置中设置了 bot_username，优先使用配置的值
+        if site_config.get('telegram_bot_username'):
+            bot_username = site_config['telegram_bot_username']
+        
+        # 根据配置决定是否使用图片代理
+        # 大陆用户建议开启代理，海外用户可关闭以加速
+        if site_config.get('use_image_proxy', True):
+            tmdb_image_base = '/api/tmdb-image/w500'
+        else:
+            tmdb_image_base = 'https://image.tmdb.org/t/p/w500'
+        
+        # 获取邀请返利开关状态
+        _invite_cfg = get_system_config().get('invite_reward', {})
+        invite_reward_enabled = _invite_cfg.get('enabled', True)
+        invite_reward_percent = _invite_cfg.get('reward_percent', 10)
+        
+        # 获取邮箱功能开关状态
+        _email_cfg = get_system_config().get('email', {})
+        email_enabled = _email_cfg.get('enabled', False)
+        
+        return render_template('dashboard.html', 
+                             user=user, 
+                             today_count=today_count, 
+                             remaining=remaining,
+                             max_daily=daily_limit,
+                             total_requests=total_requests,
+                             level_name=level_name,
+                             requests=requests,
+                             tmdb_image_base=tmdb_image_base,
+                             announcement_enabled=ANNOUNCEMENT_ENABLED,
+                             announcement_content=ANNOUNCEMENT_CONTENT,
+                             user_has_bot=user_has_bot,
+                             bot_username=bot_username,
+                             library_counts=library_counts,
+                             is_banned=is_banned,
+                             now=datetime.now(),
+                             site_config=site_config,
+                             invite_reward_enabled=invite_reward_enabled,
+                             invite_reward_percent=invite_reward_percent,
+                             email_enabled=email_enabled,
+                             app_version=APP_VERSION)
+    except Exception as e:
+        app.logger.error(f'Dashboard 渲染异常: {e}', exc_info=True)
+        return f'<h2>页面加载失败</h2><p>请尝试刷新页面，或联系管理员。</p><p>错误: {e}</p><p><a href="/login">返回登录</a></p>', 500
 
 
 @app.route('/search')
@@ -9617,11 +9630,13 @@ def admin_login_api():
             if admin_user.password_hash == password_hash:
                 # AdminUser 表密码匹配，直接登录
                 admin_login_limiter.record_success(extra_key='admin')
+                session.permanent = True
                 session['admin_logged_in'] = True
                 session['admin_username'] = username
                 session['admin_user_id'] = admin_user.id
                 session['admin_is_super'] = admin_user.is_super
                 session['admin_login_time'] = datetime.now().isoformat()
+                session.modified = True
                 admin_user.last_login = datetime.now()
                 db.session.commit()
                 app.logger.info(f'管理员 {username} (ID:{admin_user.id}) 登录成功')
@@ -9648,11 +9663,13 @@ def admin_login_api():
                     admin_user.last_login = datetime.now()
                     db.session.commit()
                     
+                    session.permanent = True
                     session['admin_logged_in'] = True
                     session['admin_username'] = username
                     session['admin_user_id'] = admin_user.id
                     session['admin_is_super'] = True
                     session['admin_login_time'] = datetime.now().isoformat()
+                    session.modified = True
                     
                     app.logger.info(f'超级管理员 {username} 登录成功（SystemConfig认证，已同步密码到AdminUser表）')
                     log_admin_audit('admin_login', detail=f'超级管理员 {username} 登录成功（SystemConfig认证）')
@@ -9679,10 +9696,12 @@ def admin_login_api():
     
     if username == stored_username and password_hash == stored_password_hash:
         admin_login_limiter.record_success(extra_key='admin')
+        session.permanent = True
         session['admin_logged_in'] = True
         session['admin_username'] = username
         session['admin_is_super'] = True
         session['admin_login_time'] = datetime.now().isoformat()
+        session.modified = True
         
         # 尝试同步到 AdminUser 表（确保超级管理员存在于表中）
         try:
@@ -17486,8 +17505,8 @@ def clear_config_cache():
 @app.route('/api/admin/system-config', methods=['GET'])
 @admin_required
 def get_system_config_api():
-    """获取系统配置（管理员）"""
-    config = get_system_config()
+    """获取系统配置（管理员）- 不使用缓存确保读取最新值"""
+    config = load_system_config(use_cache=False)
     templates = config['telegram'].get('templates', {'request': '', 'completion': ''})
     return jsonify({
         'success': True,
@@ -17776,6 +17795,7 @@ def save_system_config_api():
                 current_config['login_notify']['email'] = bool(ln['email'])
             if 'telegram' in ln:
                 current_config['login_notify']['telegram'] = bool(ln['telegram'])
+            app.logger.info(f'[CONFIG] 更新 login_notify: {current_config["login_notify"]}')
         
         # 更新到期提醒配置
         if 'expire_remind' in data:
@@ -17792,6 +17812,7 @@ def save_system_config_api():
                 current_config['expire_remind']['email'] = bool(er['email'])
             if 'telegram' in er:
                 current_config['expire_remind']['telegram'] = bool(er['telegram'])
+            app.logger.info(f'[CONFIG] 更新 expire_remind: {current_config["expire_remind"]}')
         
         # 保存到文件
         if save_system_config(current_config):
