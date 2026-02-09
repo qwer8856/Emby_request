@@ -249,7 +249,12 @@ let currentRequestId = null;
         // 页面加载后初始化
         document.addEventListener('DOMContentLoaded', () => {
             // 从URL hash恢复上次访问的页面
-            restoreAdminSectionFromHash();
+            const restored = restoreAdminSectionFromHash();
+            
+            // 如果没有hash恢复，默认加载仪表盘
+            if (!restored) {
+                loadDashboardStats();
+            }
             
             initCharts();
             initDownloadPolling();
@@ -1443,7 +1448,7 @@ let currentRequestId = null;
         }
 
 // ==================== 管理模块切换 ====================
-let currentAdminSection = 'requests';
+let currentAdminSection = 'dashboard';
 
 function switchAdminSection(section, event, updateHash = true) {
     if (event) event.preventDefault();
@@ -1469,6 +1474,7 @@ function switchAdminSection(section, event, updateHash = true) {
     
     // 更新页面标题
     const titles = {
+        'dashboard': '仪表盘',
         'requests': '求片管理',
         'subscriptions': '订阅管理',
         'orders': '订单管理',
@@ -1495,6 +1501,9 @@ function switchAdminSection(section, event, updateHash = true) {
     
     // 加载对应模块数据
     switch(section) {
+        case 'dashboard':
+            loadDashboardStats();
+            break;
         case 'subscriptions':
             loadSubscriptions();
             break;
@@ -8023,4 +8032,127 @@ async function sendBroadcastEmail() {
     } catch (error) {
         showToast('错误', '发送请求失败', 'error');
     }
+}
+
+// ==================== 仪表盘总览 ====================
+
+let dashboardLoaded = false;
+
+async function loadDashboardStats() {
+    try {
+        const response = await fetch('/api/admin/dashboard-stats');
+        const data = await response.json();
+        if (!data.success) {
+            showToast('错误', data.error || '获取仪表盘数据失败', 'error');
+            return;
+        }
+        const d = data.data;
+
+        // 核心指标
+        setText('dash-total-users', d.users.total);
+        setText('dash-active-users', d.users.active);
+        setText('dash-total-revenue', '¥' + d.orders.total_revenue.toFixed(2));
+        setText('dash-today-new', d.users.today_new);
+
+        // 用户统计
+        setText('dash-users-total', d.users.total);
+        setText('dash-users-whitelist', d.users.whitelist);
+        setText('dash-users-subscriber', d.users.subscriber);
+        setText('dash-users-expired', d.users.expired);
+        setText('dash-users-banned', d.users.banned);
+        setText('dash-users-today', d.users.today_new);
+
+        // 求片统计
+        setText('dash-requests-total', d.requests.total);
+        setText('dash-requests-pending', d.requests.pending);
+        setText('dash-requests-downloading', d.requests.downloading);
+        setText('dash-requests-completed', d.requests.completed);
+        setText('dash-requests-rejected', d.requests.rejected);
+        setText('dash-requests-today', d.requests.today);
+
+        // 订单统计
+        setText('dash-orders-total', d.orders.total);
+        setText('dash-orders-paid', d.orders.paid);
+        setText('dash-orders-pending', d.orders.pending);
+        setText('dash-orders-revenue', '¥' + d.orders.total_revenue.toFixed(2));
+        setText('dash-orders-today', d.orders.today_orders);
+        setText('dash-orders-today-revenue', '¥' + d.orders.today_revenue.toFixed(2));
+
+        // 兑换码统计
+        setText('dash-redeem-total', d.redeem.total);
+        setText('dash-redeem-used', d.redeem.used);
+        setText('dash-redeem-unused', d.redeem.unused);
+        setText('dash-redeem-expired', d.redeem.expired);
+
+        // 工单统计
+        setText('dash-tickets-total', d.tickets.total);
+        setText('dash-tickets-open', d.tickets.open);
+        setText('dash-tickets-progress', d.tickets.in_progress);
+        setText('dash-tickets-closed', d.tickets.closed);
+
+        // 播放统计
+        setText('dash-playback-total', d.playback.total);
+        setText('dash-playback-today', d.playback.today);
+        setText('dash-playback-hours', d.playback.total_hours + 'h');
+
+        // 签到 & 积分
+        setText('dash-checkin-today', d.checkin.today);
+        setText('dash-checkin-total', d.checkin.total);
+        setText('dash-coins-total', d.coins.total_circulation);
+
+        // 线路统计
+        setText('dash-lines-total', d.lines.total);
+        setText('dash-lines-active', d.lines.active);
+
+        // 渲染7天趋势图
+        renderWeekTrend(d.week_trend);
+
+        dashboardLoaded = true;
+    } catch (error) {
+        console.error('加载仪表盘数据失败:', error);
+        showToast('错误', '加载仪表盘数据失败', 'error');
+    }
+}
+
+function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+}
+
+function renderWeekTrend(trend) {
+    const container = document.getElementById('dashboardTrendChart');
+    if (!container || !trend || !trend.length) return;
+
+    // 找出最大值用于计算柱状图宽度
+    let maxVal = 1;
+    trend.forEach(item => {
+        maxVal = Math.max(maxVal, item.users, item.requests, item.orders);
+    });
+
+    let html = '<table class="trend-table"><thead><tr>';
+    html += '<th>日期</th><th>新增用户</th><th>新增求片</th><th>成交订单</th>';
+    html += '</tr></thead><tbody>';
+
+    trend.forEach(item => {
+        const userPct = Math.max(2, (item.users / maxVal) * 100);
+        const reqPct = Math.max(2, (item.requests / maxVal) * 100);
+        const orderPct = Math.max(2, (item.orders / maxVal) * 100);
+
+        html += '<tr>';
+        html += `<td><strong>${item.date}</strong></td>`;
+        html += `<td class="trend-bar-cell"><div class="trend-bar-container"><div class="trend-bar bar-users" style="width:${userPct}%"></div><span class="trend-bar-value">${item.users}</span></div></td>`;
+        html += `<td class="trend-bar-cell"><div class="trend-bar-container"><div class="trend-bar bar-requests" style="width:${reqPct}%"></div><span class="trend-bar-value">${item.requests}</span></div></td>`;
+        html += `<td class="trend-bar-cell"><div class="trend-bar-container"><div class="trend-bar bar-orders" style="width:${orderPct}%"></div><span class="trend-bar-value">${item.orders}</span></div></td>`;
+        html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+
+    html += '<div class="trend-legend">';
+    html += '<div class="trend-legend-item"><span class="trend-legend-dot dot-users"></span>新增用户</div>';
+    html += '<div class="trend-legend-item"><span class="trend-legend-dot dot-requests"></span>新增求片</div>';
+    html += '<div class="trend-legend-item"><span class="trend-legend-dot dot-orders"></span>成交订单</div>';
+    html += '</div>';
+
+    container.innerHTML = html;
 }

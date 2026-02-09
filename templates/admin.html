@@ -79,9 +79,9 @@
     <script>
         (function () {
             var hash = window.location.hash.slice(1);
-            var validSections = ['requests', 'users', 'orders', 'redeem', 'playback', 'tickets', 'invites', 'plans', 'knowledge', 'settings'];
-            // 如果没有hash或hash是requests（默认），移除预加载样式让默认的active生效
-            if (!hash || hash === 'requests' || validSections.indexOf(hash) === -1) {
+            var validSections = ['dashboard', 'requests', 'users', 'orders', 'redeem', 'playback', 'tickets', 'invites', 'plans', 'knowledge', 'settings'];
+            // 如果没有hash或hash是dashboard（默认），移除预加载样式让默认的active生效
+            if (!hash || hash === 'dashboard' || validSections.indexOf(hash) === -1) {
                 var style = document.getElementById('preload-style');
                 if (style) style.remove();
             }
@@ -117,7 +117,12 @@
             </div>
 
             <nav class="sidebar-nav">
-                <a href="#" class="nav-item active" data-section="requests"
+                <a href="#" class="nav-item active" data-section="dashboard"
+                    onclick="switchAdminSection('dashboard', event)">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">仪表盘</span>
+                </a>
+                <a href="#" class="nav-item" data-section="requests"
                     onclick="switchAdminSection('requests', event)">
                     <span class="nav-icon">📋</span>
                     <span class="nav-text">求片管理</span>
@@ -178,15 +183,287 @@
             <!-- 顶部导航栏 -->
             <div class="admin-topbar">
                 <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
-                <h1 class="page-title" id="pageTitle">求片管理</h1>
+                <h1 class="page-title" id="pageTitle">仪表盘</h1>
                 <div class="topbar-actions">
                     <span class="admin-user">{{ session.get('username', '管理员') }}</span>
                 </div>
             </div>
 
             <div class="admin-content">
+                <!-- 仪表盘总览 -->
+                <section id="section-dashboard" class="admin-section active">
+                    <div class="dashboard-header">
+                        <h2 class="dashboard-title">📊 系统总览</h2>
+                        <button class="btn btn-primary btn-sm" onclick="loadDashboardStats()" title="刷新数据">
+                            <span>🔄</span> 刷新
+                        </button>
+                    </div>
+
+                    <!-- 核心指标卡片 -->
+                    <div class="dashboard-highlights">
+                        <div class="highlight-card highlight-users">
+                            <div class="highlight-icon">👥</div>
+                            <div class="highlight-info">
+                                <span class="highlight-value" id="dash-total-users">-</span>
+                                <span class="highlight-label">总用户数</span>
+                            </div>
+                        </div>
+                        <div class="highlight-card highlight-active">
+                            <div class="highlight-icon">✅</div>
+                            <div class="highlight-info">
+                                <span class="highlight-value" id="dash-active-users">-</span>
+                                <span class="highlight-label">活跃用户</span>
+                            </div>
+                        </div>
+                        <div class="highlight-card highlight-revenue">
+                            <div class="highlight-icon">💰</div>
+                            <div class="highlight-info">
+                                <span class="highlight-value" id="dash-total-revenue">-</span>
+                                <span class="highlight-label">总收入</span>
+                            </div>
+                        </div>
+                        <div class="highlight-card highlight-today">
+                            <div class="highlight-icon">📅</div>
+                            <div class="highlight-info">
+                                <span class="highlight-value" id="dash-today-new">-</span>
+                                <span class="highlight-label">今日新增</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 分类统计区域 -->
+                    <div class="dashboard-grid">
+                        <!-- 用户统计 -->
+                        <div class="dashboard-card" onclick="switchAdminSection('users', null)">
+                            <div class="dashboard-card-header">
+                                <span class="card-icon">👥</span>
+                                <h3>用户统计</h3>
+                            </div>
+                            <div class="dashboard-card-body">
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">总用户</span>
+                                    <span class="dash-stat-value" id="dash-users-total">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">白名单</span>
+                                    <span class="dash-stat-value dash-val-green" id="dash-users-whitelist">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">普通订阅</span>
+                                    <span class="dash-stat-value dash-val-blue" id="dash-users-subscriber">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">已过期</span>
+                                    <span class="dash-stat-value dash-val-orange" id="dash-users-expired">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">已封禁</span>
+                                    <span class="dash-stat-value dash-val-red" id="dash-users-banned">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">今日新增</span>
+                                    <span class="dash-stat-value dash-val-purple" id="dash-users-today">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 求片统计 -->
+                        <div class="dashboard-card" onclick="switchAdminSection('requests', null)">
+                            <div class="dashboard-card-header">
+                                <span class="card-icon">📋</span>
+                                <h3>求片统计</h3>
+                            </div>
+                            <div class="dashboard-card-body">
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">总求片</span>
+                                    <span class="dash-stat-value" id="dash-requests-total">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">待处理</span>
+                                    <span class="dash-stat-value dash-val-orange" id="dash-requests-pending">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">下载中</span>
+                                    <span class="dash-stat-value dash-val-blue" id="dash-requests-downloading">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">已完成</span>
+                                    <span class="dash-stat-value dash-val-green" id="dash-requests-completed">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">已拒绝</span>
+                                    <span class="dash-stat-value dash-val-red" id="dash-requests-rejected">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">今日新增</span>
+                                    <span class="dash-stat-value dash-val-purple" id="dash-requests-today">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 订单统计 -->
+                        <div class="dashboard-card" onclick="switchAdminSection('orders', null)">
+                            <div class="dashboard-card-header">
+                                <span class="card-icon">📦</span>
+                                <h3>订单统计</h3>
+                            </div>
+                            <div class="dashboard-card-body">
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">总订单</span>
+                                    <span class="dash-stat-value" id="dash-orders-total">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">已支付</span>
+                                    <span class="dash-stat-value dash-val-green" id="dash-orders-paid">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">待支付</span>
+                                    <span class="dash-stat-value dash-val-orange" id="dash-orders-pending">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">总收入</span>
+                                    <span class="dash-stat-value dash-val-green" id="dash-orders-revenue">¥-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">今日订单</span>
+                                    <span class="dash-stat-value dash-val-blue" id="dash-orders-today">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">今日收入</span>
+                                    <span class="dash-stat-value dash-val-purple" id="dash-orders-today-revenue">¥-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 兑换码统计 -->
+                        <div class="dashboard-card" onclick="switchAdminSection('redeem', null)">
+                            <div class="dashboard-card-header">
+                                <span class="card-icon">🎟️</span>
+                                <h3>兑换码统计</h3>
+                            </div>
+                            <div class="dashboard-card-body">
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">总数量</span>
+                                    <span class="dash-stat-value" id="dash-redeem-total">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">已使用</span>
+                                    <span class="dash-stat-value dash-val-green" id="dash-redeem-used">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">可使用</span>
+                                    <span class="dash-stat-value dash-val-blue" id="dash-redeem-unused">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">已过期</span>
+                                    <span class="dash-stat-value dash-val-red" id="dash-redeem-expired">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 工单统计 -->
+                        <div class="dashboard-card" onclick="switchAdminSection('tickets', null)">
+                            <div class="dashboard-card-header">
+                                <span class="card-icon">🎫</span>
+                                <h3>工单统计</h3>
+                            </div>
+                            <div class="dashboard-card-body">
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">总工单</span>
+                                    <span class="dash-stat-value" id="dash-tickets-total">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">待处理</span>
+                                    <span class="dash-stat-value dash-val-orange" id="dash-tickets-open">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">处理中</span>
+                                    <span class="dash-stat-value dash-val-blue" id="dash-tickets-progress">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">已关闭</span>
+                                    <span class="dash-stat-value dash-val-green" id="dash-tickets-closed">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 播放统计 -->
+                        <div class="dashboard-card" onclick="switchAdminSection('playback', null)">
+                            <div class="dashboard-card-header">
+                                <span class="card-icon">📺</span>
+                                <h3>播放统计</h3>
+                            </div>
+                            <div class="dashboard-card-body">
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">总播放</span>
+                                    <span class="dash-stat-value" id="dash-playback-total">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">今日播放</span>
+                                    <span class="dash-stat-value dash-val-blue" id="dash-playback-today">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">总时长</span>
+                                    <span class="dash-stat-value dash-val-purple" id="dash-playback-hours">-h</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 签到 & 积分 -->
+                        <div class="dashboard-card">
+                            <div class="dashboard-card-header">
+                                <span class="card-icon">✨</span>
+                                <h3>签到 & 积分</h3>
+                            </div>
+                            <div class="dashboard-card-body">
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">今日签到</span>
+                                    <span class="dash-stat-value dash-val-green" id="dash-checkin-today">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">累计签到</span>
+                                    <span class="dash-stat-value" id="dash-checkin-total">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">积分流通</span>
+                                    <span class="dash-stat-value dash-val-orange" id="dash-coins-total">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 线路统计 -->
+                        <div class="dashboard-card" onclick="switchAdminSection('settings', null)">
+                            <div class="dashboard-card-header">
+                                <span class="card-icon">🌐</span>
+                                <h3>线路统计</h3>
+                            </div>
+                            <div class="dashboard-card-body">
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">总线路</span>
+                                    <span class="dash-stat-value" id="dash-lines-total">-</span>
+                                </div>
+                                <div class="dash-stat-row">
+                                    <span class="dash-stat-label">启用中</span>
+                                    <span class="dash-stat-value dash-val-green" id="dash-lines-active">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 7天趋势图 -->
+                    <div class="dashboard-trend">
+                        <div class="dashboard-card-header">
+                            <span class="card-icon">📈</span>
+                            <h3>近7天趋势</h3>
+                        </div>
+                        <div class="dashboard-trend-chart" id="dashboardTrendChart">
+                            <div class="trend-loading">加载中...</div>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- 求片管理部分 -->
-                <section id="section-requests" class="admin-section active">
+                <section id="section-requests" class="admin-section">
                     <!-- 快捷操作区 -->
                     <div class="quick-actions">
                         <div class="action-item" onclick="filterRequests('pending')">

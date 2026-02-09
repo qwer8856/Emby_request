@@ -14323,6 +14323,164 @@ def get_type_stats():
     }), 200
 
 
+@app.route('/api/admin/dashboard-stats')
+@admin_required
+def get_dashboard_stats():
+    """获取管理员仪表盘总览统计数据"""
+    try:
+        from datetime import date, timedelta
+        today = date.today()
+        now = datetime.now()
+
+        # === 用户统计 ===
+        total_users = User.query.count()
+        whitelist_users = User.query.filter(User.lv == 'a').count()
+        subscriber_users = User.query.filter(User.lv == 'b').count()
+        banned_users = User.query.filter(User.lv == 'c').count()
+        no_account_users = User.query.filter(User.lv == 'd').count()
+        active_users = User.query.filter(User.lv.in_(['a', 'b']), User.ex > now).count()
+        expired_users = User.query.filter(User.lv.in_(['a', 'b']), User.ex <= now).count()
+        today_new_users = User.query.filter(db.func.date(User.cr) == today).count()
+
+        # === 求片统计 ===
+        total_requests = MovieRequest.query.count()
+        pending_requests = MovieRequest.query.filter_by(status='pending').count()
+        completed_requests = MovieRequest.query.filter_by(status='completed').count()
+        downloading_requests = MovieRequest.query.filter_by(status='downloading').count()
+        rejected_requests = MovieRequest.query.filter_by(status='rejected').count()
+        today_requests = MovieRequest.query.filter(db.func.date(MovieRequest.created_at) == today).count()
+
+        # === 订单统计 ===
+        total_orders = Order.query.count()
+        paid_orders = Order.query.filter_by(payment_status='paid').count()
+        pending_orders = Order.query.filter_by(payment_status='pending').count()
+        total_revenue_result = db.session.query(db.func.sum(Order.final_price)).filter_by(payment_status='paid').scalar()
+        total_revenue = float(total_revenue_result) if total_revenue_result else 0.0
+        today_orders = Order.query.filter(db.func.date(Order.created_at) == today).count()
+        today_revenue_result = db.session.query(db.func.sum(Order.final_price)).filter(
+            Order.payment_status == 'paid',
+            db.func.date(Order.payment_time) == today
+        ).scalar()
+        today_revenue = float(today_revenue_result) if today_revenue_result else 0.0
+
+        # === 兑换码统计 ===
+        total_codes = RedeemCode.query.count()
+        used_codes = RedeemCode.query.filter_by(is_used=True).count()
+        unused_codes = RedeemCode.query.filter_by(is_used=False, is_active=True).count()
+        expired_codes = RedeemCode.query.filter(
+            RedeemCode.is_used == False,
+            RedeemCode.expires_at.isnot(None),
+            RedeemCode.expires_at < now
+        ).count()
+
+        # === 工单统计 ===
+        total_tickets = SupportTicket.query.count()
+        open_tickets = SupportTicket.query.filter_by(status='open').count()
+        in_progress_tickets = SupportTicket.query.filter_by(status='in_progress').count()
+        closed_tickets = SupportTicket.query.filter_by(status='closed').count()
+
+        # === 签到统计 ===
+        today_checkins = CheckInRecord.query.filter_by(checkin_date=today).count()
+        total_checkins = CheckInRecord.query.count()
+
+        # === 积分统计 ===
+        total_coins_result = db.session.query(db.func.sum(User.coins)).scalar()
+        total_coins = int(total_coins_result) if total_coins_result else 0
+
+        # === 线路统计 ===
+        total_lines = ServerLine.query.count()
+        active_lines = ServerLine.query.filter_by(is_active=True).count()
+
+        # === 播放统计 ===
+        total_playbacks = PlaybackRecord.query.count()
+        today_playbacks = PlaybackRecord.query.filter(db.func.date(PlaybackRecord.started_at) == today).count()
+        total_play_duration_result = db.session.query(db.func.sum(PlaybackRecord.play_duration)).scalar()
+        total_play_hours = round(int(total_play_duration_result) / 3600, 1) if total_play_duration_result else 0
+
+        # === 最近7天趋势（每日新增用户数 & 求片数） ===
+        week_trend = []
+        for i in range(6, -1, -1):
+            d = today - timedelta(days=i)
+            day_users = User.query.filter(db.func.date(User.cr) == d).count()
+            day_requests = MovieRequest.query.filter(db.func.date(MovieRequest.created_at) == d).count()
+            day_orders = Order.query.filter(Order.payment_status == 'paid', db.func.date(Order.payment_time) == d).count()
+            week_trend.append({
+                'date': d.strftime('%m-%d'),
+                'users': day_users,
+                'requests': day_requests,
+                'orders': day_orders
+            })
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'users': {
+                    'total': total_users,
+                    'whitelist': whitelist_users,
+                    'subscriber': subscriber_users,
+                    'banned': banned_users,
+                    'no_account': no_account_users,
+                    'active': active_users,
+                    'expired': expired_users,
+                    'today_new': today_new_users
+                },
+                'requests': {
+                    'total': total_requests,
+                    'pending': pending_requests,
+                    'completed': completed_requests,
+                    'downloading': downloading_requests,
+                    'rejected': rejected_requests,
+                    'today': today_requests
+                },
+                'orders': {
+                    'total': total_orders,
+                    'paid': paid_orders,
+                    'pending': pending_orders,
+                    'total_revenue': total_revenue,
+                    'today_orders': today_orders,
+                    'today_revenue': today_revenue
+                },
+                'redeem': {
+                    'total': total_codes,
+                    'used': used_codes,
+                    'unused': unused_codes,
+                    'expired': expired_codes
+                },
+                'tickets': {
+                    'total': total_tickets,
+                    'open': open_tickets,
+                    'in_progress': in_progress_tickets,
+                    'closed': closed_tickets
+                },
+                'checkin': {
+                    'today': today_checkins,
+                    'total': total_checkins
+                },
+                'coins': {
+                    'total_circulation': total_coins
+                },
+                'lines': {
+                    'total': total_lines,
+                    'active': active_lines
+                },
+                'playback': {
+                    'total': total_playbacks,
+                    'today': today_playbacks,
+                    'total_hours': total_play_hours
+                },
+                'week_trend': week_trend
+            }
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取仪表盘统计数据失败: {str(e)}')
+        import traceback
+        app.logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': '获取仪表盘统计数据失败'
+        }), 500
+
+
 @app.route('/admin/stats/summary')
 @admin_required
 def get_stats_summary():
