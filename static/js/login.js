@@ -116,9 +116,20 @@
                         submitBtn.classList.add('success');
                         showToast('登录成功', '正在跳转...', 'success');
                         
-                        // 延迟跳转，使用 replace 替换历史记录，防止返回键回到登录页
+                        // 延迟跳转，使用多重保障确保跳转成功
+                        const targetUrl = data.redirect || '/dashboard';
                         setTimeout(() => {
-                            window.location.replace(data.redirect);
+                            try {
+                                window.location.replace(targetUrl);
+                            } catch (e) {
+                                window.location.href = targetUrl;
+                            }
+                            // 兜底：如果 replace 没生效，1.5秒后强制跳转
+                            setTimeout(() => {
+                                if (window.location.pathname !== targetUrl) {
+                                    window.location.href = targetUrl;
+                                }
+                            }, 1500);
                         }, 500);
                     } else {
                         console.warn('登录失败，服务器返回:', data);

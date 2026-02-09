@@ -45,8 +45,32 @@ async function loadCheckinConfig() {
             
             // 同步兑换套餐：过滤已删除的套餐，更新天数
             let exchangePlans = config.exchange_plans || [];
-            currentExchangePlans = syncExchangePlansWithConfig(exchangePlans);
+            const syncResult = syncExchangePlansWithConfig(exchangePlans);
+            currentExchangePlans = syncResult.plans;
             renderExchangePlansAdmin(currentExchangePlans);
+            
+            // 如果有套餐被移除，自动保存清理后的配置到后端（避免每次打开都提示）
+            if (syncResult.changed) {
+                try {
+                    await fetch('/api/admin/system-config', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            checkin: {
+                                enabled: config.enabled || false,
+                                bot_enabled: config.bot_enabled || false,
+                                coin_name: config.coin_name || '积分',
+                                coin_min: config.coin_min || 1,
+                                coin_max: config.coin_max || 10,
+                                exchange_plans: currentExchangePlans
+                            }
+                        })
+                    });
+                    console.log('已自动清理失效的兑换套餐配置');
+                } catch (e) {
+                    console.error('自动清理兑换套餐失败:', e);
+                }
+            }
         }
     } catch (error) {
         console.error('加载签到配置失败:', error);
@@ -95,10 +119,10 @@ function syncExchangePlansWithConfig(exchangePlans) {
     }
     
     if (hasChanges) {
-        window.showToast && window.showToast('提示', '部分套餐已被删除，已自动从兑换列表移除', 'info');
+        window.showToast && window.showToast('提示', '部分套餐已被删除，已自动从兑换列表移除并保存', 'info');
     }
     
-    return synced;
+    return { plans: synced, changed: hasChanges };
 }
 
 // 切换签到配置详情显示

@@ -2519,32 +2519,60 @@ async function loadAuditLogs(page = 1) {
             return;
         }
         
-        // 渲染日志表格
-        let html = `
-            <table class="data-table" style="width:100%;">
-                <thead>
-                    <tr>
-                        <th style="width:160px;">时间</th>
-                        <th style="width:100px;">管理员</th>
-                        <th style="width:160px;">操作类型</th>
-                        <th>操作详情</th>
-                        <th style="width:120px;">IP地址</th>
-                    </tr>
-                </thead>
-                <tbody>`;
+        // 渲染日志列表（卡片式）
+        let html = '<div class="audit-log-list">';
+        
+        // 操作类型图标与颜色映射
+        const typeStyles = {
+            'admin_login': { icon: '🔐', color: '#3b82f6', bg: '#eff6ff' },
+            'admin_logout': { icon: '🚪', color: '#6b7280', bg: '#f3f4f6' },
+            'config_change': { icon: '⚙️', color: '#8b5cf6', bg: '#f5f3ff' },
+            'user_ban': { icon: '⛔', color: '#ef4444', bg: '#fef2f2' },
+            'user_unban': { icon: '✅', color: '#10b981', bg: '#ecfdf5' },
+            'user_level_change': { icon: '📊', color: '#f59e0b', bg: '#fffbeb' },
+            'user_reset_password': { icon: '🔑', color: '#f97316', bg: '#fff7ed' },
+            'user_gift_subscription': { icon: '🎁', color: '#ec4899', bg: '#fdf2f8' },
+            'user_reduce_subscription': { icon: '⏳', color: '#f97316', bg: '#fff7ed' },
+            'order_mark_paid': { icon: '💳', color: '#10b981', bg: '#ecfdf5' },
+            'order_cancel': { icon: '❌', color: '#ef4444', bg: '#fef2f2' },
+            'redeem_create': { icon: '🎟️', color: '#8b5cf6', bg: '#f5f3ff' },
+            'redeem_delete': { icon: '🗑️', color: '#ef4444', bg: '#fef2f2' },
+            'redeem_toggle': { icon: '🔄', color: '#3b82f6', bg: '#eff6ff' },
+            'plan_change': { icon: '💰', color: '#f59e0b', bg: '#fffbeb' },
+            'admin_create': { icon: '👤', color: '#10b981', bg: '#ecfdf5' },
+            'admin_delete': { icon: '🗑️', color: '#ef4444', bg: '#fef2f2' },
+            'admin_update': { icon: '✏️', color: '#3b82f6', bg: '#eff6ff' },
+            'export_data': { icon: '📥', color: '#6366f1', bg: '#eef2ff' },
+            'batch_operation': { icon: '📋', color: '#8b5cf6', bg: '#f5f3ff' },
+        };
+        const defaultStyle = { icon: '📌', color: '#6b7280', bg: '#f3f4f6' };
         
         data.logs.forEach(log => {
+            const style = typeStyles[log.action_type] || defaultStyle;
+            const time = log.created_at || '-';
+            const detail = escapeHtml(log.action_detail || '-');
+            const typeDisplay = log.action_type_display || log.action_type;
+            
             html += `
-                <tr>
-                    <td style="font-size:12px; white-space:nowrap;">${log.created_at || '-'}</td>
-                    <td><strong>${escapeHtml(log.admin_username)}</strong></td>
-                    <td>${log.action_type_display || log.action_type}</td>
-                    <td style="font-size:13px; word-break:break-all;">${escapeHtml(log.action_detail || '-')}</td>
-                    <td style="font-size:12px; color:#888;">${log.ip_address || '-'}</td>
-                </tr>`;
+                <div class="audit-log-item" style="display:flex; align-items:flex-start; gap:12px; padding:14px 16px; border-bottom:1px solid #f0f0f0; transition: background 0.15s;">
+                    <div class="audit-icon" style="width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:18px; background:${style.bg}; flex-shrink:0;">
+                        ${style.icon}
+                    </div>
+                    <div style="flex:1; min-width:0;">
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
+                            <span style="font-weight:600; color:#1e293b; font-size:13px;">${escapeHtml(log.admin_username)}</span>
+                            <span style="padding:2px 8px; border-radius:4px; font-size:11px; font-weight:500; color:${style.color}; background:${style.bg};">${typeDisplay}</span>
+                        </div>
+                        <div style="color:#475569; font-size:13px; word-break:break-all; line-height:1.5;">${detail}</div>
+                        <div style="display:flex; gap:16px; margin-top:6px; font-size:11px; color:#94a3b8;">
+                            <span>🕐 ${time}</span>
+                            <span>🌐 ${log.ip_address || '-'}</span>
+                        </div>
+                    </div>
+                </div>`;
         });
         
-        html += '</tbody></table>';
+        html += '</div>';
         container.innerHTML = html;
         
         // 渲染分页

@@ -9438,3 +9438,28 @@ select.custom-select:focus,
         max-width: 150px;
     }
 }
+
+/* ==================== 审计日志样式 ==================== */
+.audit-log-list {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.audit-log-item:hover {
+    background: #f8fafc !important;
+}
+
+.audit-log-item:last-child {
+    border-bottom: none !important;
+}
+
+@media (max-width: 768px) {
+    .audit-log-item {
+        padding: 12px !important;
+    }
+    .audit-icon {
+        width: 32px !important;
+        height: 32px !important;
+        font-size: 15px !important;
+    }
+}

@@ -713,6 +713,8 @@ CONFIG_KEY_CHECKIN = 'checkin'
 CONFIG_KEY_SUBSCRIPTION_EXPIRE = 'subscription_expire'
 CONFIG_KEY_INVITE_REWARD = 'invite_reward'
 CONFIG_KEY_EMAIL = 'email'
+CONFIG_KEY_LOGIN_NOTIFY = 'login_notify'
+CONFIG_KEY_EXPIRE_REMIND = 'expire_remind'
 
 # 易支付配置（支持环境变量或配置文件）
 EPAY_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'epay_config.json')
@@ -1425,6 +1427,14 @@ def load_system_config():
             if db_email:
                 config['email'] = db_email
             
+            db_login_notify = get_db_config(CONFIG_KEY_LOGIN_NOTIFY)
+            if db_login_notify:
+                config['login_notify'] = db_login_notify
+            
+            db_expire_remind = get_db_config(CONFIG_KEY_EXPIRE_REMIND)
+            if db_expire_remind:
+                config['expire_remind'] = db_expire_remind
+            
             # 如果数据库有配置，直接返回
             if db_admin or db_emby or db_telegram:
                 return config
@@ -1482,6 +1492,17 @@ def get_default_system_config():
             'smtp_password': '',
             'sender_name': 'Emby管理系统',
             'require_email_register': False
+        },
+        'login_notify': {
+            'enabled': False,
+            'email': True,
+            'telegram': True
+        },
+        'expire_remind': {
+            'enabled': False,
+            'days': [3, 7],
+            'email': True,
+            'telegram': True
         }
     }
     config['telegram']['templates'] = DEFAULT_SYSTEM_CONFIG['telegram']['templates'].copy()
@@ -1569,6 +1590,12 @@ def save_system_config(config):
             if 'email' in config:
                 if not set_db_config(CONFIG_KEY_EMAIL, config['email'], '邮件SMTP配置'):
                     print(f"[WARNING] 保存 email 配置失败")
+            if 'login_notify' in config:
+                if not set_db_config(CONFIG_KEY_LOGIN_NOTIFY, config['login_notify'], '登录通知配置'):
+                    print(f"[WARNING] 保存 login_notify 配置失败")
+            if 'expire_remind' in config:
+                if not set_db_config(CONFIG_KEY_EXPIRE_REMIND, config['expire_remind'], '到期提醒配置'):
+                    print(f"[WARNING] 保存 expire_remind 配置失败")
             
             if db_success:
                 print("[CONFIG] 配置已保存到数据库")
