@@ -8036,8 +8036,6 @@ async function sendBroadcastEmail() {
 
 // ==================== 仪表盘总览 ====================
 
-let dashboardLoaded = false;
-
 async function loadDashboardStats() {
     try {
         const response = await fetch('/api/admin/dashboard-stats');
@@ -8048,66 +8046,32 @@ async function loadDashboardStats() {
         }
         const d = data.data;
 
-        // 核心指标
+        // 顶部核心指标
         setText('dash-total-users', d.users.total);
         setText('dash-active-users', d.users.active);
+        setText('dash-requests-pending', d.requests.pending);
+        setText('dash-tickets-open', d.tickets.open);
         setText('dash-total-revenue', '¥' + d.orders.total_revenue.toFixed(2));
-        setText('dash-today-new', d.users.today_new);
 
-        // 用户统计
-        setText('dash-users-total', d.users.total);
+        // 用户概况卡片
         setText('dash-users-whitelist', d.users.whitelist);
         setText('dash-users-subscriber', d.users.subscriber);
         setText('dash-users-expired', d.users.expired);
         setText('dash-users-banned', d.users.banned);
-        setText('dash-users-today', d.users.today_new);
+        setText('dash-checkin-today', d.checkin.today);
 
-        // 求片统计
+        // 求片概况卡片
         setText('dash-requests-total', d.requests.total);
-        setText('dash-requests-pending', d.requests.pending);
         setText('dash-requests-downloading', d.requests.downloading);
         setText('dash-requests-completed', d.requests.completed);
         setText('dash-requests-rejected', d.requests.rejected);
         setText('dash-requests-today', d.requests.today);
 
-        // 订单统计
-        setText('dash-orders-total', d.orders.total);
+        // 收入概况卡片
         setText('dash-orders-paid', d.orders.paid);
-        setText('dash-orders-pending', d.orders.pending);
-        setText('dash-orders-revenue', '¥' + d.orders.total_revenue.toFixed(2));
-        setText('dash-orders-today', d.orders.today_orders);
         setText('dash-orders-today-revenue', '¥' + d.orders.today_revenue.toFixed(2));
-
-        // 兑换码统计
-        setText('dash-redeem-total', d.redeem.total);
-        setText('dash-redeem-used', d.redeem.used);
         setText('dash-redeem-unused', d.redeem.unused);
-        setText('dash-redeem-expired', d.redeem.expired);
-
-        // 工单统计
-        setText('dash-tickets-total', d.tickets.total);
-        setText('dash-tickets-open', d.tickets.open);
-        setText('dash-tickets-progress', d.tickets.in_progress);
-        setText('dash-tickets-closed', d.tickets.closed);
-
-        // 播放统计
-        setText('dash-playback-total', d.playback.total);
         setText('dash-playback-today', d.playback.today);
-        setText('dash-playback-hours', d.playback.total_hours + 'h');
-
-        // 签到 & 积分
-        setText('dash-checkin-today', d.checkin.today);
-        setText('dash-checkin-total', d.checkin.total);
-        setText('dash-coins-total', d.coins.total_circulation);
-
-        // 线路统计
-        setText('dash-lines-total', d.lines.total);
-        setText('dash-lines-active', d.lines.active);
-
-        // 渲染7天趋势图
-        renderWeekTrend(d.week_trend);
-
-        dashboardLoaded = true;
     } catch (error) {
         console.error('加载仪表盘数据失败:', error);
         showToast('错误', '加载仪表盘数据失败', 'error');
@@ -8117,42 +8081,4 @@ async function loadDashboardStats() {
 function setText(id, value) {
     const el = document.getElementById(id);
     if (el) el.textContent = value;
-}
-
-function renderWeekTrend(trend) {
-    const container = document.getElementById('dashboardTrendChart');
-    if (!container || !trend || !trend.length) return;
-
-    // 找出最大值用于计算柱状图宽度
-    let maxVal = 1;
-    trend.forEach(item => {
-        maxVal = Math.max(maxVal, item.users, item.requests, item.orders);
-    });
-
-    let html = '<table class="trend-table"><thead><tr>';
-    html += '<th>日期</th><th>新增用户</th><th>新增求片</th><th>成交订单</th>';
-    html += '</tr></thead><tbody>';
-
-    trend.forEach(item => {
-        const userPct = Math.max(2, (item.users / maxVal) * 100);
-        const reqPct = Math.max(2, (item.requests / maxVal) * 100);
-        const orderPct = Math.max(2, (item.orders / maxVal) * 100);
-
-        html += '<tr>';
-        html += `<td><strong>${item.date}</strong></td>`;
-        html += `<td class="trend-bar-cell"><div class="trend-bar-container"><div class="trend-bar bar-users" style="width:${userPct}%"></div><span class="trend-bar-value">${item.users}</span></div></td>`;
-        html += `<td class="trend-bar-cell"><div class="trend-bar-container"><div class="trend-bar bar-requests" style="width:${reqPct}%"></div><span class="trend-bar-value">${item.requests}</span></div></td>`;
-        html += `<td class="trend-bar-cell"><div class="trend-bar-container"><div class="trend-bar bar-orders" style="width:${orderPct}%"></div><span class="trend-bar-value">${item.orders}</span></div></td>`;
-        html += '</tr>';
-    });
-
-    html += '</tbody></table>';
-
-    html += '<div class="trend-legend">';
-    html += '<div class="trend-legend-item"><span class="trend-legend-dot dot-users"></span>新增用户</div>';
-    html += '<div class="trend-legend-item"><span class="trend-legend-dot dot-requests"></span>新增求片</div>';
-    html += '<div class="trend-legend-item"><span class="trend-legend-dot dot-orders"></span>成交订单</div>';
-    html += '</div>';
-
-    container.innerHTML = html;
 }
