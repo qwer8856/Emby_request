@@ -3941,17 +3941,15 @@ async function unbindTelegramId() {
             });
             const forwardUrl = `https://gocy.pages.dev/#forward://import?${fwdParams}`;
             
-            // ========== Hills（单线路，逐条导入） ==========
-            // hills://import?type=emby&scheme=https&host=xx&port=443&username=xx&password=xx
-            let hillsLinesHtml = '';
-            lines.forEach((line) => {
+            // ========== Hills（支持多线路一次性导入） ==========
+            // hills://import?type=emby&scheme=https&host=xx&port=443&title=主线路名&username=xx&password=xx&line1=http%3a%2f%2fhost%3aport&line1title=线路名
+            let hillsParams = `type=emby&scheme=${firstInfo.scheme}&host=${encodeURIComponent(firstInfo.host)}&port=${firstInfo.port}&title=${encodeURIComponent(siteName)}&username=${encodedUser}&password=${encodedPwd}`;
+            lines.slice(1).forEach((line, i) => {
                 const info = getLineInfo(line);
-                const safeName = line.name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                const levelIcon = line.access_level === 'whitelist' ? '👑' : '🔗';
-                const hillsParams = `type=emby&scheme=${info.scheme}&host=${encodeURIComponent(info.host)}&port=${info.port}&username=${encodedUser}&password=${encodedPwd}`;
-                const hillsLineUrl = `https://gocy.pages.dev/#hills://import?${hillsParams}`;
-                hillsLinesHtml += `<a href="${hillsLineUrl}" target="_blank" class="import-sub-line">${levelIcon} ${safeName}</a>`;
+                const addr = `${info.scheme}://${info.host}:${info.port}`;
+                hillsParams += `&line${i + 1}title=${encodeURIComponent(line.name)}&line${i + 1}=${encodeURIComponent(addr)}`;
             });
+            const hillsUrl = `https://gocy.pages.dev/#hills://import?${hillsParams}`;
             
             // 构建复制信息
             let copyText = `账号: ${username}\n密码: ${password}\n\n`;
@@ -3995,17 +3993,14 @@ async function unbindTelegramId() {
                             </div>
                             <span class="import-arrow">→</span>
                         </a>
-                        <div class="import-player-expandable">
-                            <div class="import-player-btn hills-header" onclick="this.parentElement.classList.toggle('expanded')">
-                                <span class="import-player-icon">⛰️</span>
-                                <div class="import-player-info">
-                                    <span class="import-player-name">Hills</span>
-                                    <span class="import-player-desc">iOS / iPadOS · 选择线路逐条导入</span>
-                                </div>
-                                <span class="import-expand-arrow">▼</span>
+                        <a href="${hillsUrl}" target="_blank" class="import-player-btn hills">
+                            <span class="import-player-icon">⛰️</span>
+                            <div class="import-player-info">
+                                <span class="import-player-name">Hills</span>
+                                <span class="import-player-desc">iOS / iPadOS · 一次导入全部 ${lineCount} 条线路</span>
                             </div>
-                            <div class="import-sub-lines">${hillsLinesHtml}</div>
-                        </div>
+                            <span class="import-arrow">→</span>
+                        </a>
                     </div>
                     <div class="import-dialog-footer">
                         <button class="import-copy-all-btn" onclick="copyAllImportInfo()">📋 复制全部连接信息</button>
