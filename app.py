@@ -1310,7 +1310,7 @@ DEFAULT_SYSTEM_CONFIG = {
         'enabled': False,              # 是否启用播放排行功能
         'movie_limit': 10,             # 电影排行显示数量
         'episode_limit': 10,           # 剧集排行显示数量
-        'user_limit': 20,              # 用户排行显示数量
+        'user_limit': 10,              # 用户排行显示数量
         'exclude_users': '',           # 排除用户（Emby用户名，逗号分隔）
         'push_enabled': False,         # 是否启用定时推送到群组
         'push_chat_id': '',            # 推送目标群组 Chat ID（留空使用默认群组）
@@ -9039,7 +9039,7 @@ def admin_get_playback_rankings():
     ranking_config = load_system_config().get('ranking', {})
     movie_limit = ranking_config.get('movie_limit', 10)
     episode_limit = ranking_config.get('episode_limit', 10)
-    user_limit = ranking_config.get('user_limit', 20)
+    user_limit = ranking_config.get('user_limit', 10)
     exclude_users_str = ranking_config.get('exclude_users', '')
 
     try:
@@ -9263,7 +9263,7 @@ def _build_ranking_text(days, ranking_config):
 
     movie_limit = ranking_config.get('movie_limit', 10)
     episode_limit = ranking_config.get('episode_limit', 10)
-    user_limit = ranking_config.get('user_limit', 20)
+    user_limit = ranking_config.get('user_limit', 10)
     exclude_users_str = ranking_config.get('exclude_users', '')
 
     # 站点名称，用于标题（类似 embyboss 的 ranks.logo）
@@ -18716,7 +18716,7 @@ def get_system_config_api():
                 'enabled': config.get('ranking', {}).get('enabled', False),
                 'movie_limit': config.get('ranking', {}).get('movie_limit', 10),
                 'episode_limit': config.get('ranking', {}).get('episode_limit', 10),
-                'user_limit': config.get('ranking', {}).get('user_limit', 20),
+                'user_limit': config.get('ranking', {}).get('user_limit', 10),
                 'exclude_users': config.get('ranking', {}).get('exclude_users', ''),
                 'push_enabled': config.get('ranking', {}).get('push_enabled', False),
                 'push_chat_id': config.get('ranking', {}).get('push_chat_id', ''),

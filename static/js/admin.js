@@ -3560,7 +3560,7 @@ async function loadSystemConfig() {
                 if (rkEnabled) rkEnabled.checked = config.ranking.enabled === true;
                 if (rkMovieLimit) rkMovieLimit.value = config.ranking.movie_limit ?? 10;
                 if (rkEpisodeLimit) rkEpisodeLimit.value = config.ranking.episode_limit ?? 10;
-                if (rkUserLimit) rkUserLimit.value = config.ranking.user_limit ?? 20;
+                if (rkUserLimit) rkUserLimit.value = config.ranking.user_limit ?? 10;
                 if (rkExcludeUsers) rkExcludeUsers.value = config.ranking.exclude_users || '';
                 if (rkPushEnabled) rkPushEnabled.checked = config.ranking.push_enabled === true;
                 if (rkPushChatId) rkPushChatId.value = config.ranking.push_chat_id || '';
@@ -8697,7 +8697,7 @@ async function saveRankingConfig() {
                 enabled: document.getElementById('rankingEnabled')?.checked || false,
                 movie_limit: parseInt(document.getElementById('rankingMovieLimit')?.value) || 10,
                 episode_limit: parseInt(document.getElementById('rankingEpisodeLimit')?.value) || 10,
-                user_limit: parseInt(document.getElementById('rankingUserLimit')?.value) || 20,
+                user_limit: parseInt(document.getElementById('rankingUserLimit')?.value) || 10,
                 exclude_users: document.getElementById('rankingExcludeUsers')?.value?.trim() || '',
                 push_enabled: document.getElementById('rankingPushEnabled')?.checked || false,
                 push_chat_id: document.getElementById('rankingPushChatId')?.value?.trim() || '',
