@@ -3850,14 +3850,20 @@ def log_response(response):
         response.cache_control.public = True
         return response
     
-    # API 响应不缓存
+    # API 响应不缓存（排除文件下载）
     if request.path.startswith('/api/') or request.is_json or request.method in ['POST', 'PUT', 'DELETE']:
-        response.cache_control.no_cache = True
-        response.cache_control.no_store = True
-        response.cache_control.must_revalidate = True
+        if not response.headers.get('Content-Disposition', '').startswith('attachment'):
+            response.cache_control.no_cache = True
+            response.cache_control.no_store = True
+            response.cache_control.must_revalidate = True
     
     # Gzip 压缩大响应（提升传输速度）
-    if response.content_length and response.content_length > 1000:
+    # 跳过文件下载（Content-Disposition: attachment）和显式标记跳过的响应
+    skip_gzip = (
+        response.headers.get('X-Skip-Gzip') or
+        (response.headers.get('Content-Disposition', '').startswith('attachment'))
+    )
+    if not skip_gzip and response.content_length and response.content_length > 1000:
         if 'gzip' in request.headers.get('Accept-Encoding', '').lower():
             response.direct_passthrough = False
             if response.data:
@@ -3866,6 +3872,8 @@ def log_response(response):
                 response.headers['Content-Encoding'] = 'gzip'
                 response.headers['Content-Length'] = len(gzip_buffer)
                 response.headers['Vary'] = 'Accept-Encoding'
+    # 清理内部标记头
+    response.headers.pop('X-Skip-Gzip', None)
     
     # 记录错误响应（自动提取 JSON 中的 error 详情）
     if response.status_code >= 400:
@@ -22063,6 +22071,7 @@ def admin_export_data(export_type):
     """管理员数据导出API - 支持用户列表、订单、订阅历史导出为CSV"""
     import csv
     import io
+    from urllib.parse import quote
     
     try:
         output = io.StringIO()
@@ -22082,12 +22091,13 @@ def admin_export_data(export_type):
                     status = '已禁用'
                 writer.writerow([
                     u.tg, u.name or '', u.emby_name or '', u.email or '', u.telegram_id or '',
-                    level_names.get(u.lv, u.lv), status,
+                    level_names.get(u.lv, u.lv or 'd'), status,
                     u.ex.strftime('%Y-%m-%d %H:%M') if u.ex else '',
                     u.coins or 0,
                     u.cr.strftime('%Y-%m-%d %H:%M') if u.cr else ''
                 ])
-            filename = f'用户列表_{now.strftime("%Y%m%d_%H%M")}.csv'
+            cn_filename = f'用户列表_{now.strftime("%Y%m%d_%H%M")}.csv'
+            ascii_filename = f'users_{now.strftime("%Y%m%d_%H%M")}.csv'
         
         elif export_type == 'orders':
             writer = csv.writer(output)
@@ -22110,7 +22120,8 @@ def admin_export_data(export_type):
                     o.created_at.strftime('%Y-%m-%d %H:%M') if o.created_at else '',
                     o.payment_time.strftime('%Y-%m-%d %H:%M') if o.payment_time else ''
                 ])
-            filename = f'订单列表_{now.strftime("%Y%m%d_%H%M")}.csv'
+            cn_filename = f'订单列表_{now.strftime("%Y%m%d_%H%M")}.csv'
+            ascii_filename = f'orders_{now.strftime("%Y%m%d_%H%M")}.csv'
         
         elif export_type == 'subscriptions':
             writer = csv.writer(output)
@@ -22131,7 +22142,8 @@ def admin_export_data(export_type):
                     status_names.get(s.status, s.status or ''),
                     source_names.get(s.source, s.source or 'purchase')
                 ])
-            filename = f'订阅记录_{now.strftime("%Y%m%d_%H%M")}.csv'
+            cn_filename = f'订阅记录_{now.strftime("%Y%m%d_%H%M")}.csv'
+            ascii_filename = f'subscriptions_{now.strftime("%Y%m%d_%H%M")}.csv'
         
         else:
             return jsonify({'success': False, 'error': '不支持的导出类型'}), 400
@@ -22142,11 +22154,20 @@ def admin_export_data(export_type):
         csv_data = output.getvalue()
         output.close()
         
-        return Response(
+        # 文件名处理：使用 RFC 5987 编码中文文件名，避免 Gunicorn WSGI Latin-1 编码错误
+        # filename= 提供 ASCII 后备名，filename*= 提供 UTF-8 编码的中文名（现代浏览器优先使用）
+        encoded_cn_filename = quote(cn_filename)
+        content_disposition = f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{encoded_cn_filename}"
+        
+        response = Response(
             csv_data,
             mimetype='text/csv; charset=utf-8',
-            headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+            headers={
+                'Content-Disposition': content_disposition,
+                'X-Skip-Gzip': '1',  # 标记跳过 after_request 的 gzip 压缩
+            }
         )
+        return response
         
     except Exception as e:
         app.logger.error(f'数据导出失败: {e}', exc_info=True)
