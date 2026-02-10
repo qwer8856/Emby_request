@@ -38,4 +38,4 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 5000
 
 # 启动命令（使用 Gunicorn 生产服务器）
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "120", "--preload", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "8", "--timeout", "120", "--preload", "app:app"]

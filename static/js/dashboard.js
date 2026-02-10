@@ -5375,6 +5375,33 @@ async function unbindTelegramId() {
                 return;
             }
             
+            // 1. 从后端获取算术验证码
+            let question;
+            try {
+                const capRes = await fetch('/api/user/captcha');
+                const capData = await capRes.json();
+                if (!capData.success) {
+                    showMessage(capData.error || '获取验证码失败', 'error');
+                    return;
+                }
+                question = capData.question;
+            } catch (e) {
+                showMessage('获取验证码失败，请稍后重试', 'error');
+                return;
+            }
+
+            // 2. 弹窗确认 + 验证码
+            const maskedCode = code.length > 4 ? code.substring(0, 4) + '░'.repeat(code.length - 4) : code;
+            const answer = await showPrompt({
+                title: '🔒 兑换验证',
+                message: `确定要使用兑换码 ${maskedCode} 吗？\n\n请计算以下算式完成验证：\n${question}`,
+                placeholder: '请输入计算结果',
+                type: 'info'
+            });
+
+            // 用户取消
+            if (answer === null) return;
+            
             // 按钮loading状态
             let originalText = '立即兑换';
             if (btn) {
@@ -5383,13 +5410,14 @@ async function unbindTelegramId() {
                 btn.innerHTML = '<span class="spinner-small"></span> 兑换中...';
             }
             
+            // 3. 提交兑换请求，携带验证码答案
             try {
                 const response = await fetch('/api/redeem/use', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ code: code })
+                    body: JSON.stringify({ code: code, captcha_answer: answer })
                 });
                 
                 const data = await response.json();

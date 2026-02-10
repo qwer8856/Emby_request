@@ -11,7 +11,7 @@ import os
 import random
 from functools import wraps
 import logging
-from logging.handlers import RotatingFileHandler
+from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
@@ -3700,7 +3700,15 @@ from logging.handlers import QueueHandler, QueueListener
 _log_queue = queue.Queue(-1)  # 无限队列
 
 # 实际写文件的 handler（由 QueueListener 在单独线程中调用，无并发问题）
-_file_handler = RotatingFileHandler('logs/app.log', maxBytes=10485760, backupCount=10)
+# 按天切割日志：每天午夜自动生成新文件，保留最近 30 天
+_file_handler = TimedRotatingFileHandler(
+    'logs/app.log',
+    when='midnight',       # 每天午夜切割
+    interval=1,
+    backupCount=30,        # 保留 30 天
+    encoding='utf-8'
+)
+_file_handler.suffix = '%Y-%m-%d.log'  # 归档文件名: app.log.2026-02-11.log
 _file_handler.setFormatter(logging.Formatter(
     '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
 ))
@@ -12448,7 +12456,7 @@ def _do_process_telegram_update(data):
     
     # 检查用户是否处于注册状态（私聊中）
     if chat_type == 'private' and not text.startswith('/'):
-        # 先检查是否是签到验证码
+        # 先检查是否是签到验证码（算术题）
         if telegram_user_id in TELEGRAM_CHECKIN_CODES:
             checkin_data = TELEGRAM_CHECKIN_CODES[telegram_user_id]
             
@@ -12458,8 +12466,13 @@ def _do_process_telegram_update(data):
                 send_telegram_reply(chat_id, "❌ 验证码已过期，请重新发送 /checkin")
                 return jsonify({'ok': True})
             
-            # 验证验证码
-            if text == checkin_data.get('code'):
+            # 验证算术答案
+            try:
+                user_answer = int(text.strip())
+            except (ValueError, TypeError):
+                send_telegram_reply(chat_id, "❌ 请输入数字答案，或发送 /checkin 获取新题目")
+                return jsonify({'ok': True})
+            if user_answer == checkin_data.get('answer'):
                 # 验证码正确，执行签到
                 try:
                     user_tg = checkin_data.get('user_tg')
@@ -12549,7 +12562,7 @@ def _do_process_telegram_update(data):
                     return jsonify({'ok': True})
             else:
                 # 验证码错误
-                send_telegram_reply(chat_id, "❌ 验证码错误，请重新输入或发送 /checkin 获取新验证码")
+                send_telegram_reply(chat_id, "❌ 答案错误，请重新计算或发送 /checkin 获取新题目")
                 return jsonify({'ok': True})
         
         # 检查是否在等待输入拒绝原因（管理员求片审核）
@@ -12945,8 +12958,19 @@ def _do_process_telegram_update(data):
             send_telegram_reply(chat_id, reply)
             return jsonify({'ok': True})
         
-        # 生成4位数字验证码
-        verify_code = str(random.randint(1000, 9999))
+        # 生成算术验证码
+        op = random.choice(['+', '-', '×'])
+        if op == '+':
+            a, b = random.randint(1, 50), random.randint(1, 50)
+            math_answer = a + b
+        elif op == '-':
+            a = random.randint(10, 50)
+            b = random.randint(1, a)
+            math_answer = a - b
+        else:
+            a, b = random.randint(2, 12), random.randint(2, 12)
+            math_answer = a * b
+        question = f"{a} {op} {b}"
         
         # 清理过期的验证码
         now = datetime.now()
@@ -12955,33 +12979,22 @@ def _do_process_telegram_update(data):
         for key in expired_keys:
             del TELEGRAM_CHECKIN_CODES[key]
         
-        # 保存验证码（2分钟有效期）
+        # 保存算术答案（1分钟有效期）
         TELEGRAM_CHECKIN_CODES[telegram_user_id] = {
-            'code': verify_code,
+            'answer': math_answer,
             'user_tg': user.tg,
             'created_at': now,
-            'expires_at': now + timedelta(minutes=2)
+            'expires_at': now + timedelta(minutes=1)
         }
         
-        # 生成验证码图片
-        captcha_image = generate_captcha_image(verify_code)
-        
-        if captcha_image:
-            # 发送图片验证码
-            caption = f"""🎯 <b>签到验证</b>
+        reply = f"""🎯 <b>签到验证</b>
 
-请输入图片中的验证码完成签到
-有效期: 2 分钟"""
-            send_telegram_photo(chat_id, captcha_image, caption)
-        else:
-            # 如果图片生成失败，降级为文本验证码
-            reply = f"""🎯 <b>签到验证</b>
+请计算以下算式并回复结果：
 
-验证码: <code>{verify_code}</code>
+<code>{question} = ?</code>
 
-请直接发送此验证码完成签到
-有效期: 2 分钟"""
-            send_telegram_reply(chat_id, reply)
+⏱ 有效期: 1 分钟"""
+        send_telegram_reply(chat_id, reply)
     
     elif text.startswith('/create'):
         # /create 命令：用户名冲突时创建自定义用户名账号
@@ -13488,8 +13501,19 @@ def handle_start_panel_callback(callback_id, callback_data, chat_id, message_id,
                 send_telegram_reply(chat_id, reply)
                 return jsonify({'ok': True})
             
-            # 生成验证码
-            verify_code = str(random.randint(1000, 9999))
+            # 生成算术验证码
+            op = random.choice(['+', '-', '×'])
+            if op == '+':
+                a, b = random.randint(1, 50), random.randint(1, 50)
+                math_answer = a + b
+            elif op == '-':
+                a = random.randint(10, 50)
+                b = random.randint(1, a)
+                math_answer = a - b
+            else:
+                a, b = random.randint(2, 12), random.randint(2, 12)
+                math_answer = a * b
+            question = f"{a} {op} {b}"
             
             # 清理过期的验证码
             now = datetime.now()
@@ -13498,24 +13522,22 @@ def handle_start_panel_callback(callback_id, callback_data, chat_id, message_id,
             for key in expired_keys:
                 del TELEGRAM_CHECKIN_CODES[key]
             
-            # 保存验证码（2分钟有效期）
+            # 保存算术答案（1分钟有效期）
             TELEGRAM_CHECKIN_CODES[user_id] = {
-                'code': verify_code,
+                'answer': math_answer,
                 'user_tg': user.tg,
                 'created_at': now,
-                'expires_at': now + timedelta(minutes=2)
+                'expires_at': now + timedelta(minutes=1)
             }
             
-            # 生成验证码图片
-            captcha_image = generate_captcha_image(verify_code)
-            if captcha_image:
-                caption = f"""🎯 <b>每日签到</b>
+            reply = f"""🎯 <b>每日签到</b>
 
-请输入图中的 4 位数字完成签到
-验证码 2 分钟内有效"""
-                send_telegram_photo(chat_id, captcha_image, caption)
-            else:
-                send_telegram_reply(chat_id, f"请回复数字 <code>{verify_code}</code> 完成签到（2分钟内有效）")
+请计算以下算式并回复结果：
+
+<code>{question} = ?</code>
+
+⏱ 有效期: 1 分钟"""
+            send_telegram_reply(chat_id, reply)
             return jsonify({'ok': True})
         
         elif callback_data == 'cmd_checkin_need_bind':
@@ -17441,7 +17463,13 @@ def cancel_order():
 def use_redeem_code():
     """使用兑换码"""
     try:
-        data = request.json
+        # —— 后端验证码校验（防脚本刷兑换码） ——
+        data = request.get_json(silent=True) or {}
+        captcha_answer = data.get('captcha_answer')
+        ok, err = _verify_captcha(captcha_answer)
+        if not ok:
+            return jsonify({'success': False, 'error': err}), 400
+
         code = data.get('code', '').strip().upper()
         
         if not code:
@@ -17459,8 +17487,12 @@ def use_redeem_code():
         
         app.logger.info(f'用户 {user.name}(tg={user.tg}) 尝试使用兑换码: {code}')
         
-        # 查找兑换码
-        redeem = RedeemCode.query.filter_by(code=code).first()
+        # 查找兑换码（MySQL 加行级锁防并发竞态；SQLite 单写者模型天然安全）
+        is_mysql = 'mysql' in app.config.get('SQLALCHEMY_DATABASE_URI', '')
+        query = RedeemCode.query.filter_by(code=code)
+        if is_mysql:
+            query = query.with_for_update()
+        redeem = query.first()
         
         if not redeem:
             app.logger.warning(f'兑换码使用失败 - 用户: {user.name}(tg={user.tg}), 兑换码: {code}, 原因: 兑换码不存在')
@@ -17558,45 +17590,57 @@ def use_redeem_code():
         
         app.logger.info(f'兑换码使用成功: {code}, 用户: {user.name}(tg={user.tg}), 类型: {redeem.code_type}, 套餐: {plan_name}, 天数: {redeem.duration_days}')
         
-        # 恢复Emby账号（如果之前因过期被禁用）
-        if user.embyid and emby_client.is_enabled():
-            if emby_client.enable_user(user.embyid):
-                app.logger.info(f'用户 {user.name} 兑换成功，已恢复Emby账号 {user.emby_name}')
-        
-        # 记录兑换码使用日志
-        log_user_activity(UserActivityLog.ACTION_REDEEM_CODE, user=user,
-                         detail={'code': code, 'plan_type': redeem.plan_type, 'plan_name': plan_name, 
-                                'duration_days': redeem.duration_days, 'code_type': redeem.code_type})
-        
-        # 发送兑换码使用通知到 Telegram 群组
-        try:
-            code_type_name = '注册码' if redeem.code_type == 'new' else '续期码'
-            # 兑换码脱敏：显示前4位，其余用 ░ 遮盖
-            masked_code = code[:4] + '░' * max(len(code) - 4, 0) if len(code) > 4 else code
-            # 用户显示名称
-            display_name = user.emby_name or user.name or str(user.tg)
-            
-            notify_msg = (
-                f"· 🎟️ <b>{code_type_name}使用</b> - "
-                f"<a href=\"tg://user?id={user.tg}\">{display_name}</a> "
-                f"[<code>{user.tg}</code>] "
-                f"使用了 <code>{masked_code}</code>\n"
-                f"· 📅 到期: {end_date.strftime('%Y-%m-%d')}"
-            )
-            send_admin_notification(notify_msg)
-        except Exception as e:
-            app.logger.warning(f'发送兑换码使用群组通知失败: {e}')
-        
-        # 检查用户是否有 Emby 账号
+        # 检查用户是否有 Emby 账号（commit 后立即取值，供返回和后台线程使用）
         has_emby_account = bool(user.embyid)
+        _emby_id = user.embyid
+        _emby_name = user.emby_name
+        _user_name = user.name
+        _user_tg = user.tg
+        _display_name = user.emby_name or user.name or str(user.tg)
+        _code_type = redeem.code_type
+        _plan_type = redeem.plan_type
+        _duration_days = redeem.duration_days
+        
+        # —— 耗时 IO 操作放入后台线程，主线程立即返回给用户 ——
+        def _post_redeem_tasks():
+            with app.app_context():
+                # 恢复 Emby 账号
+                if _emby_id and emby_client.is_enabled():
+                    if emby_client.enable_user(_emby_id):
+                        app.logger.info(f'用户 {_user_name} 兑换成功，已恢复Emby账号 {_emby_name}')
+                
+                # 记录活动日志
+                try:
+                    log_user_activity(UserActivityLog.ACTION_REDEEM_CODE, user_tg=_user_tg, user_name=_user_name,
+                                     detail={'code': code, 'plan_type': _plan_type, 'plan_name': plan_name,
+                                            'duration_days': _duration_days, 'code_type': _code_type})
+                except Exception as e:
+                    app.logger.warning(f'记录兑换码活动日志失败: {e}')
+                
+                # 发送 Telegram 通知
+                try:
+                    code_type_name = '注册码' if _code_type == 'new' else '续期码'
+                    masked_code = code[:4] + '░' * max(len(code) - 4, 0) if len(code) > 4 else code
+                    notify_msg = (
+                        f"· 🎟️ <b>{code_type_name}使用</b> - "
+                        f"<a href=\"tg://user?id={_user_tg}\">{_display_name}</a> "
+                        f"[<code>{_user_tg}</code>] "
+                        f"使用了 <code>{masked_code}</code>\n"
+                        f"· 📅 到期: {end_date.strftime('%Y-%m-%d')}"
+                    )
+                    send_admin_notification(notify_msg)
+                except Exception as e:
+                    app.logger.warning(f'发送兑换码使用群组通知失败: {e}')
+        
+        Thread(target=_post_redeem_tasks, daemon=True).start()
         
         return jsonify({
             'success': True,
             'message': f'🎉 兑换成功！已获得 {plan_name} {redeem.duration_days} 天',
-            'plan_type': redeem.plan_type,
+            'plan_type': _plan_type,
             'plan_name': plan_name,
-            'duration_days': redeem.duration_days,
-            'code_type': redeem.code_type,
+            'duration_days': _duration_days,
+            'code_type': _code_type,
             'has_emby_account': has_emby_account
         }), 200
         
@@ -20440,11 +20484,79 @@ def get_my_activity_logs():
 
 
 # ==================== 签到系统 API ====================
+
+# —— 验证码频率限制器（防止脚本刷验证码接口） ——
+_captcha_rate = {}   # {user_id: last_request_time}
+_captcha_lock = Lock()
+_captcha_last_cleanup = 0
+
+@app.route('/api/user/captcha', methods=['GET'])
+@login_required
+def get_captcha():
+    """生成算术验证码，答案存入 session，前端只拿到题目"""
+    import time as _time
+    uid = session.get('user_id')
+    now = _time.time()
+    # 同一用户 2 秒内只能请求一次（锁内仅做字典读写，微秒级，不会阻塞）
+    with _captcha_lock:
+        global _captcha_last_cleanup
+        # 每 5 分钟清理一次过期记录，防止内存膨胀
+        if now - _captcha_last_cleanup > 300:
+            _captcha_last_cleanup = now
+            cutoff = now - 10  # 只保留 10 秒内的记录
+            _captcha_rate.clear()  # 简单粗暴，全部清空即可
+        last = _captcha_rate.get(uid, 0)
+        if now - last < 2:
+            return jsonify({'success': False, 'error': '请求太频繁，请稍后再试'}), 429
+        _captcha_rate[uid] = now
+    # 随机生成加减乘
+    op = random.choice(['+', '-', '×'])
+    if op == '+':
+        a, b = random.randint(1, 50), random.randint(1, 50)
+        answer = a + b
+    elif op == '-':
+        a = random.randint(10, 50)
+        b = random.randint(1, a)
+        answer = a - b
+    else:
+        a, b = random.randint(2, 12), random.randint(2, 12)
+        answer = a * b
+    question = f"{a} {op} {b} = ?"
+    # 答案 + 时间戳存入 session（有效期 5 分钟）
+    session['_captcha_answer'] = answer
+    session['_captcha_ts'] = now
+    return jsonify({'success': True, 'question': question})
+
+
+def _verify_captcha(captcha_answer):
+    """校验验证码，返回 (ok, error_msg)；验证后立即销毁"""
+    import time as _time
+    stored = session.pop('_captcha_answer', None)
+    ts = session.pop('_captcha_ts', None)
+    if stored is None or ts is None:
+        return False, '请先获取验证码'
+    if _time.time() - ts > 60:           # 1 分钟过期
+        return False, '验证码已过期，请重新获取'
+    try:
+        if int(captcha_answer) != stored:
+            return False, '验证码错误'
+    except (ValueError, TypeError):
+        return False, '验证码格式错误'
+    return True, ''
+
+
 @app.route('/api/user/checkin', methods=['POST'])
 @login_required
 def user_checkin():
     """用户签到"""
     try:
+        # —— 后端验证码校验 ——
+        data = request.get_json(silent=True) or {}
+        captcha_answer = data.get('captcha_answer')
+        ok, err = _verify_captcha(captcha_answer)
+        if not ok:
+            return jsonify({'success': False, 'error': err}), 400
+
         user = db.session.get(User, session.get('user_id'))
         if not user:
             return jsonify({'success': False, 'error': '用户未找到'}), 404
@@ -20702,11 +20814,23 @@ def get_coin_transactions():
 def exchange_plan():
     """兑换套餐"""
     try:
-        user = db.session.get(User, session.get('user_id'))
+        # —— 后端验证码校验 ——
+        data = request.get_json(silent=True) or {}
+        captcha_answer = data.get('captcha_answer')
+        ok, err = _verify_captcha(captcha_answer)
+        if not ok:
+            return jsonify({'success': False, 'error': err}), 400
+
+        # 加行锁读取用户（防止并发兑换导致积分扣成负数）
+        is_mysql = 'mysql' in app.config.get('SQLALCHEMY_DATABASE_URI', '')
+        uid = session.get('user_id')
+        if is_mysql:
+            user = User.query.filter_by(tg=uid).with_for_update().first()
+        else:
+            user = db.session.get(User, uid)
         if not user:
             return jsonify({'success': False, 'error': '用户未找到'}), 404
         
-        data = request.json
         plan_id = data.get('plan_id')
         
         if not plan_id:
@@ -20775,18 +20899,27 @@ def exchange_plan():
         
         db.session.commit()
         
-        # 恢复Emby账号（如果之前因过期被禁用）
-        if user.embyid and emby_client.is_enabled():
-            if emby_client.enable_user(user.embyid):
-                app.logger.info(f'用户 {user.name} 积分兑换成功，已恢复Emby账号')
+        # 先取值供后台线程和返回使用
+        _remaining_coins = user.coins
+        _new_expiry = user.ex.isoformat() if user.ex else None
+        _emby_id = user.embyid
+        _user_name = user.name
         
-        app.logger.info(f'用户兑换套餐成功: {user.name}, 套餐: {plan_name}, 花费: {coins_cost}积分')
+        app.logger.info(f'用户兑换套餐成功: {_user_name}, 套餐: {plan_name}, 花费: {coins_cost}积分')
+        
+        # —— Emby API 调用放入后台线程，不阻塞主请求 ——
+        if _emby_id and emby_client.is_enabled():
+            def _restore_emby():
+                with app.app_context():
+                    if emby_client.enable_user(_emby_id):
+                        app.logger.info(f'用户 {_user_name} 积分兑换成功，已恢复Emby账号')
+            Thread(target=_restore_emby, daemon=True).start()
         
         return jsonify({
             'success': True,
             'message': f'兑换成功！已延长 {duration_days} 天订阅',
-            'remaining_coins': user.coins,
-            'new_expiry': user.ex.isoformat() if user.ex else None
+            'remaining_coins': _remaining_coins,
+            'new_expiry': _new_expiry
         }), 200
     except Exception as e:
         app.logger.error(f'兑换套餐失败: {e}')

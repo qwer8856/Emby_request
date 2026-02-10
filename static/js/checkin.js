@@ -71,51 +71,50 @@ async function loadCheckinStatus() {
     }
 }
 
-// 执行签到
-let _checkinCaptcha = null;
-
-function generateCheckinCaptcha() {
-    const ops = [
-        () => { const a = Math.floor(Math.random()*20)+1, b = Math.floor(Math.random()*20)+1; return { q: `${a} + ${b} = ?`, a: a+b }; },
-        () => { const a = Math.floor(Math.random()*20)+5, b = Math.floor(Math.random()*a)+1; return { q: `${a} - ${b} = ?`, a: a-b }; },
-        () => { const a = Math.floor(Math.random()*9)+2, b = Math.floor(Math.random()*9)+2; return { q: `${a} × ${b} = ?`, a: a*b }; },
-    ];
-    return ops[Math.floor(Math.random()*ops.length)]();
-}
-
+// 执行签到 —— 验证码由后端生成，答案存在 session 中，防止脚本绕过
 async function doCheckin() {
     const miniBtn = document.getElementById('checkinMiniBtn');
     if (miniBtn && miniBtn.disabled) return;
 
-    // 生成验证码并弹出输入框
-    _checkinCaptcha = generateCheckinCaptcha();
+    // 1. 从后端获取算术验证码题目
+    let question;
+    try {
+        const capRes = await fetch('/api/user/captcha');
+        const capData = await capRes.json();
+        if (!capData.success) {
+            window.showToast(capData.error || '获取验证码失败', 'error');
+            return;
+        }
+        question = capData.question;
+    } catch (e) {
+        window.showToast('获取验证码失败，请稍后重试', 'error');
+        return;
+    }
+
+    // 2. 弹窗让用户输入答案
     const answer = await showPrompt({
         title: '🔒 签到验证',
-        message: `请计算以下算式的结果\n\n${_checkinCaptcha.q}`,
+        message: `请计算以下算式的结果\n\n${question}`,
         placeholder: '请输入计算结果',
         type: 'info'
     });
 
     // 用户取消
     if (answer === null) return;
-
-    // 验证答案
-    if (parseInt(answer) !== _checkinCaptcha.a) {
-        window.showToast('验证失败，计算结果不正确', 'error');
-        return;
-    }
     
     if (miniBtn) {
         miniBtn.disabled = true;
         miniBtn.innerHTML = '<span class="btn-text">签到中...</span>';
     }
     
+    // 3. 提交签到请求，携带验证码答案由后端校验
     try {
         const response = await fetch('/api/user/checkin', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify({ captcha_answer: answer })
         });
         
         const data = await response.json();
@@ -198,11 +197,33 @@ function renderExchangePlans(plans, coinName, userCoins) {
     container.innerHTML = html;
 }
 
-// 兑换套餐
+// 兑换套餐 —— 同样需要后端验证码校验
 async function exchangePlan(planId, planName, coins, days) {
-    if (!confirm(`确定要使用 ${coins} 积分兑换 ${planName} (${days}天) 吗？`)) {
+    // 1. 从后端获取验证码
+    let question;
+    try {
+        const capRes = await fetch('/api/user/captcha');
+        const capData = await capRes.json();
+        if (!capData.success) {
+            window.showToast(capData.error || '获取验证码失败', 'error');
+            return;
+        }
+        question = capData.question;
+    } catch (e) {
+        window.showToast('获取验证码失败，请稍后重试', 'error');
         return;
     }
+
+    // 2. 弹窗确认 + 验证码
+    const answer = await showPrompt({
+        title: '🔒 兑换验证',
+        message: `确定要使用 ${coins} 积分兑换 ${planName} (${days}天) 吗？\n\n请计算以下算式完成验证：\n${question}`,
+        placeholder: '请输入计算结果',
+        type: 'info'
+    });
+
+    // 用户取消
+    if (answer === null) return;
     
     // 找到按钮并显示加载状态
     const btn = event.target.closest('button');
@@ -212,6 +233,7 @@ async function exchangePlan(planId, planName, coins, days) {
         btn.innerHTML = '<span class="loading-spinner"></span> 兑换中...';
     }
     
+    // 3. 提交兑换请求，携带验证码答案
     try {
         const response = await fetch('/api/user/exchange', {
             method: 'POST',
@@ -222,7 +244,8 @@ async function exchangePlan(planId, planName, coins, days) {
                 plan_id: planId,
                 plan_name: planName,
                 coins: coins,
-                days: days
+                days: days,
+                captcha_answer: answer
             })
         });
         
