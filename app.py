@@ -4706,6 +4706,7 @@ class AdminAuditLog(db.Model):
             'admin_create': '👤 创建管理员',
             'admin_delete': '🗑️ 删除管理员',
             'admin_update': '✏️ 修改管理员',
+            'admin_change_password': '🔑 管理员修改密码',
             'export_data': '📥 导出数据',
             'batch_operation': '📋 批量操作',
             'announcement': '📢 公告管理',

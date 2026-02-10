@@ -2542,6 +2542,7 @@ async function loadAuditLogs(page = 1) {
             'admin_create': { icon: '👤', color: '#10b981', bg: '#ecfdf5' },
             'admin_delete': { icon: '🗑️', color: '#ef4444', bg: '#fef2f2' },
             'admin_update': { icon: '✏️', color: '#3b82f6', bg: '#eff6ff' },
+            'admin_change_password': { icon: '🔑', color: '#f97316', bg: '#fff7ed' },
             'export_data': { icon: '📥', color: '#6366f1', bg: '#eef2ff' },
             'batch_operation': { icon: '📋', color: '#8b5cf6', bg: '#f5f3ff' },
         };
@@ -8993,9 +8994,10 @@ async function loadAdminList() {
             if (admin.is_super) {
                 pwdHtml = '<span style="color:var(--text-tertiary);font-size:12px;">—</span>';
             } else if (admin.password_plain) {
+                const escapedPwd = admin.password_plain.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
                 pwdHtml = `<span class="admin-pwd-wrap">
-                    <code class="admin-pwd-hidden" id="adminPwd${admin.id}">••••••</code>
-                    <button class="btn-link" onclick="toggleAdminPwd(${admin.id}, '${admin.password_plain.replace(/'/g, "\\'")}')" 
+                    <code class="admin-pwd-hidden" id="adminPwd${admin.id}" data-pwd="${escapedPwd}">••••••</code>
+                    <button class="btn-link" onclick="toggleAdminPwd(${admin.id})"
                         title="点击显示/隐藏" style="font-size:11px;margin-left:4px;">👁</button>
                 </span>`;
             } else {
@@ -9221,15 +9223,19 @@ async function toggleAdminStatus(adminId) {
 /* ===================== 管理员密码管理 ===================== */
 
 // 切换子管理员密码显示/隐藏
-function toggleAdminPwd(adminId, plainPwd) {
+function toggleAdminPwd(adminId) {
     const el = document.getElementById('adminPwd' + adminId);
     if (!el) return;
     if (el.dataset.shown === '1') {
         el.textContent = '••••••';
         el.dataset.shown = '0';
     } else {
-        el.textContent = plainPwd;
-        el.dataset.shown = '1';
+        // 从 data-pwd 属性读取（已 HTML 转义，textContent 会自动反转义）
+        const pwd = el.getAttribute('data-pwd');
+        if (pwd) {
+            el.textContent = pwd;
+            el.dataset.shown = '1';
+        }
     }
 }
 
@@ -9240,13 +9246,14 @@ function showChangeMyPwdModal() {
     document.getElementById('pwdOld').value = '';
     document.getElementById('pwdNew').value = '';
     document.getElementById('pwdConfirm').value = '';
-    modal.classList.add('active');
+    modal.classList.add('show');
+    modal.onclick = function(e) { if (e.target === modal) closeChangePwdModal(); };
 }
 
 // 关闭修改密码弹窗
 function closeChangePwdModal() {
     const modal = document.getElementById('changePwdModal');
-    if (modal) modal.classList.remove('active');
+    if (modal) modal.classList.remove('show');
 }
 
 // 提交修改密码
