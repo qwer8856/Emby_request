@@ -15598,19 +15598,27 @@ def get_dashboard_stats():
         play_transcode = today_plays.filter(PlaybackRecord.play_method == 'Transcode').count()
 
         # 今日热播 Top 5
+        # 用 CASE 表达式：剧集按 series_name 聚合，电影按 item_name 聚合
+        # 避免同一部剧的不同集数被拆成多条（如"年少有为"出现两次）
+        display_name_col = db.case(
+            (db.and_(PlaybackRecord.item_type == 'Episode', PlaybackRecord.series_name.isnot(None), PlaybackRecord.series_name != ''),
+             PlaybackRecord.series_name),
+            else_=PlaybackRecord.item_name
+        ).label('display_name')
+        
         top_items = db.session.query(
-            PlaybackRecord.item_name, PlaybackRecord.series_name, PlaybackRecord.item_type,
+            display_name_col,
+            PlaybackRecord.item_type,
             db.func.count(PlaybackRecord.id).label('cnt')
         ).filter(
             db.func.date(PlaybackRecord.started_at) == today
         ).group_by(
-            PlaybackRecord.item_name, PlaybackRecord.series_name, PlaybackRecord.item_type
+            'display_name', PlaybackRecord.item_type
         ).order_by(db.desc('cnt')).limit(5).all()
 
         top_list = []
         for item in top_items:
-            name = item.series_name if item.series_name and item.item_type == 'Episode' else item.item_name
-            top_list.append({'name': name, 'count': item.cnt, 'type': item.item_type or 'Unknown'})
+            top_list.append({'name': item.display_name, 'count': item.cnt, 'type': item.item_type or 'Unknown'})
 
         # 最近活动（最新10条活动日志）
         recent_activities = []
