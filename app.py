@@ -12719,8 +12719,16 @@ def handle_start_panel_callback(callback_id, callback_data, chat_id, message_id,
             existing = CheckInRecord.query.filter_by(user_tg=user.tg, checkin_date=today).first()
             
             if existing:
-                # embyboss 风格：使用弹窗提示，不发送新消息
-                answer_callback_query(callback_id, "⭕ 您今天已经签到过了！签到是无聊的活动哦。", show_alert=True)
+                # 和 /checkin 命令一样，发送完整的已签到信息
+                answer_callback_query(callback_id, "⭕ 今天已经签到过了")
+                reply = f"""⭕ <b>您今天已经签到过了！</b>
+
+🎉 <b>今日获得</b> | {existing.coins_earned} {coin_name}
+💴 <b>当前持有</b> | {user.coins or 0} {coin_name}
+📅 <b>连续签到</b> | {existing.continuous_days} 天
+
+签到是无聊的活动哦，明天再来吧~"""
+                send_telegram_reply(chat_id, reply)
                 return jsonify({'ok': True})
             
             # 生成验证码图片
