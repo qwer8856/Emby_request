@@ -9020,12 +9020,13 @@ def admin_get_playback_rankings():
         api_key = emby_client.api_key
         headers = {'X-Emby-Token': api_key, 'Accept': 'application/json', 'Content-Type': 'application/json'}
 
+        import requests as req_lib
+
         # 构建排除用户名列表 → 映射到 Emby UserId
         exclude_user_ids = set()
         if exclude_users_str:
             exclude_names = [n.strip() for n in exclude_users_str.split(',') if n.strip()]
             if exclude_names:
-                import requests as req_lib
                 try:
                     users_resp = req_lib.get(f"{base}/emby/Users", headers=headers, timeout=10)
                     if users_resp.status_code == 200:
@@ -9077,7 +9078,6 @@ def admin_get_playback_rankings():
         episodes_raw = []
         users_raw = []
 
-        import requests as req_lib
         for sql_query, target in [(movie_sql, 'movies'), (episode_sql, 'episodes'), (user_sql, 'users')]:
             try:
                 resp = req_lib.post(submit_url, json={"CustomQueryString": sql_query, "ReplaceUserId": True},
@@ -9378,15 +9378,26 @@ def _do_ranking_push(days, ranking_config):
     """执行一次排行推送到群组"""
     try:
         with app.app_context():
-            text = _build_ranking_text(days, ranking_config)
+            # 重新读取最新配置（管理员可能已修改）
+            fresh_config = load_system_config().get('ranking', {})
+
+            # 如果推送已被关闭，不再继续
+            if not fresh_config.get('push_enabled'):
+                app.logger.info(f'排行推送: 配置已关闭，停止调度 (days={days})')
+                return
+
+            text = _build_ranking_text(days, fresh_config)
             if not text:
                 app.logger.info(f'排行推送: 无数据，跳过 (days={days})')
+                # 仍然调度下一次
+                _schedule_next_ranking_push(days, fresh_config)
                 return
 
             bot_token = TELEGRAM_BOT_TOKEN
-            chat_id = ranking_config.get('push_chat_id', '').strip() or TELEGRAM_GROUP_ID or TELEGRAM_CHAT_ID
+            chat_id = fresh_config.get('push_chat_id', '').strip() or TELEGRAM_GROUP_ID or TELEGRAM_CHAT_ID
             if not bot_token or not chat_id:
                 app.logger.warning('排行推送: Telegram 未配置')
+                _schedule_next_ranking_push(days, fresh_config)
                 return
 
             url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
@@ -9403,15 +9414,22 @@ def _do_ranking_push(days, ranking_config):
                 app.logger.info(f'排行推送成功: days={days} -> {chat_id}')
             else:
                 app.logger.warning(f'排行推送失败: {resp.status_code} {resp.text[:200]}')
+
+            # 推送完毕后，用最新配置重新调度下一次
+            _schedule_next_ranking_push(days, fresh_config)
     except Exception as e:
         try:
             with app.app_context():
                 app.logger.error(f'排行推送异常: {e}', exc_info=True)
+                # 异常时也尝试重新调度，避免定时任务彻底死掉
+                try:
+                    fresh_config = load_system_config().get('ranking', {})
+                    if fresh_config.get('push_enabled'):
+                        _schedule_next_ranking_push(days, fresh_config)
+                except Exception:
+                    pass
         except:
             pass
-
-    # 推送完毕后，重新调度下一次
-    _schedule_next_ranking_push(days, ranking_config)
 
 
 def _schedule_next_ranking_push(days, ranking_config):
