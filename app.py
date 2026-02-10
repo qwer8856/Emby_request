@@ -9213,8 +9213,13 @@ def admin_get_playback_rankings():
 _ranking_timers = {}  # 存储定时器: {'daily': timer, 'weekly': timer}
 
 def _build_ranking_text(days, ranking_config):
-    """构建排行榜文本消息（供定时推送使用）"""
-    from datetime import timezone as tz
+    """构建排行榜文本消息（供定时推送使用）
+    
+    模板风格借鉴 embyboss (Sakura_embyboss)：
+    - 播放日榜/周榜：电影 + 电视剧，含播放次数和时长
+    - 用户观影榜：用户观影时长排名，含奖牌和中文名次
+    """
+    from datetime import timezone as tz, date as dt_date
     import requests as req_lib
 
     if not emby_client.is_enabled():
@@ -9225,9 +9230,19 @@ def _build_ranking_text(days, ranking_config):
     user_limit = ranking_config.get('user_limit', 20)
     exclude_users_str = ranking_config.get('exclude_users', '')
 
+    # 站点名称，用于标题（类似 embyboss 的 ranks.logo）
+    try:
+        site_cfg = get_site_config()
+        site_name = site_cfg.get('site_name', '') if site_cfg else ''
+    except Exception:
+        site_name = ''
+    if not site_name:
+        site_name = 'Emby'
+
     end_dt = datetime.now(tz(timedelta(hours=8)))
     start_time = (end_dt - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     end_time = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+    today_str = dt_date.today().strftime('%Y-%m-%d')
 
     base = emby_client.base_url
     api_key = emby_client.api_key
@@ -9253,56 +9268,80 @@ def _build_ranking_text(days, ranking_config):
         exclude_clause = f" AND UserId NOT IN ({ids_str})"
 
     def format_duration(seconds):
+        """格式化秒数为可读时长（与 embyboss convert_s 风格一致）"""
         try:
             s = int(float(seconds))
         except (ValueError, TypeError):
-            return '0分钟'
+            return '0 分钟'
         if s < 60:
-            return f'{s}秒'
-        h, m = divmod(s // 60, 60)
-        if h > 0:
-            return f'{h}小时{m}分钟'
-        return f'{m}分钟'
+            return f'{s} 秒'
+        d = timedelta(seconds=s)
+        total_days = d.days
+        hours, remainder = divmod(d.seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+        parts = []
+        if total_days > 0:
+            parts.append(f'{total_days} 天')
+        if hours > 0:
+            parts.append(f'{hours} 小时')
+        parts.append(f'{minutes} 分钟')
+        return ' '.join(parts)
+
+    # 中文数字映射（类似 embyboss 的 cn2an）
+    cn_nums = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十',
+               '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十']
+
+    def rank_to_cn(n):
+        """数字转中文名次"""
+        if 1 <= n <= len(cn_nums):
+            return cn_nums[n - 1]
+        return str(n)
 
     submit_url = f"{base}/emby/user_usage_stats/submit_custom_query"
-    medals = ['🥇', '🥈', '🥉']
-    period = '日' if days == 1 else '周'
+    rank_medals = ['🥇', '🥈', '🥉', '🏅']
+    period_name = '日' if days == 1 else '周'
 
-    # 查询
-    queries = {
-        'movies': (
-            "SELECT UserId, ItemId, ItemType, ItemName AS name, "
-            "COUNT(1) AS play_count, SUM(PlayDuration - PauseDuration) AS total_duration "
-            "FROM PlaybackActivity "
-            f"WHERE ItemType = 'Movie' AND DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' "
-            f"AND UserId NOT IN (SELECT UserId FROM UserList) {exclude_clause} "
-            f"GROUP BY name ORDER BY play_count DESC, total_duration DESC LIMIT {movie_limit}"
-        ),
-        'episodes': (
-            "SELECT UserId, ItemId, ItemType, "
-            "substr(ItemName, 0, instr(ItemName, ' - ')) AS name, "
-            "COUNT(1) AS play_count, SUM(PlayDuration - PauseDuration) AS total_duration "
-            "FROM PlaybackActivity "
-            f"WHERE ItemType = 'Episode' AND DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' "
-            f"AND UserId NOT IN (SELECT UserId FROM UserList) {exclude_clause} "
-            f"GROUP BY name ORDER BY play_count DESC, total_duration DESC LIMIT {episode_limit}"
-        ),
-        'users': (
-            "SELECT UserId, SUM(PlayDuration - PauseDuration) AS WatchTime "
-            "FROM PlaybackActivity "
-            f"WHERE DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' {exclude_clause} "
-            f"GROUP BY UserId ORDER BY WatchTime DESC LIMIT {user_limit}"
-        )
-    }
+    # ====== 查询数据 ======
+    movie_sql = (
+        "SELECT UserId, ItemId, ItemType, ItemName AS name, "
+        "COUNT(1) AS play_count, SUM(PlayDuration - PauseDuration) AS total_duration "
+        "FROM PlaybackActivity "
+        f"WHERE ItemType = 'Movie' AND DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' "
+        f"AND UserId NOT IN (SELECT UserId FROM UserList) {exclude_clause} "
+        f"GROUP BY name ORDER BY total_duration DESC LIMIT {movie_limit}"
+    )
+    episode_sql = (
+        "SELECT UserId, ItemId, ItemType, "
+        "substr(ItemName, 0, instr(ItemName, ' - ')) AS name, "
+        "COUNT(1) AS play_count, SUM(PlayDuration - PauseDuration) AS total_duration "
+        "FROM PlaybackActivity "
+        f"WHERE ItemType = 'Episode' AND DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' "
+        f"AND UserId NOT IN (SELECT UserId FROM UserList) {exclude_clause} "
+        f"GROUP BY name ORDER BY total_duration DESC LIMIT {episode_limit}"
+    )
+    user_sql = (
+        "SELECT UserId, SUM(PlayDuration - PauseDuration) AS WatchTime "
+        "FROM PlaybackActivity "
+        f"WHERE DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' {exclude_clause} "
+        f"GROUP BY UserId ORDER BY WatchTime DESC LIMIT {user_limit}"
+    )
 
-    results = {}
-    for key, sql in queries.items():
+    movies = []
+    episodes = []
+    users = []
+    for sql, target in [(movie_sql, 'movies'), (episode_sql, 'episodes'), (user_sql, 'users')]:
         try:
             resp = req_lib.post(submit_url, json={"CustomQueryString": sql, "ReplaceUserId": True},
                                 headers=headers, timeout=15)
-            results[key] = resp.json().get('results', []) if resp.status_code == 200 else []
+            rows = resp.json().get('results', []) if resp.status_code == 200 else []
         except Exception:
-            results[key] = []
+            rows = []
+        if target == 'movies':
+            movies = rows
+        elif target == 'episodes':
+            episodes = rows
+        else:
+            users = rows
 
     # 获取用户名映射
     emby_user_map = {}
@@ -9323,58 +9362,87 @@ def _build_ranking_text(days, ranking_config):
     except Exception:
         pass
 
-    # 组装文本
-    lines = [f'📊 <b>播放{period}榜</b>  {end_dt.strftime("%Y-%m-%d")}', '']
+    has_data = bool(movies or episodes or users)
+    if not has_data:
+        return None
 
-    # 用户排行
-    if results.get('users'):
-        lines.append('👤 <b>用户观影时长</b>')
-        for i, row in enumerate(results['users']):
+    # ====== 组装文本（embyboss 风格）======
+    # 使用 HTML parse_mode，用 <b> 模拟 Markdown 的 ** 粗体
+
+    lines = []
+
+    # ---------- 播放榜（电影 + 电视剧）----------
+    # 标题：【站名 播放日榜/周榜】
+    lines.append(f'<b>【{site_name} 播放{period_name}榜】</b>')
+    lines.append('')
+
+    # 电影部分
+    if movies:
+        lines.append('<b>▎电影:</b>')
+        lines.append('')
+        for i, row in enumerate(movies):
+            try:
+                name = str(row[3]).strip() if row[3] else ''
+                count = int(row[4]) if row[4] else 0
+                duration = format_duration(row[5])
+                if not name:
+                    continue
+                lines.append(f'{i + 1}. {name}')
+                lines.append(f'播放次数: {count}  时长:{duration}')
+            except (IndexError, ValueError):
+                continue
+
+    # 电视剧部分
+    if episodes:
+        lines.append('')
+        lines.append('<b>▎电视剧:</b>')
+        lines.append('')
+        for i, row in enumerate(episodes):
+            try:
+                name = str(row[3]).strip() if row[3] else ''
+                count = int(row[4]) if row[4] else 0
+                duration = format_duration(row[5])
+                if not name:
+                    continue
+                lines.append(f'{i + 1}. {name}')
+                lines.append(f'播放次数: {count}  时长:{duration}')
+            except (IndexError, ValueError):
+                continue
+
+    # hashtag + 日期
+    if movies or episodes:
+        tag = '#DayRanks' if days == 1 else '#WeekRanks'
+        lines.append('')
+        lines.append(f'{tag}  {today_str}')
+
+    # ---------- 用户观影时长榜 ----------
+    if users:
+        # 如果前面有电影/剧集榜，空两行分隔
+        if movies or episodes:
+            lines.append('')
+            lines.append('━━━━━━━━━━━━━━━')
+            lines.append('')
+
+        lines.append(f'<b>▎🏆{site_name} {days} 天观影榜</b>')
+        lines.append('')
+
+        for rank, row in enumerate(users, start=1):
             try:
                 uid = str(row[0]) if row[0] else ''
                 secs = int(float(row[1])) if row[1] else 0
                 if secs <= 0:
                     continue
-                name = local_user_map.get(uid) or emby_user_map.get(uid, '未知')
-                medal = medals[i] if i < 3 else f'{i+1}.'
-                lines.append(f'  {medal} {name} — {format_duration(secs)}')
+                name = local_user_map.get(uid) or emby_user_map.get(uid, '未知用户')
+                medal = rank_medals[rank - 1] if rank <= 3 else rank_medals[3]
+                cn_rank = rank_to_cn(rank)
+                duration_str = format_duration(secs)
+                lines.append(f'{medal}<b>第{cn_rank}名</b> | {name}')
+                lines.append(f'  观影时长 | {duration_str}')
             except (IndexError, ValueError):
                 continue
+
         lines.append('')
-
-    # 电影排行
-    if results.get('movies'):
-        lines.append('🎬 <b>电影排行</b>')
-        for i, row in enumerate(results['movies']):
-            try:
-                name = str(row[3]).strip()
-                count = int(row[4])
-                dur = format_duration(row[5])
-                if not name:
-                    continue
-                medal = medals[i] if i < 3 else f'{i+1}.'
-                lines.append(f'  {medal} {name}  ▶{count}次 ⏱{dur}')
-            except (IndexError, ValueError):
-                continue
-        lines.append('')
-
-    # 剧集排行
-    if results.get('episodes'):
-        lines.append('📺 <b>剧集排行</b>')
-        for i, row in enumerate(results['episodes']):
-            try:
-                name = str(row[3]).strip()
-                count = int(row[4])
-                dur = format_duration(row[5])
-                if not name:
-                    continue
-                medal = medals[i] if i < 3 else f'{i+1}.'
-                lines.append(f'  {medal} {name}  ▶{count}次 ⏱{dur}')
-            except (IndexError, ValueError):
-                continue
-
-    if len(lines) <= 2:
-        return None  # 没有数据
+        lines.append(f'#UPlaysRank {today_str}')
 
     return '\n'.join(lines)
 
