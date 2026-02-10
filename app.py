@@ -541,6 +541,7 @@ def _flush_aggregated_notification(series_key):
     try:
         info = pending['data']
         episodes = sorted(info['episodes'])  # [(season, episode), ...]
+        episode_names = info.get('episode_names', {})
 
         # 按季分组
         from collections import defaultdict
@@ -550,20 +551,29 @@ def _flush_aggregated_notification(series_key):
 
         # 构建季集描述
         parts = []
+        single_episode_name = None  # 单集时的集名
         for s_num in sorted(seasons.keys()):
             eps = seasons[s_num]
             if len(eps) == 1:
-                parts.append(f"S{s_num:02d}E{eps[0]:02d}")
+                ep_tag = f"S{s_num:02d}E{eps[0]:02d}"
+                # 单集：尝试附带集名（如 "第十三集"）
+                ep_name = episode_names.get((s_num, eps[0]))
+                if ep_name:
+                    single_episode_name = ep_name
+                parts.append(ep_tag)
             else:
                 eps_sorted = sorted(eps)
                 # 检查是否连续
                 if eps_sorted[-1] - eps_sorted[0] == len(eps_sorted) - 1:
-                    parts.append(f"S{s_num:02d}E{eps_sorted[0]:02d}-E{eps_sorted[-1]:02d}")
+                    parts.append(f"S{s_num:02d} E{eps_sorted[0]:02d}-E{eps_sorted[-1]:02d}")
                 else:
                     ep_str = '、'.join(str(e) for e in eps_sorted)
                     parts.append(f"S{s_num:02d} 第{ep_str}集")
 
         season_episode = ' '.join(parts)
+        # 如果只有一集且有集名，在季集描述后附加集名
+        if len(episodes) == 1 and single_episode_name:
+            season_episode = f"{season_episode} {single_episode_name}"
         file_count = len(episodes)
 
         with app.app_context():
@@ -593,7 +603,8 @@ def _flush_aggregated_notification(series_key):
 
 def _queue_episode_notification(series_key, title, year, season_num, episode_num,
                                  vote_average, category, resource_quality,
-                                 total_size, tmdb_id, overview, poster_path):
+                                 total_size, tmdb_id, overview, poster_path,
+                                 episode_name=None):
     """将单集入库事件加入聚合队列，重置定时器"""
     with _library_notify_lock:
         if series_key in _library_notify_pending:
@@ -602,6 +613,9 @@ def _queue_episode_notification(series_key, title, year, season_num, episode_num
             entry['timer'].cancel()
             # 追加集数
             entry['data']['episodes'].append((season_num or 0, episode_num or 0))
+            # 记录每集的集名（用于单集通知时显示）
+            if episode_name:
+                entry['data'].setdefault('episode_names', {})[(season_num or 0, episode_num or 0)] = episode_name
             # 累加文件大小
             if total_size and entry['data'].get('total_size'):
                 try:
@@ -615,11 +629,15 @@ def _queue_episode_notification(series_key, title, year, season_num, episode_num
             if resource_quality:
                 entry['data']['resource_quality'] = resource_quality
         else:
+            episode_names = {}
+            if episode_name:
+                episode_names[(season_num or 0, episode_num or 0)] = episode_name
             entry = {
                 'data': {
                     'title': title,
                     'year': year,
                     'episodes': [(season_num or 0, episode_num or 0)],
+                    'episode_names': episode_names,
                     'vote_average': vote_average,
                     'category': category,
                     'resource_quality': resource_quality,
@@ -6448,6 +6466,10 @@ def _build_default_notification_full(vars):
     if vars.get('year'):
         title_text += f" ({vars['year']})"
     
+    # 如果有季集信息，附加到标题后面（如 "生命树 (2024) S01 E25-E26"）
+    if vars.get('season_episode'):
+        title_text += f" {vars['season_episode']}"
+    
     # 构建消息
     lines = []
     
@@ -6458,10 +6480,6 @@ def _build_default_notification_full(vars):
     # 信息区域
     info_lines = []
     info_lines.append(f"📚 <b>类型：</b>{type_name}")
-    
-    # 剧集入库详情（显示具体哪些集）
-    if vars.get('season_episode'):
-        info_lines.append(f"📋 <b>入库剧集：</b>{vars['season_episode']}")
     
     if vars.get('vote_average'):
         try:
@@ -11779,9 +11797,11 @@ def emby_webhook():
             # 剧集：加入聚合队列，等待同一部剧的其他集一起通知
             season_num = item.get('ParentIndexNumber') or 0
             episode_num = item.get('IndexNumber') or 0
+            # 获取单集的集名（如 "第十三集"、"命运之夜" 等）
+            episode_name = item_name if item_name and item_name != series_name else None
             # 聚合 key：剧名+年份（同一部剧归到一起）
             agg_key = f"{notification_title}|{item_year or ''}"
-            app.logger.info(f'剧集入库加入聚合: {notification_title} S{season_num:02d}E{episode_num:02d}')
+            app.logger.info(f'剧集入库加入聚合: {notification_title} S{season_num:02d}E{episode_num:02d} ({episode_name})')
             _queue_episode_notification(
                 series_key=agg_key,
                 title=notification_title,
@@ -11794,7 +11814,8 @@ def emby_webhook():
                 total_size=file_size,
                 tmdb_id=tmdb_id,
                 overview=overview,
-                poster_path=poster_path
+                poster_path=poster_path,
+                episode_name=episode_name
             )
         else:
             # 电影：直接发送通知
