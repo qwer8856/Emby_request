@@ -2819,68 +2819,7 @@ function searchUsers() {
     }, 300);
 }
 
-let currentUserId = null;
-
-function openUserDetail(userId) {
-    const user = allUsers.find(u => u.id === userId);
-    if (!user) {
-        showToast('错误', '找不到用户信息', 'error');
-        return;
-    }
-    
-    currentUserId = userId;
-    
-    const levelNames = {'a': '白名单', 'b': '普通用户', 'c': '已禁用', 'd': '无账号'};
-    
-    document.getElementById('userDetailAvatar').textContent = (user.emby_name || user.name || '?')[0].toUpperCase();
-    document.getElementById('userDetailName').textContent = (user.name || '-') + (user.emby_name && user.emby_name !== user.name ? ' (Emby: ' + user.emby_name + ')' : '');
-    document.getElementById('userDetailTgId').textContent = user.telegram_id ? user.telegram_id : '未绑定';
-    document.getElementById('userDetailRole').textContent = (user.is_admin ? '管理员 / ' : '') + (levelNames[user.level] || user.level);
-    
-    // 订阅状态：白名单用户永远已订阅
-    if (user.level === 'a') {
-        document.getElementById('userDetailSubscription').textContent = '已订阅';
-    } else {
-        document.getElementById('userDetailSubscription').textContent = user.subscription_status === 'active' ? '已订阅' : '未订阅';
-    }
-    
-    document.getElementById('userDetailModal').classList.add('show');
-}
-
-function closeUserDetailModal() {
-    document.getElementById('userDetailModal').classList.remove('show');
-    currentUserId = null;
-}
-
-async function toggleUserRole() {
-    if (!currentUserId) return;
-    
-    const confirmed = await showConfirm({
-        title: '切换用户等级',
-        message: '确定要切换此用户的等级吗？\n(白名单 → 普通 → 禁用 → 白名单)',
-        confirmText: '确定切换',
-        type: 'warning'
-    });
-    if (!confirmed) return;
-    
-    try {
-        const response = await fetch(`/api/admin/users/${currentUserId}/toggle-role`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        const data = await response.json();
-        
-        if (data.success) {
-            showToast('成功', data.message || '用户等级已更新', 'success');
-            closeUserDetailModal();
-            loadUsers();
-        } else {
-            showToast('失败', data.error || '操作失败', 'error');
-        }
-    } catch (error) {
-        showToast('网络错误', error.message, 'error');
-    }
-}
+// openUserDetail / toggleUserRole 已迁移到 showUserDetail
 
 async function setUserLevel(userId, level) {
     if (!level) return;
@@ -4824,10 +4763,10 @@ async function saveSiteConfig() {
     }
 }
 
-// 点击弹窗外部关闭
+// 点击弹窗外部关闭（使用 classList 而非 inline style，避免覆盖 .modal.show 的 CSS 规则）
 document.addEventListener('click', function(e) {
-    if (e.target.classList.contains('modal')) {
-        e.target.style.display = 'none';
+    if (e.target.classList.contains('modal') && e.target.classList.contains('show')) {
+        e.target.classList.remove('show');
     }
 });
 
@@ -7068,13 +7007,15 @@ async function showUserDetail(userId) {
     currentDetailUserId = userId;
     activityPage = 1;
     
-    document.getElementById('userDetailModal').classList.add('show');
+    const modal = document.getElementById('userDetailModal');
+    modal.classList.add('show');
     document.getElementById('userDetailTitle').textContent = '用户详情';
     
-    // 重置标签页
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-    document.querySelector('.tab-btn').classList.add('active');
+    // 重置标签页（限定在 modal 内部）
+    modal.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    modal.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+    const firstTab = modal.querySelector('.tab-btn');
+    if (firstTab) firstTab.classList.add('active');
     document.getElementById('tab-info').classList.add('active');
     
     // 加载用户详情
@@ -7085,6 +7026,27 @@ function closeUserDetailModal() {
     document.getElementById('userDetailModal').classList.remove('show');
     currentDetailUserId = null;
 }
+
+// 点击 modal 背景区域关闭弹窗（脚本在 body 尾部加载，DOM 已就绪）
+(function() {
+    const userDetailModal = document.getElementById('userDetailModal');
+    if (userDetailModal) {
+        userDetailModal.addEventListener('click', function(e) {
+            // 只有点击遮罩层（modal 本身）才关闭，点击内容区域不关闭
+            if (e.target === userDetailModal) {
+                closeUserDetailModal();
+            }
+        });
+    }
+    const planSelectModal = document.getElementById('planSelectModal');
+    if (planSelectModal) {
+        planSelectModal.addEventListener('click', function(e) {
+            if (e.target === planSelectModal) {
+                closePlanSelectModal();
+            }
+        });
+    }
+})();
 
 function switchUserDetailTab(tabName) {
     // 切换标签按钮状态
