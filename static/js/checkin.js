@@ -66,9 +66,38 @@ async function loadCheckinStatus() {
 }
 
 // 执行签到
+let _checkinCaptcha = null;
+
+function generateCheckinCaptcha() {
+    const ops = [
+        () => { const a = Math.floor(Math.random()*20)+1, b = Math.floor(Math.random()*20)+1; return { q: `${a} + ${b} = ?`, a: a+b }; },
+        () => { const a = Math.floor(Math.random()*20)+5, b = Math.floor(Math.random()*a)+1; return { q: `${a} - ${b} = ?`, a: a-b }; },
+        () => { const a = Math.floor(Math.random()*9)+2, b = Math.floor(Math.random()*9)+2; return { q: `${a} × ${b} = ?`, a: a*b }; },
+    ];
+    return ops[Math.floor(Math.random()*ops.length)]();
+}
+
 async function doCheckin() {
     const miniBtn = document.getElementById('checkinMiniBtn');
     if (miniBtn && miniBtn.disabled) return;
+
+    // 生成验证码并弹出输入框
+    _checkinCaptcha = generateCheckinCaptcha();
+    const answer = await showPrompt({
+        title: '🔒 签到验证',
+        message: `请计算以下算式的结果\n\n${_checkinCaptcha.q}`,
+        placeholder: '请输入计算结果',
+        type: 'info'
+    });
+
+    // 用户取消
+    if (answer === null) return;
+
+    // 验证答案
+    if (parseInt(answer) !== _checkinCaptcha.a) {
+        window.showToast('验证失败，计算结果不正确', 'error');
+        return;
+    }
     
     if (miniBtn) {
         miniBtn.disabled = true;

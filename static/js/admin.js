@@ -9300,11 +9300,11 @@ async function changeMyPassword() {
         const data = await res.json();
         
         if (data.success) {
-            showToast('修改成功', data.message || '密码已修改，即将跳转到登录页...', 'success');
+            showToast('修改成功', data.message || '密码已修改，即将跳转...', 'success');
             closeChangePwdModal();
-            // 延迟后跳转到管理员登录页
+            // 延迟后跳转到首页（后台登录路径为动态秘钥，不直接暴露）
             setTimeout(() => {
-                window.location.href = '/admin/login';
+                window.location.href = '/';
             }, 1500);
         } else {
             showToast('修改失败', data.error || '未知错误', 'error');
