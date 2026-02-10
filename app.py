@@ -3852,8 +3852,14 @@ def log_response(response):
 # 全局错误处理
 @app.errorhandler(404)
 def not_found(error):
-    # 静默忽略浏览器自动请求的图标文件（favicon / apple-touch-icon）
-    ignored_paths = ('/favicon.ico', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png')
+    # 静默忽略浏览器/旧SW缓存自动请求的资源文件
+    ignored_paths = (
+        '/favicon.ico',
+        '/apple-touch-icon.png',
+        '/apple-touch-icon-precomposed.png',
+        '/static/logo.png',        # 旧版 Service Worker 缓存残留
+        '/static/manifest.json',   # 旧版 Service Worker 缓存残留
+    )
     if request.path in ignored_paths:
         return '', 204
     app.logger.warning(f'404 错误: {request.path}')
