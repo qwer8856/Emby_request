@@ -499,6 +499,7 @@ TELEGRAM_GROUP_ID = os.getenv('TELEGRAM_GROUP_ID', '')
 
 # Telegram Webhook 配置
 TELEGRAM_CONFIGURED_URL = ''  # 用户配置的服务器地址
+_TELEGRAM_WEBHOOK_SECRET = ''  # Webhook secret_token，用于验证请求来自当前配置的 Bot
 
 # 公告弹窗配置（从环境变量读取，默认禁用）
 ANNOUNCEMENT_ENABLED = os.getenv('ANNOUNCEMENT_ENABLED', 'false').lower() == 'true'
@@ -1682,10 +1683,11 @@ def update_global_system_config():
     """更新全局变量为配置文件中的值"""
     global EMBY_URL, EMBY_API_KEY, EMBY_WEBHOOK_SECRET
     global TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_GROUP_ID
-    global TELEGRAM_CONFIGURED_URL
+    global TELEGRAM_CONFIGURED_URL, _TELEGRAM_WEBHOOK_SECRET
     global PT_SEARCH_STRATEGY, DOWNLOAD_POLL_INTERVAL
     global TMDB_API_KEY, MAX_DAILY_REQUESTS
     global emby_client
+    global _bot_username_cache, _bot_username_cache_time
     
     config = load_system_config()
     
@@ -1693,13 +1695,22 @@ def update_global_system_config():
     EMBY_API_KEY = config['emby']['api_key']
     EMBY_WEBHOOK_SECRET = config['emby']['webhook_secret']
     
+    _old_tg_token = globals().get('TELEGRAM_BOT_TOKEN', '')
     TELEGRAM_BOT_TOKEN = config['telegram']['bot_token']
     TELEGRAM_CHAT_ID = config['telegram']['chat_id']
     TELEGRAM_GROUP_ID = config['telegram']['group_id'] or config['telegram']['chat_id']
     
+    # Bot Token 变更时清除机器人用户名缓存，强制重新获取
+    if _old_tg_token and _old_tg_token != TELEGRAM_BOT_TOKEN:
+        _bot_username_cache = None
+        _bot_username_cache_time = 0
+    
     # 加载 Telegram Webhook 配置
     if 'configured_url' in config['telegram']:
         TELEGRAM_CONFIGURED_URL = config['telegram']['configured_url']
+    # 加载 Webhook secret_token
+    if 'webhook_secret_token' in config['telegram']:
+        _TELEGRAM_WEBHOOK_SECRET = config['telegram']['webhook_secret_token']
     
     PT_SEARCH_STRATEGY = config['search']['strategy']
     DOWNLOAD_POLL_INTERVAL = int(config['search']['poll_interval']) if config['search']['poll_interval'] else 10
@@ -12347,6 +12358,7 @@ def telegram_webhook():
     接收 Telegram Bot Webhook 消息
     
     ★ 采用"先返回200再异步处理"模式，防止处理耗时过长导致 Telegram 超时重试
+    ★ 通过 secret_token 验证请求确实来自当前配置的 Bot，拒绝旧 Bot 的消息
     
     设置 Webhook 方法:
     1. 获取你的域名，如: https://your-domain.com
@@ -12361,6 +12373,13 @@ def telegram_webhook():
     """
     if not TELEGRAM_BOT_TOKEN:
         return jsonify({'ok': True})
+    
+    # ★ 验证 secret_token：拒绝非当前 Bot 的 Webhook 推送（防止切换 Token 后旧 Bot 消息仍被处理）
+    if _TELEGRAM_WEBHOOK_SECRET:
+        incoming_secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token', '')
+        if incoming_secret != _TELEGRAM_WEBHOOK_SECRET:
+            app.logger.warning(f'[Webhook] secret_token 不匹配，拒绝处理（可能是旧 Bot 的推送）')
+            return jsonify({'ok': True})
     
     try:
         data = request.get_json(force=True) or {}
@@ -15446,13 +15465,18 @@ def setup_telegram_webhook():
             except Exception as e:
                 app.logger.warning(f'[Webhook模式] 删除旧 Webhook 失败（可忽略）: {e}')
             
+            # 生成随机 secret_token，用于验证 Webhook 请求确实来自此 Bot
+            import secrets as _secrets
+            webhook_secret = _secrets.token_hex(32)
+            
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
             payload = {
                 'url': webhook_url,
                 'allowed_updates': ['message', 'callback_query', 'chat_member'],
-                'drop_pending_updates': True
+                'drop_pending_updates': True,
+                'secret_token': webhook_secret
             }
-            app.logger.info(f'[Webhook模式] 发送设置请求 - payload: {payload}')
+            app.logger.info(f'[Webhook模式] 发送设置请求 - url={webhook_url}, secret_token已生成')
             
             response = PROXY_SESSION.post(url, json=payload, timeout=10)
             data = response.json()
@@ -15462,11 +15486,22 @@ def setup_telegram_webhook():
             if data.get('ok'):
                 app.logger.info(f'[Webhook模式] 设置成功: {webhook_url}')
                 
+                # 保存 secret_token 到全局变量和配置
+                global _TELEGRAM_WEBHOOK_SECRET
+                _TELEGRAM_WEBHOOK_SECRET = webhook_secret
+                
                 # 保存到数据库
                 TELEGRAM_CONFIGURED_URL = base_url
                 current_config = get_db_config(CONFIG_KEY_TELEGRAM) or {}
                 current_config['configured_url'] = base_url
+                current_config['webhook_secret_token'] = webhook_secret
                 set_db_config(CONFIG_KEY_TELEGRAM, current_config, 'Telegram BOT配置')
+                
+                # 同时保存到系统配置文件
+                sys_config = load_system_config()
+                sys_config['telegram']['configured_url'] = base_url
+                sys_config['telegram']['webhook_secret_token'] = webhook_secret
+                save_system_config(sys_config)
                 
                 # 注册命令菜单
                 register_telegram_commands()
@@ -18834,19 +18869,34 @@ def save_system_config_api():
                             app.logger.info(f'[Telegram] 已清除旧 Bot Webhook: {result}')
                         except Exception as e:
                             app.logger.warning(f'[Telegram] 清除旧 Bot Webhook 失败（可忽略）: {e}')
-                        # 2) 为新 Bot 设置 Webhook（使用已保存的 configured_url）
+                        # 2) 为新 Bot 设置 Webhook + secret_token（使用已保存的 configured_url）
                         if cfg_url:
                             try:
+                                import secrets as _secrets
+                                new_secret = _secrets.token_hex(32)
                                 webhook_url = cfg_url.rstrip('/') + '/api/webhook/telegram'
                                 set_url = f"https://api.telegram.org/bot{new_tkn}/setWebhook"
                                 payload = {
                                     'url': webhook_url,
                                     'allowed_updates': ['message', 'callback_query', 'chat_member'],
-                                    'drop_pending_updates': True
+                                    'drop_pending_updates': True,
+                                    'secret_token': new_secret
                                 }
                                 resp2 = PROXY_SESSION.post(set_url, json=payload, timeout=10)
                                 result2 = resp2.json()
                                 app.logger.info(f'[Telegram] 已为新 Bot 设置 Webhook: {result2}')
+                                # 保存新的 secret_token
+                                if result2.get('ok'):
+                                    global _TELEGRAM_WEBHOOK_SECRET
+                                    _TELEGRAM_WEBHOOK_SECRET = new_secret
+                                    with app.app_context():
+                                        try:
+                                            sys_cfg = load_system_config()
+                                            sys_cfg['telegram']['webhook_secret_token'] = new_secret
+                                            save_system_config(sys_cfg)
+                                            app.logger.info('[Telegram] 新 Bot 的 webhook_secret_token 已保存')
+                                        except Exception as se:
+                                            app.logger.warning(f'[Telegram] 保存 webhook_secret_token 失败: {se}')
                             except Exception as e:
                                 app.logger.warning(f'[Telegram] 为新 Bot 设置 Webhook 失败: {e}')
                         else:
