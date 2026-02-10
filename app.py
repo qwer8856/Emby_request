@@ -9083,7 +9083,8 @@ def admin_get_playback_rankings():
         episodes_raw = []
         users_raw = []
 
-        for sql_query, target in [(movie_sql, 'movies'), (episode_sql, 'episodes'), (user_sql, 'users')]:
+        # 电影和剧集查询用 ReplaceUserId=True（不需要用户映射）
+        for sql_query, target in [(movie_sql, 'movies'), (episode_sql, 'episodes')]:
             try:
                 resp = req_lib.post(submit_url, json={"CustomQueryString": sql_query, "ReplaceUserId": True},
                                     headers=headers, timeout=15)
@@ -9092,12 +9093,19 @@ def admin_get_playback_rankings():
                     rows = data.get('results', [])
                     if target == 'movies':
                         movies_raw = rows
-                    elif target == 'episodes':
-                        episodes_raw = rows
                     else:
-                        users_raw = rows
+                        episodes_raw = rows
             except Exception as e:
                 app.logger.warning(f'播放排行查询失败 ({target}): {e}')
+
+        # 用户榜查询用 ReplaceUserId=False，保留原始 UserId (UUID) 用于映射
+        try:
+            resp = req_lib.post(submit_url, json={"CustomQueryString": user_sql, "ReplaceUserId": False},
+                                headers=headers, timeout=15)
+            if resp.status_code == 200:
+                users_raw = resp.json().get('results', [])
+        except Exception as e:
+            app.logger.warning(f'播放排行查询失败 (users): {e}')
 
         # ---------- 3. 组装电影排行 ----------
         def format_duration(seconds):
@@ -9329,7 +9337,9 @@ def _build_ranking_text(days, ranking_config):
     movies = []
     episodes = []
     users = []
-    for sql, target in [(movie_sql, 'movies'), (episode_sql, 'episodes'), (user_sql, 'users')]:
+
+    # 电影和剧集查询使用 ReplaceUserId=True（不需要用户映射）
+    for sql, target in [(movie_sql, 'movies'), (episode_sql, 'episodes')]:
         try:
             resp = req_lib.post(submit_url, json={"CustomQueryString": sql, "ReplaceUserId": True},
                                 headers=headers, timeout=15)
@@ -9338,12 +9348,18 @@ def _build_ranking_text(days, ranking_config):
             rows = []
         if target == 'movies':
             movies = rows
-        elif target == 'episodes':
-            episodes = rows
         else:
-            users = rows
+            episodes = rows
 
-    # 获取用户名映射
+    # 用户榜查询使用 ReplaceUserId=False，保留原始 UserId (UUID) 用于映射
+    try:
+        resp = req_lib.post(submit_url, json={"CustomQueryString": user_sql, "ReplaceUserId": False},
+                            headers=headers, timeout=15)
+        users = resp.json().get('results', []) if resp.status_code == 200 else []
+    except Exception:
+        users = []
+
+    # 获取用户名映射: emby_id -> Emby用户名
     emby_user_map = {}
     try:
         users_resp = req_lib.get(f"{base}/emby/Users", headers=headers, timeout=10)
@@ -9353,14 +9369,34 @@ def _build_ranking_text(days, ranking_config):
     except Exception:
         pass
 
-    local_user_map = {}
+    # 本地用户映射: emby_id -> {name, tg_id}，用于显示名和 TG 链接
+    local_user_map = {}  # embyid -> {'name': str, 'tg_id': int|None}
     try:
         all_local = User.query.filter(User.embyid.isnot(None)).all()
         for u in all_local:
             if u.embyid:
-                local_user_map[u.embyid] = u.name or u.emby_name or ''
+                display = u.name or u.emby_name or ''
+                local_user_map[u.embyid] = {
+                    'name': display,
+                    'tg_id': u.telegram_id  # Telegram user ID（可能为 None）
+                }
     except Exception:
         pass
+
+    def get_user_display(uid):
+        """根据 Emby UserId 返回带 TG 链接的用户显示名"""
+        local = local_user_map.get(uid)
+        if local and local['name']:
+            name = local['name']
+            tg_id = local.get('tg_id')
+            if tg_id:
+                return f'<a href="tg://user?id={tg_id}">{name}</a>'
+            return name
+        # 回退到 Emby 用户名
+        emby_name = emby_user_map.get(uid)
+        if emby_name:
+            return emby_name
+        return '未知用户'
 
     has_data = bool(movies or episodes or users)
     if not has_data:
@@ -9432,11 +9468,11 @@ def _build_ranking_text(days, ranking_config):
                 secs = int(float(row[1])) if row[1] else 0
                 if secs <= 0:
                     continue
-                name = local_user_map.get(uid) or emby_user_map.get(uid, '未知用户')
+                display_name = get_user_display(uid)
                 medal = rank_medals[rank - 1] if rank <= 3 else rank_medals[3]
                 cn_rank = rank_to_cn(rank)
                 duration_str = format_duration(secs)
-                lines.append(f'{medal}<b>第{cn_rank}名</b> | {name}')
+                lines.append(f'{medal}<b>第{cn_rank}名</b> | {display_name}')
                 lines.append(f'  观影时长 | {duration_str}')
             except (IndexError, ValueError):
                 continue
