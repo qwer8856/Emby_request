@@ -178,12 +178,15 @@ select {
     background: white;
     border-radius: 16px;
     padding: 32px;
-    max-width: 400px;
+    max-width: 480px;
     width: 100%;
     text-align: center;
     transform: scale(0.9) translateY(20px);
     transition: all 0.2s ease;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
 }
 
 .global-confirm-overlay.show .global-confirm-dialog {
@@ -210,12 +213,18 @@ select {
     line-height: 1.6;
     margin-bottom: 24px;
     word-break: break-word;
+    overflow-y: auto;
+    max-height: 100%;
+    flex: 1;
+    min-height: 0;
+    text-align: left;
 }
 
 .global-confirm-buttons {
     display: flex;
     gap: 12px;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .global-confirm-btn {
