@@ -15839,6 +15839,176 @@ def batch_delete_requests():
 
 # ==================== 批量操作 API ====================
 
+@app.route('/api/admin/users/import-emby', methods=['POST'])
+@admin_required
+def import_users_to_emby():
+    """一键将面板用户导入 Emby 服务器
+    
+    逻辑：遍历面板中所有绑定了 emby_name 的用户，检查 Emby 服务器中是否存在该账号，
+    不存在则创建。创建后根据用户状态（lv='c' 为禁用）设置 Emby 账号状态。
+    """
+    try:
+        if not emby_client.is_enabled():
+            return jsonify({'success': False, 'error': 'Emby 服务器未配置或未启用'}), 400
+        
+        # 先测试 Emby 连接
+        try:
+            test_url = f"{emby_client.base_url}/System/Info"
+            test_resp = emby_client.session.get(test_url, params={'api_key': emby_client.api_key}, timeout=10)
+            if test_resp.status_code != 200:
+                return jsonify({'success': False, 'error': f'Emby 服务器连接失败 (HTTP {test_resp.status_code})'}), 500
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'无法连接 Emby 服务器: {str(e)}'}), 500
+        
+        # 获取 Emby 服务器上已有的所有用户（用于快速比对）
+        emby_users = emby_client.get_all_users()
+        
+        # 构建 Emby 已有用户名映射（小写比对）和 ID 集合
+        emby_name_map = {u.get('Name', '').lower(): u for u in emby_users}
+        emby_id_set = {u.get('Id', '') for u in emby_users}
+        
+        # 获取面板中所有绑定了 emby 用户名的用户
+        panel_users = User.query.filter(
+            User.emby_name.isnot(None),
+            User.emby_name != ''
+        ).all()
+        
+        if not panel_users:
+            return jsonify({'success': True, 'message': '没有需要导入的用户', 
+                           'total': 0, 'created': 0, 'skipped': 0, 'failed': 0, 'disabled': 0, 'updated': 0})
+        
+        total = len(panel_users)
+        created = 0
+        skipped = 0
+        failed = 0
+        disabled = 0
+        updated = 0
+        details = []
+        
+        for user in panel_users:
+            emby_name = user.emby_name.strip()
+            emby_id = user.embyid
+            is_banned = user.lv == 'c'
+            
+            try:
+                # 情况1：用户有 embyid 且 Emby 服务器上存在该 ID → 已存在，跳过
+                if emby_id and emby_id in emby_id_set:
+                    skipped += 1
+                    continue
+                
+                # 检查 Emby 中是否已有同名用户
+                existing_emby = emby_name_map.get(emby_name.lower())
+                
+                if existing_emby:
+                    # 情况2：Emby 中已有同名用户 → 更新面板的 embyid 映射
+                    new_emby_id = existing_emby.get('Id')
+                    if user.embyid != new_emby_id:
+                        user.embyid = new_emby_id
+                        updated += 1
+                        details.append(f'✏️ {emby_name}: 已关联到已有Emby账号 (ID: {new_emby_id[:8]}...)')
+                    else:
+                        skipped += 1
+                    
+                    # 如果面板中是禁用状态，同步禁用 Emby 账号
+                    if is_banned:
+                        emby_client.disable_user(new_emby_id)
+                        disabled += 1
+                    continue
+                
+                # 情况3：Emby 中不存在，需要创建新账号
+                # pwd2 存储的是明文 Emby 密码；为空则不设置密码（Emby 允许空密码登录）
+                password = user.pwd2 if user.pwd2 else ''
+                
+                # 直接调用 Emby API 创建用户（跳过 create_user 内部的重复检查，因为我们已经做过了）
+                try:
+                    create_url = f"{emby_client.base_url}/Users/New"
+                    create_params = {'api_key': emby_client.api_key}
+                    create_data = {'Name': emby_name}
+                    
+                    resp = emby_client.session.post(create_url, params=create_params, json=create_data, timeout=15)
+                    
+                    if resp.status_code not in [200, 201]:
+                        failed += 1
+                        details.append(f'❌ {emby_name}: Emby创建失败 (HTTP {resp.status_code})')
+                        app.logger.warning(f'导入Emby创建用户失败: {emby_name}, status={resp.status_code}, body={resp.text[:200]}')
+                        continue
+                    
+                    new_user_data = resp.json()
+                    new_emby_id = new_user_data.get('Id')
+                    
+                    if not new_emby_id:
+                        failed += 1
+                        details.append(f'❌ {emby_name}: 创建成功但未返回ID')
+                        continue
+                    
+                    # 设置密码（仅当面板中有保存密码时）
+                    pwd_status = '无密码'
+                    if password:
+                        try:
+                            pwd_url = f"{emby_client.base_url}/Users/{new_emby_id}/Password"
+                            pwd_data = {'CurrentPw': '', 'NewPw': password}
+                            pwd_resp = emby_client.session.post(pwd_url, params=create_params, json=pwd_data, timeout=10)
+                            if pwd_resp.status_code in [200, 204]:
+                                pwd_status = '已设置'
+                            else:
+                                pwd_status = '设置失败'
+                                app.logger.warning(f'导入Emby设置密码失败: {emby_name}, status={pwd_resp.status_code}')
+                        except Exception as pwd_e:
+                            pwd_status = '设置异常'
+                            app.logger.warning(f'导入Emby设置密码异常: {emby_name}, error={pwd_e}')
+                    
+                    # 设置用户策略（权限控制）
+                    emby_client._set_user_policy(new_emby_id)
+                    
+                    # 更新面板用户的 embyid
+                    user.embyid = new_emby_id
+                    
+                    # 将新创建的用户加入比对集合（防止同名重复创建）
+                    emby_name_map[emby_name.lower()] = {'Id': new_emby_id, 'Name': emby_name}
+                    emby_id_set.add(new_emby_id)
+                    
+                    # 如果是禁用用户，创建后立即禁用
+                    if is_banned:
+                        emby_client.disable_user(new_emby_id)
+                        disabled += 1
+                        details.append(f'🔒 {emby_name}: 已创建并禁用 (密码: {pwd_status})')
+                    else:
+                        details.append(f'✅ {emby_name}: 创建成功 (密码: {pwd_status})')
+                    
+                    created += 1
+                    
+                except Exception as create_e:
+                    failed += 1
+                    details.append(f'❌ {emby_name}: {str(create_e)}')
+                    app.logger.error(f'导入Emby创建用户异常: {emby_name}, error={create_e}')
+                
+            except Exception as e:
+                failed += 1
+                details.append(f'❌ {emby_name}: {str(e)}')
+                app.logger.error(f'导入用户到 Emby 失败: {emby_name}, error={e}')
+        
+        db.session.commit()
+        
+        app.logger.info(f'一键导入 Emby 完成: 总计={total}, 新建={created}, 已存在={skipped}, 更新映射={updated}, 禁用={disabled}, 失败={failed}')
+        
+        return jsonify({
+            'success': True,
+            'message': f'导入完成！新建 {created} 个，已存在 {skipped} 个，更新 {updated} 个，失败 {failed} 个',
+            'total': total,
+            'created': created,
+            'skipped': skipped,
+            'failed': failed,
+            'disabled': disabled,
+            'updated': updated,
+            'details': details[-50:]  # 最多返回50条详情
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'一键导入 Emby 失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': f'导入失败: {str(e)}'}), 500
+
+
 @app.route('/api/admin/users/batch', methods=['POST'])
 @admin_required
 def batch_users():

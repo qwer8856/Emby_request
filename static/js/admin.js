@@ -6867,6 +6867,49 @@ const toggleSelectAllDevices = createToggleSelectAll('device');
 const toggleSelectAllHistory = createToggleSelectAll('history', 'selectAllHistory');
 const toggleSelectAllBlacklist = createToggleSelectAll('blacklist', 'selectAllBlacklist');
 
+// ===== 一键导入 Emby =====
+async function importUsersToEmby() {
+    const confirmed = await showConfirm({
+        title: '📥 一键导入 Emby',
+        message: '将面板中所有绑定了 Emby 用户名的用户导入到 Emby 服务器。\n\n• 已存在的用户会自动跳过\n• 面板中禁用的用户导入后仍为禁用状态\n• 面板有记录密码的会自动设置，无密码则创建为空密码\n• 此操作可能需要一些时间\n\n确定继续吗？',
+        confirmText: '开始导入',
+        type: 'info'
+    });
+    if (!confirmed) return;
+
+    // 显示进度提示
+    showToast('提示', '正在导入，请稍候...', 'info');
+
+    try {
+        const response = await fetch('/api/admin/users/import-emby', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            let msg = `总计 ${data.total} 个用户\n✅ 新建: ${data.created}\n⏭️ 已存在: ${data.skipped}\n✏️ 更新映射: ${data.updated}\n❌ 失败: ${data.failed}`;
+            if (data.disabled > 0) msg += `\n🔒 禁用: ${data.disabled}`;
+            if (data.details && data.details.length > 0) {
+                msg += '\n\n详细信息:\n' + data.details.join('\n');
+            }
+            await showConfirm({
+                title: '📥 导入完成',
+                message: msg,
+                confirmText: '确定',
+                cancelText: '确定',
+                type: 'success'
+            });
+            loadUsers();
+        } else {
+            showToast('错误', data.error || '导入失败', 'error');
+        }
+    } catch (error) {
+        console.error('导入Emby失败:', error);
+        showToast('错误', '导入失败: ' + error.message, 'error');
+    }
+}
+
 // ===== 用户管理批量操作 =====
 async function batchBanUsers() {
     const ids = getSelectedValues('user').map(Number);
