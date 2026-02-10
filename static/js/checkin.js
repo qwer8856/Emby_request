@@ -71,13 +71,13 @@ async function loadCheckinStatus() {
     }
 }
 
-// 执行签到 —— 验证码由后端生成，答案存在 session 中，防止脚本绕过
+// 执行签到 —— 验证码由后端生成图片，答案存在 session 中，防止脚本绕过
 async function doCheckin() {
     const miniBtn = document.getElementById('checkinMiniBtn');
     if (miniBtn && miniBtn.disabled) return;
 
-    // 1. 从后端获取算术验证码题目
-    let question;
+    // 1. 从后端获取图片验证码
+    let captchaImage;
     try {
         const capRes = await fetch('/api/user/captcha');
         const capData = await capRes.json();
@@ -85,18 +85,18 @@ async function doCheckin() {
             window.showToast(capData.error || '获取验证码失败', 'error');
             return;
         }
-        question = capData.question;
+        captchaImage = capData.image;
     } catch (e) {
         window.showToast('获取验证码失败，请稍后重试', 'error');
         return;
     }
 
-    // 2. 弹窗让用户输入答案
-    const answer = await showPrompt({
+    // 2. 弹窗显示验证码图片 + 输入框
+    const answer = await showCaptchaPrompt({
         title: '🔒 签到验证',
-        message: `请计算以下算式的结果\n\n${question}`,
-        placeholder: '请输入计算结果',
-        type: 'info'
+        message: '请输入图片中的 4 位数字',
+        image: captchaImage,
+        placeholder: '请输入验证码'
     });
 
     // 用户取消
@@ -197,10 +197,10 @@ function renderExchangePlans(plans, coinName, userCoins) {
     container.innerHTML = html;
 }
 
-// 兑换套餐 —— 同样需要后端验证码校验
+// 兑换套餐 —— 同样需要后端图片验证码校验
 async function exchangePlan(planId, planName, coins, days) {
-    // 1. 从后端获取验证码
-    let question;
+    // 1. 从后端获取图片验证码
+    let captchaImage;
     try {
         const capRes = await fetch('/api/user/captcha');
         const capData = await capRes.json();
@@ -208,18 +208,18 @@ async function exchangePlan(planId, planName, coins, days) {
             window.showToast(capData.error || '获取验证码失败', 'error');
             return;
         }
-        question = capData.question;
+        captchaImage = capData.image;
     } catch (e) {
         window.showToast('获取验证码失败，请稍后重试', 'error');
         return;
     }
 
-    // 2. 弹窗确认 + 验证码
-    const answer = await showPrompt({
+    // 2. 弹窗确认 + 图片验证码
+    const answer = await showCaptchaPrompt({
         title: '🔒 兑换验证',
-        message: `确定要使用 ${coins} 积分兑换 ${planName} (${days}天) 吗？\n\n请计算以下算式完成验证：\n${question}`,
-        placeholder: '请输入计算结果',
-        type: 'info'
+        message: `确定使用 ${coins} 积分兑换 ${planName} (${days}天)？<br>请输入图片中的 4 位数字`,
+        image: captchaImage,
+        placeholder: '请输入验证码'
     });
 
     // 用户取消

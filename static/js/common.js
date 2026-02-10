@@ -223,4 +223,97 @@
     }
     
     global.showPrompt = showPrompt;
+
+    // ==================== 图片验证码弹窗 ====================
+    function showCaptchaPrompt(options = {}) {
+        return new Promise((resolve) => {
+            const {
+                title = '🔒 安全验证',
+                message = '请输入图片中的 4 位数字',
+                image = '',
+                placeholder = '请输入验证码'
+            } = options;
+
+            // 移除已存在的弹窗
+            const existing = document.getElementById('captchaPromptModal');
+            if (existing) existing.remove();
+
+            const modal = document.createElement('div');
+            modal.id = 'captchaPromptModal';
+            modal.className = 'global-confirm-overlay';
+            modal.innerHTML = `
+                <div class="global-confirm-dialog info" style="max-width:340px;">
+                    <div class="global-confirm-icon">🔒</div>
+                    <h3 class="global-confirm-title">${title}</h3>
+                    ${message ? `<p class="global-confirm-message" style="margin-bottom:10px;">${message}</p>` : ''}
+                    <div style="text-align:center;margin:8px 0 6px;">
+                        <img src="${image}" alt="验证码" class="captcha-img"
+                             style="border-radius:6px;border:1px solid #ddd;cursor:pointer;height:48px;"
+                             title="点击刷新验证码">
+                    </div>
+                    <input type="text" maxlength="4" inputmode="numeric" autocomplete="off"
+                           class="global-prompt-input" placeholder="${placeholder}"
+                           style="width:100%;padding:10px;margin:6px 0 10px;border:1px solid #ddd;border-radius:6px;font-size:18px;text-align:center;letter-spacing:8px;">
+                    <div class="global-confirm-buttons">
+                        <button class="global-confirm-btn cancel">取消</button>
+                        <button class="global-confirm-btn confirm info">确定</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            const input = modal.querySelector('.global-prompt-input');
+            const captchaImg = modal.querySelector('.captcha-img');
+
+            // 点击图片刷新验证码
+            captchaImg.addEventListener('click', async () => {
+                try {
+                    captchaImg.style.opacity = '0.4';
+                    const res = await fetch('/api/user/captcha');
+                    const data = await res.json();
+                    if (data.success && data.image) {
+                        captchaImg.src = data.image;
+                        input.value = '';
+                        input.focus();
+                    }
+                } catch (e) { /* ignore */ }
+                finally { captchaImg.style.opacity = '1'; }
+            });
+
+            requestAnimationFrame(() => {
+                modal.classList.add('show');
+                input.focus();
+            });
+
+            const confirmBtn = modal.querySelector('.global-confirm-btn.confirm');
+            const cancelBtn = modal.querySelector('.global-confirm-btn.cancel');
+
+            function close(result) {
+                modal.classList.remove('show');
+                setTimeout(() => { modal.remove(); resolve(result); }, 200);
+            }
+
+            confirmBtn.addEventListener('click', () => {
+                const v = input.value.trim();
+                if (!v) { input.focus(); input.style.borderColor = '#e74c3c'; return; }
+                close(v);
+            });
+            cancelBtn.addEventListener('click', () => close(null));
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); confirmBtn.click(); }
+            });
+            input.addEventListener('input', () => { input.style.borderColor = '#ddd'; });
+
+            modal.addEventListener('click', (e) => { if (e.target === modal) close(null); });
+
+            function handleEsc(e) {
+                if (e.key === 'Escape') { document.removeEventListener('keydown', handleEsc); close(null); }
+            }
+            document.addEventListener('keydown', handleEsc);
+        });
+    }
+
+    global.showCaptchaPrompt = showCaptchaPrompt;
 })(window);

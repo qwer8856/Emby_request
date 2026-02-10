@@ -18817,10 +18817,24 @@ def save_system_config_api():
                 current_config['emby']['webhook_secret'] = emby['webhook_secret'].strip()
         
         # 更新 Telegram 配置
+        _old_bot_token = current_config.get('telegram', {}).get('bot_token', '')  # 记录旧 Token，用于切换时清理 Webhook
         if 'telegram' in data:
             tg = data['telegram']
             if 'bot_token' in tg:
-                current_config['telegram']['bot_token'] = tg['bot_token'].strip()
+                new_token = tg['bot_token'].strip()
+                # ★ 检测 Bot Token 变更：自动清除旧 Bot 的 Webhook，防止旧 Bot 消息转发到本系统
+                if _old_bot_token and new_token and _old_bot_token != new_token:
+                    def _cleanup_old_bot_webhook(old_token):
+                        try:
+                            del_url = f"https://api.telegram.org/bot{old_token}/deleteWebhook"
+                            resp = PROXY_SESSION.post(del_url, json={'drop_pending_updates': True}, timeout=10)
+                            result = resp.json()
+                            app.logger.info(f'[Telegram] 已清除旧 Bot Webhook: {result}')
+                        except Exception as e:
+                            app.logger.warning(f'[Telegram] 清除旧 Bot Webhook 失败（可忽略）: {e}')
+                    # 后台线程执行，不阻塞配置保存
+                    Thread(target=_cleanup_old_bot_webhook, args=(_old_bot_token,), daemon=True).start()
+                current_config['telegram']['bot_token'] = new_token
             if 'chat_id' in tg:
                 current_config['telegram']['chat_id'] = tg['chat_id'].strip()
             if 'group_id' in tg:
@@ -20493,39 +20507,108 @@ _captcha_last_cleanup = 0
 @app.route('/api/user/captcha', methods=['GET'])
 @login_required
 def get_captcha():
-    """生成算术验证码，答案存入 session，前端只拿到题目"""
+    """生成 4 位数字图片验证码，答案存入 session，前端拿到 base64 图片"""
     import time as _time
+    import base64 as _b64
     uid = session.get('user_id')
     now = _time.time()
-    # 同一用户 2 秒内只能请求一次（锁内仅做字典读写，微秒级，不会阻塞）
+    # 同一用户 2 秒内只能请求一次
     with _captcha_lock:
         global _captcha_last_cleanup
-        # 每 5 分钟清理一次过期记录，防止内存膨胀
         if now - _captcha_last_cleanup > 300:
             _captcha_last_cleanup = now
-            cutoff = now - 10  # 只保留 10 秒内的记录
-            _captcha_rate.clear()  # 简单粗暴，全部清空即可
+            _captcha_rate.clear()
         last = _captcha_rate.get(uid, 0)
         if now - last < 2:
             return jsonify({'success': False, 'error': '请求太频繁，请稍后再试'}), 429
         _captcha_rate[uid] = now
-    # 随机生成加减乘
-    op = random.choice(['+', '-', '×'])
-    if op == '+':
-        a, b = random.randint(1, 50), random.randint(1, 50)
-        answer = a + b
-    elif op == '-':
-        a = random.randint(10, 50)
-        b = random.randint(1, a)
-        answer = a - b
-    else:
-        a, b = random.randint(2, 12), random.randint(2, 12)
-        answer = a * b
-    question = f"{a} {op} {b} = ?"
-    # 答案 + 时间戳存入 session（有效期 5 分钟）
-    session['_captcha_answer'] = answer
+
+    # 生成 4 位随机数字
+    code = ''.join([str(random.randint(0, 9)) for _ in range(4)])
+    # 生成验证码图片
+    img_io = _generate_web_captcha_image(code)
+    if not img_io:
+        return jsonify({'success': False, 'error': '验证码生成失败'}), 500
+    img_b64 = _b64.b64encode(img_io.getvalue()).decode('ascii')
+
+    # 答案 + 时间戳存入 session
+    session['_captcha_answer'] = code
     session['_captcha_ts'] = now
-    return jsonify({'success': True, 'question': question})
+    return jsonify({'success': True, 'image': f'data:image/png;base64,{img_b64}'})
+
+
+def _generate_web_captcha_image(code):
+    """为 Web 端生成带干扰的 4 位数字验证码图片，返回 BytesIO"""
+    try:
+        width, height = 160, 60
+        image = Image.new('RGB', (width, height), color=(245, 245, 245))
+        draw = ImageDraw.Draw(image)
+
+        # 随机背景色块
+        for _ in range(6):
+            x0 = random.randint(0, width)
+            y0 = random.randint(0, height)
+            x1 = x0 + random.randint(20, 60)
+            y1 = y0 + random.randint(10, 30)
+            fill = (random.randint(220, 250), random.randint(220, 250), random.randint(220, 250))
+            draw.rectangle([x0, y0, x1, y1], fill=fill)
+
+        # 干扰线
+        for _ in range(random.randint(4, 6)):
+            x1, y1 = random.randint(0, width), random.randint(0, height)
+            x2, y2 = random.randint(0, width), random.randint(0, height)
+            color = (random.randint(150, 210), random.randint(150, 210), random.randint(150, 210))
+            draw.line([(x1, y1), (x2, y2)], fill=color, width=random.randint(1, 2))
+
+        # 干扰点
+        for _ in range(80):
+            x, y = random.randint(0, width - 1), random.randint(0, height - 1)
+            draw.point((x, y), fill=(random.randint(120, 200), random.randint(120, 200), random.randint(120, 200)))
+
+        # 加载字体
+        font = None
+        font_size = 36
+        for fp in [
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+            '/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf',
+            'arial.ttf',
+            'C:/Windows/Fonts/arial.ttf',
+        ]:
+            try:
+                font = ImageFont.truetype(fp, font_size)
+                break
+            except (OSError, IOError):
+                continue
+        if font is None:
+            font = ImageFont.load_default()
+
+        # 逐字绘制（随机颜色 + 随机偏移 + 随机旋转）
+        char_w = width // (len(code) + 1)
+        for i, ch in enumerate(code):
+            # 创建单字符透明图层用于旋转
+            txt_img = Image.new('RGBA', (char_w + 10, height), (0, 0, 0, 0))
+            txt_draw = ImageDraw.Draw(txt_img)
+            color = (random.randint(20, 120), random.randint(20, 120), random.randint(20, 120))
+            try:
+                bbox = txt_draw.textbbox((0, 0), ch, font=font)
+                tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            except AttributeError:
+                tw, th = txt_draw.textsize(ch, font=font)
+            txt_draw.text(((char_w + 10 - tw) // 2, (height - th) // 2 + random.randint(-6, 6)),
+                          ch, font=font, fill=color)
+            angle = random.randint(-18, 18)
+            txt_img = txt_img.rotate(angle, expand=False, resample=Image.BICUBIC)
+            # 粘贴到主图
+            x_offset = char_w * i + random.randint(8, 14)
+            image.paste(txt_img, (x_offset, 0), txt_img)
+
+        bio = BytesIO()
+        image.save(bio, format='PNG')
+        bio.seek(0)
+        return bio
+    except Exception as e:
+        app.logger.error(f'生成 Web 验证码图片失败: {e}')
+        return None
 
 
 def _verify_captcha(captcha_answer):
@@ -20537,11 +20620,8 @@ def _verify_captcha(captcha_answer):
         return False, '请先获取验证码'
     if _time.time() - ts > 60:           # 1 分钟过期
         return False, '验证码已过期，请重新获取'
-    try:
-        if int(captcha_answer) != stored:
-            return False, '验证码错误'
-    except (ValueError, TypeError):
-        return False, '验证码格式错误'
+    if not captcha_answer or str(captcha_answer).strip() != str(stored):
+        return False, '验证码错误'
     return True, ''
 
 

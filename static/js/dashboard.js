@@ -5375,8 +5375,8 @@ async function unbindTelegramId() {
                 return;
             }
             
-            // 1. 从后端获取算术验证码
-            let question;
+            // 1. 从后端获取图片验证码
+            let captchaImage;
             try {
                 const capRes = await fetch('/api/user/captcha');
                 const capData = await capRes.json();
@@ -5384,19 +5384,19 @@ async function unbindTelegramId() {
                     showMessage(capData.error || '获取验证码失败', 'error');
                     return;
                 }
-                question = capData.question;
+                captchaImage = capData.image;
             } catch (e) {
                 showMessage('获取验证码失败，请稍后重试', 'error');
                 return;
             }
 
-            // 2. 弹窗确认 + 验证码
+            // 2. 弹窗确认 + 图片验证码
             const maskedCode = code.length > 4 ? code.substring(0, 4) + '░'.repeat(code.length - 4) : code;
-            const answer = await showPrompt({
+            const answer = await showCaptchaPrompt({
                 title: '🔒 兑换验证',
-                message: `确定要使用兑换码 ${maskedCode} 吗？\n\n请计算以下算式完成验证：\n${question}`,
-                placeholder: '请输入计算结果',
-                type: 'info'
+                message: `确定使用兑换码 ${maskedCode}？<br>请输入图片中的 4 位数字`,
+                image: captchaImage,
+                placeholder: '请输入验证码'
             });
 
             // 用户取消
