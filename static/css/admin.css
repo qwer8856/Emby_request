@@ -9491,3 +9491,228 @@ select.custom-select:focus,
         font-size: 15px !important;
     }
 }
+
+/* ==================== 播放排行 ==================== */
+.rankings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.period-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.period-btn {
+    padding: 8px 24px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 20px;
+    background: #fff;
+    color: #64748b;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.25s ease;
+}
+
+.period-btn:hover {
+    border-color: #667eea;
+    color: #667eea;
+    background: rgba(102, 126, 234, 0.06);
+}
+
+.period-btn.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.35);
+}
+
+.rankings-update-time {
+    font-size: 12px;
+    color: #94a3b8;
+}
+
+/* 排行区块 */
+.ranking-section {
+    margin-bottom: 28px;
+}
+
+.ranking-section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1e293b;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ranking-icon {
+    font-size: 18px;
+}
+
+/* 排行列表 */
+.ranking-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ranking-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 18px;
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #f1f5f9;
+    transition: all 0.2s ease;
+}
+
+.ranking-item:hover {
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+    border-color: #e2e8f0;
+}
+
+.ranking-item.top-1 {
+    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+    border-color: #fcd34d;
+}
+
+.ranking-item.top-2 {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-color: #cbd5e1;
+}
+
+.ranking-item.top-3 {
+    background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+    border-color: #fdba74;
+}
+
+/* 奖牌 / 序号 */
+.rank-medal {
+    font-size: 24px;
+    min-width: 36px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.rank-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+/* 信息区 */
+.rank-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.rank-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e293b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rank-name small {
+    font-weight: 400;
+    color: #94a3b8;
+    font-size: 12px;
+}
+
+.rank-meta {
+    display: flex;
+    gap: 14px;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.rank-count,
+.rank-duration {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+/* 用户排行 – 进度条 */
+.rank-bar-wrap {
+    height: 6px;
+    background: #f1f5f9;
+    border-radius: 3px;
+    margin-top: 6px;
+    overflow: hidden;
+}
+
+.rank-bar {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    transition: width 0.6s ease;
+}
+
+.user-ranking-item .rank-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: #667eea;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* 空状态 */
+.ranking-empty {
+    text-align: center;
+    padding: 32px 16px;
+    color: #94a3b8;
+    font-size: 14px;
+    background: #f8fafc;
+    border-radius: 12px;
+    border: 1px dashed #e2e8f0;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+    .rankings-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .period-btn {
+        padding: 6px 18px;
+        font-size: 13px;
+    }
+
+    .ranking-item {
+        padding: 12px 14px;
+        gap: 10px;
+    }
+
+    .rank-medal {
+        font-size: 20px;
+        min-width: 28px;
+    }
+
+    .rank-name {
+        font-size: 13px;
+    }
+
+    .user-ranking-item .rank-value {
+        font-size: 13px;
+    }
+}

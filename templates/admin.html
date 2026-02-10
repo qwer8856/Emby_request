@@ -1058,6 +1058,7 @@
                         <button class="tab-btn" onclick="switchPlaybackTab('devices')">设备管理</button>
                         <button class="tab-btn" onclick="switchPlaybackTab('blacklist')">设备黑名单</button>
                         <button class="tab-btn" onclick="switchPlaybackTab('history')">播放历史</button>
+                        <button class="tab-btn" onclick="switchPlaybackTab('rankings')">🏆 播放排行</button>
                     </div>
 
                     <!-- 实时会话 -->
@@ -1183,6 +1184,24 @@
                                     </tr>
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+
+                    <!-- 播放排行 -->
+                    <div id="playbackTabRankings" class="playback-tab-content">
+                        <div class="rankings-header">
+                            <div class="rankings-period-tabs">
+                                <button class="period-btn active" onclick="loadPlaybackRankings(1, this)">📅 日榜</button>
+                                <button class="period-btn" onclick="loadPlaybackRankings(7, this)">📆 周榜</button>
+                            </div>
+                            <span class="rankings-update-time" id="rankingsUpdateTime"></span>
+                        </div>
+
+                        <div id="rankingsContent">
+                            <div class="loading-placeholder">
+                                <div class="loading-spinner"></div>
+                                <span>点击日榜或周榜加载排行...</span>
+                            </div>
                         </div>
                     </div>
                 </section>

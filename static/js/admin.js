@@ -6087,6 +6087,149 @@ function switchPlaybackTab(tab) {
     if (tab === 'blacklist') {
         loadBlacklist();
     }
+    if (tab === 'rankings') {
+        // 首次进入时自动加载日榜
+        const content = document.getElementById('rankingsContent');
+        if (content && content.querySelector('.loading-placeholder')) {
+            loadPlaybackRankings(1);
+        }
+    }
+}
+
+// ==================== 播放排行 ====================
+let _rankingsCache = {};
+
+async function loadPlaybackRankings(days, btn) {
+    // 切换按钮激活状态
+    if (btn) {
+        document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    } else {
+        // 默认激活对应按钮
+        document.querySelectorAll('.period-btn').forEach(b => {
+            b.classList.toggle('active', b.textContent.includes(days === 1 ? '日榜' : '周榜'));
+        });
+    }
+
+    const content = document.getElementById('rankingsContent');
+    const timeEl = document.getElementById('rankingsUpdateTime');
+
+    // 缓存 2 分钟
+    const cacheKey = `rank_${days}`;
+    const cached = _rankingsCache[cacheKey];
+    if (cached && Date.now() - cached.ts < 120000) {
+        renderRankings(cached.data);
+        if (timeEl) timeEl.textContent = `更新于 ${cached.data.generated_at}`;
+        return;
+    }
+
+    content.innerHTML = '<div class="loading-placeholder"><div class="loading-spinner"></div><span>加载排行数据中...</span></div>';
+
+    try {
+        const resp = await fetch(`/api/admin/playback/rankings?days=${days}`);
+        const data = await resp.json();
+
+        if (!data.success) {
+            content.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><p>${data.error || '获取排行失败'}</p><p class="empty-hint">需要安装 Emby Playback Reporting 插件</p></div>`;
+            return;
+        }
+
+        _rankingsCache[cacheKey] = { data, ts: Date.now() };
+        renderRankings(data);
+        if (timeEl) timeEl.textContent = `更新于 ${data.generated_at}`;
+
+    } catch (error) {
+        content.innerHTML = '<div class="empty-state"><div class="empty-icon">❌</div><p>加载排行数据失败</p></div>';
+    }
+}
+
+function renderRankings(data) {
+    const content = document.getElementById('rankingsContent');
+    const medals = ['🥇', '🥈', '🥉'];
+    const period = data.period || '日';
+
+    let html = '';
+
+    // ---- 用户观影时长排行 ----
+    html += `<div class="ranking-section">
+        <div class="ranking-section-title"><span class="ranking-icon">👤</span> 用户观影时长排行 · ${period}榜</div>`;
+
+    if (data.users && data.users.length > 0) {
+        html += '<div class="ranking-list user-ranking-list">';
+        data.users.forEach((user, i) => {
+            const medal = i < 3 ? medals[i] : `<span class="rank-num">${i + 1}</span>`;
+            const barPct = data.users[0].watch_seconds > 0
+                ? Math.round(user.watch_seconds / data.users[0].watch_seconds * 100)
+                : 0;
+            html += `
+                <div class="ranking-item user-ranking-item ${i < 3 ? 'top-' + (i + 1) : ''}">
+                    <div class="rank-medal">${medal}</div>
+                    <div class="rank-info">
+                        <div class="rank-name">${escapeHtml(user.name)}${user.emby_name && user.emby_name !== user.name ? ' <small>(' + escapeHtml(user.emby_name) + ')</small>' : ''}</div>
+                        <div class="rank-bar-wrap"><div class="rank-bar" style="width:${barPct}%"></div></div>
+                    </div>
+                    <div class="rank-value">${user.watch_time}</div>
+                </div>`;
+        });
+        html += '</div>';
+    } else {
+        html += '<div class="ranking-empty">暂无用户观影数据</div>';
+    }
+    html += '</div>';
+
+    // ---- 电影排行 ----
+    html += `<div class="ranking-section">
+        <div class="ranking-section-title"><span class="ranking-icon">🎬</span> 电影播放排行 · ${period}榜</div>`;
+
+    if (data.movies && data.movies.length > 0) {
+        html += '<div class="ranking-list media-ranking-list">';
+        data.movies.forEach((movie, i) => {
+            const medal = i < 3 ? medals[i] : `<span class="rank-num">${i + 1}</span>`;
+            html += `
+                <div class="ranking-item ${i < 3 ? 'top-' + (i + 1) : ''}">
+                    <div class="rank-medal">${medal}</div>
+                    <div class="rank-info">
+                        <div class="rank-name">${escapeHtml(movie.name)}</div>
+                        <div class="rank-meta">
+                            <span class="rank-count">▶ ${movie.play_count}次</span>
+                            <span class="rank-duration">⏱ ${movie.duration}</span>
+                        </div>
+                    </div>
+                </div>`;
+        });
+        html += '</div>';
+    } else {
+        html += '<div class="ranking-empty">暂无电影播放数据</div>';
+    }
+    html += '</div>';
+
+    // ---- 剧集排行 ----
+    html += `<div class="ranking-section">
+        <div class="ranking-section-title"><span class="ranking-icon">📺</span> 剧集播放排行 · ${period}榜</div>`;
+
+    if (data.episodes && data.episodes.length > 0) {
+        html += '<div class="ranking-list media-ranking-list">';
+        data.episodes.forEach((ep, i) => {
+            const medal = i < 3 ? medals[i] : `<span class="rank-num">${i + 1}</span>`;
+            html += `
+                <div class="ranking-item ${i < 3 ? 'top-' + (i + 1) : ''}">
+                    <div class="rank-medal">${medal}</div>
+                    <div class="rank-info">
+                        <div class="rank-name">${escapeHtml(ep.name)}</div>
+                        <div class="rank-meta">
+                            <span class="rank-count">▶ ${ep.play_count}次</span>
+                            <span class="rank-duration">⏱ ${ep.duration}</span>
+                        </div>
+                    </div>
+                </div>`;
+        });
+        html += '</div>';
+    } else {
+        html += '<div class="ranking-empty">暂无剧集播放数据</div>';
+    }
+    html += '</div>';
+
+    content.innerHTML = html;
 }
 
 async function loadAdminSessions() {

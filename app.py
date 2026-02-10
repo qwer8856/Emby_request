@@ -8974,6 +8974,187 @@ def admin_get_all_sessions():
     return jsonify(response_data)
 
 
+@app.route('/api/admin/playback/rankings')
+@admin_required
+def admin_get_playback_rankings():
+    """获取播放排行榜（日榜/周榜）- 基于 Emby Playback Reporting 插件"""
+    days = request.args.get('days', 1, type=int)  # 1=日榜, 7=周榜
+    days = min(max(days, 1), 30)
+
+    if not emby_client.is_enabled():
+        return jsonify({'success': False, 'error': 'Emby 未配置'}), 400
+
+    try:
+        from datetime import timezone as tz
+
+        end_dt = datetime.now(tz(timedelta(hours=8)))
+        start_time = (end_dt - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        end_time = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        base = emby_client.base_url
+        api_key = emby_client.api_key
+        headers = {'X-Emby-Token': api_key, 'Accept': 'application/json', 'Content-Type': 'application/json'}
+
+        # ---------- 1. 媒体排行（电影 + 剧集，按播放次数和时长） ----------
+        movie_sql = (
+            "SELECT UserId, ItemId, ItemType, ItemName AS name, "
+            "COUNT(1) AS play_count, SUM(PlayDuration - PauseDuration) AS total_duration "
+            "FROM PlaybackActivity "
+            f"WHERE ItemType = 'Movie' AND DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' "
+            "AND UserId NOT IN (SELECT UserId FROM UserList) "
+            "GROUP BY name ORDER BY play_count DESC, total_duration DESC LIMIT 10"
+        )
+        episode_sql = (
+            "SELECT UserId, ItemId, ItemType, "
+            "substr(ItemName, 0, instr(ItemName, ' - ')) AS name, "
+            "COUNT(1) AS play_count, SUM(PlayDuration - PauseDuration) AS total_duration "
+            "FROM PlaybackActivity "
+            f"WHERE ItemType = 'Episode' AND DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' "
+            "AND UserId NOT IN (SELECT UserId FROM UserList) "
+            "GROUP BY name ORDER BY play_count DESC, total_duration DESC LIMIT 10"
+        )
+
+        # ---------- 2. 用户观影时长排行 ----------
+        user_sql = (
+            "SELECT UserId, SUM(PlayDuration - PauseDuration) AS WatchTime "
+            "FROM PlaybackActivity "
+            f"WHERE DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' "
+            "GROUP BY UserId ORDER BY WatchTime DESC LIMIT 20"
+        )
+
+        submit_url = f"{base}/emby/user_usage_stats/submit_custom_query"
+
+        movies_raw = []
+        episodes_raw = []
+        users_raw = []
+
+        import requests as req_lib
+        for sql_query, target in [(movie_sql, 'movies'), (episode_sql, 'episodes'), (user_sql, 'users')]:
+            try:
+                resp = req_lib.post(submit_url, json={"CustomQueryString": sql_query, "ReplaceUserId": True},
+                                    headers=headers, timeout=15)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    rows = data.get('results', [])
+                    if target == 'movies':
+                        movies_raw = rows
+                    elif target == 'episodes':
+                        episodes_raw = rows
+                    else:
+                        users_raw = rows
+            except Exception as e:
+                app.logger.warning(f'播放排行查询失败 ({target}): {e}')
+
+        # ---------- 3. 组装电影排行 ----------
+        def format_duration(seconds):
+            """将秒数格式化为可读时长"""
+            try:
+                s = int(float(seconds))
+            except (ValueError, TypeError):
+                return '0分钟'
+            if s < 60:
+                return f'{s}秒'
+            h, m = divmod(s // 60, 60)
+            if h > 0:
+                return f'{h}小时{m}分钟'
+            return f'{m}分钟'
+
+        movie_list = []
+        for row in movies_raw:
+            try:
+                user_id, item_id, item_type, name, count, duration = row[0], row[1], row[2], row[3], row[4], row[5]
+                if not name or not str(name).strip():
+                    continue
+                movie_list.append({
+                    'name': str(name).strip(),
+                    'item_id': str(item_id),
+                    'play_count': int(count),
+                    'duration': format_duration(duration),
+                    'duration_seconds': int(float(duration)) if duration else 0,
+                    'type': 'movie'
+                })
+            except (IndexError, ValueError):
+                continue
+
+        episode_list = []
+        for row in episodes_raw:
+            try:
+                user_id, item_id, item_type, name, count, duration = row[0], row[1], row[2], row[3], row[4], row[5]
+                if not name or not str(name).strip():
+                    continue
+                episode_list.append({
+                    'name': str(name).strip(),
+                    'item_id': str(item_id),
+                    'play_count': int(count),
+                    'duration': format_duration(duration),
+                    'duration_seconds': int(float(duration)) if duration else 0,
+                    'type': 'episode'
+                })
+            except (IndexError, ValueError):
+                continue
+
+        # ---------- 4. 组装用户排行，匹配本地用户名 ----------
+        # 获取 Emby 用户名映射
+        emby_user_map = {}
+        try:
+            users_resp = req_lib.get(f"{base}/emby/Users", headers=headers, timeout=10)
+            if users_resp.status_code == 200:
+                for u in users_resp.json():
+                    emby_user_map[u.get('Id', '')] = u.get('Name', '')
+        except Exception:
+            pass
+
+        # 获取本地用户映射 (emby_name -> web user)
+        local_user_map = {}
+        try:
+            all_local = User.query.filter(User.embyid.isnot(None)).all()
+            for u in all_local:
+                if u.embyid:
+                    local_user_map[u.embyid] = {
+                        'name': u.name or u.emby_name or '',
+                        'emby_name': u.emby_name or u.name or '',
+                        'tg': u.tg
+                    }
+        except Exception:
+            pass
+
+        user_list = []
+        for row in users_raw:
+            try:
+                emby_uid = str(row[0]) if row[0] else ''
+                watch_seconds = int(float(row[1])) if row[1] else 0
+                if watch_seconds <= 0:
+                    continue
+
+                emby_name = emby_user_map.get(emby_uid, '')
+                local_info = local_user_map.get(emby_uid, {})
+                display_name = local_info.get('name') or emby_name or '未知用户'
+
+                user_list.append({
+                    'emby_user_id': emby_uid,
+                    'name': display_name,
+                    'emby_name': emby_name,
+                    'watch_time': format_duration(watch_seconds),
+                    'watch_seconds': watch_seconds,
+                })
+            except (IndexError, ValueError):
+                continue
+
+        return jsonify({
+            'success': True,
+            'days': days,
+            'period': f'{"日" if days == 1 else str(days) + "天"}',
+            'movies': movie_list,
+            'episodes': episode_list,
+            'users': user_list,
+            'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M')
+        })
+
+    except Exception as e:
+        app.logger.error(f'获取播放排行失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/admin/playback/devices')
 @admin_required
 def admin_get_all_devices():
