@@ -6538,6 +6538,185 @@
     background-clip: unset;
 }
 
+/* 🛡️ 保号信息卡片 */
+.retention-info-section {
+    margin-top: 0;
+}
+
+.retention-card {
+    background: #ffffff;
+    border-radius: 20px;
+    padding: 0;
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    transition: all 0.3s ease;
+}
+
+.retention-card:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.retention-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.retention-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    border-radius: 20px;
+    background: var(--badge-color, #6366f1);
+    color: #fff;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.retention-badge-icon {
+    font-size: 16px;
+}
+
+.retention-renew-tag {
+    font-size: 13px;
+    color: #64748b;
+    background: #fff;
+    padding: 4px 12px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    font-weight: 500;
+}
+
+.retention-body {
+    padding: 24px;
+}
+
+.retention-explain {
+    margin-bottom: 16px;
+}
+
+.retention-explain p {
+    margin: 0;
+    font-size: 14px;
+    color: #475569;
+    line-height: 1.6;
+}
+
+.retention-explain b {
+    color: #1e293b;
+}
+
+.retention-conditions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.retention-condition-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 18px;
+    border-radius: 14px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    transition: all 0.2s ease;
+}
+
+.retention-condition-card:hover {
+    background: #f1f5f9;
+}
+
+.retention-condition-card.condition-met {
+    border-color: #86efac;
+    background: #f0fdf4;
+}
+
+.retention-condition-card.condition-unmet {
+    border-color: #fecaca;
+    background: #fef2f2;
+}
+
+.condition-icon {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    flex-shrink: 0;
+}
+
+.condition-detail {
+    flex: 1;
+    min-width: 0;
+}
+
+.condition-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: #1e293b;
+    margin-bottom: 2px;
+}
+
+.condition-desc {
+    font-size: 13px;
+    color: #64748b;
+    line-height: 1.5;
+}
+
+.condition-desc b {
+    color: #1e293b;
+    font-weight: 700;
+}
+
+.condition-status {
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    padding: 4px 10px;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
+
+.condition-status.status-ok {
+    color: #16a34a;
+    background: #dcfce7;
+}
+
+.condition-status.status-no {
+    color: #dc2626;
+    background: #fee2e2;
+}
+
+.condition-status.status-info {
+    color: #6366f1;
+    background: #eef2ff;
+}
+
+.retention-both-tip {
+    margin-top: 14px;
+    padding: 10px 16px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+    font-size: 13px;
+    color: #92400e;
+    line-height: 1.5;
+}
+
+.retention-both-tip b {
+    color: #b45309;
+}
+
 /* 操作按钮组 - 简约风格 */
 .subscription-action-group {
     display: grid;
@@ -7066,6 +7245,29 @@
     
     .subscription-action-group {
         grid-template-columns: 1fr;
+    }
+    
+    /* 保号卡片响应式 */
+    .retention-header {
+        flex-direction: column;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 16px 18px;
+    }
+    
+    .retention-body {
+        padding: 18px;
+    }
+    
+    .retention-condition-card {
+        flex-wrap: wrap;
+        padding: 14px;
+        gap: 10px;
+    }
+    
+    .condition-status {
+        width: 100%;
+        text-align: center;
     }
     
     .sub-action-btn {

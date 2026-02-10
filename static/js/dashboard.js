@@ -3359,6 +3359,9 @@ async function unbindTelegramId() {
                     }
                 }
                 
+                // ===== 渲染保号信息 =====
+                renderRetentionInfo(data.retention);
+                
                 // 获取订阅历史
                 const historyResponse = await fetch('/api/subscription/history');
                 const historyData = await historyResponse.json();
@@ -3460,6 +3463,111 @@ async function unbindTelegramId() {
         function refreshSubscription() {
             showMessage('正在刷新订阅状态...', 'info');
             loadSubscriptionInfo();
+        }
+
+        /**
+         * 渲染保号信息卡片
+         */
+        function renderRetentionInfo(retention) {
+            const section = document.getElementById('retentionInfoSection');
+            if (!section) return;
+            
+            // 保号关闭或无数据
+            if (!retention || retention.mode === 'off') {
+                section.style.display = 'none';
+                return;
+            }
+            
+            section.style.display = '';
+            
+            const mode = retention.mode;
+            const coinName = retention.coin_name || '积分';
+            const userCoins = retention.user_coins || 0;
+            const renewDays = retention.renew_days || 30;
+            
+            // 保号模式名称和图标
+            let modeName, modeIcon, modeColor;
+            switch (mode) {
+                case 'checkin':
+                    modeName = '积分保号';
+                    modeIcon = '💰';
+                    modeColor = '#f59e0b';
+                    break;
+                case 'watch':
+                    modeName = '观看保号';
+                    modeIcon = '▶️';
+                    modeColor = '#10b981';
+                    break;
+                case 'both':
+                    modeName = '双保模式';
+                    modeIcon = '🔰';
+                    modeColor = '#6366f1';
+                    break;
+                default:
+                    section.style.display = 'none';
+                    return;
+            }
+            
+            // 构建条件详情
+            let conditionCards = '';
+            
+            // 积分保号条件
+            if (mode === 'checkin' || mode === 'both') {
+                const cost = retention.checkin_cost || 0;
+                const enough = userCoins >= cost;
+                conditionCards += `
+                    <div class="retention-condition-card ${enough ? 'condition-met' : 'condition-unmet'}">
+                        <div class="condition-icon">💰</div>
+                        <div class="condition-detail">
+                            <div class="condition-title">积分条件</div>
+                            <div class="condition-desc">需要 <b>${cost}</b> ${coinName}，当前 <b>${userCoins}</b> ${coinName}</div>
+                        </div>
+                        <div class="condition-status ${enough ? 'status-ok' : 'status-no'}">
+                            ${enough ? '✅ 满足' : '❌ 不足'}
+                        </div>
+                    </div>`;
+            }
+            
+            // 观看保号条件
+            if (mode === 'watch' || mode === 'both') {
+                const watchDays = retention.watch_days || 30;
+                const watchMinutes = retention.watch_minutes || 30;
+                conditionCards += `
+                    <div class="retention-condition-card">
+                        <div class="condition-icon">▶️</div>
+                        <div class="condition-detail">
+                            <div class="condition-title">观看条件</div>
+                            <div class="condition-desc">${watchDays} 天内累计观看 ≥ <b>${watchMinutes}</b> 分钟</div>
+                        </div>
+                        <div class="condition-status status-info">📊 系统自动检测</div>
+                    </div>`;
+            }
+            
+            // 双保模式提示
+            let bothTip = '';
+            if (mode === 'both') {
+                bothTip = `<div class="retention-both-tip">💡 双保模式：需<b>同时满足</b>积分和观看两个条件才能保号</div>`;
+            }
+            
+            section.innerHTML = `
+                <div class="retention-card">
+                    <div class="retention-header">
+                        <div class="retention-badge" style="--badge-color: ${modeColor}">
+                            <span class="retention-badge-icon">${modeIcon}</span>
+                            <span class="retention-badge-text">${modeName}</span>
+                        </div>
+                        <div class="retention-renew-tag">续期 ${renewDays} 天/次</div>
+                    </div>
+                    <div class="retention-body">
+                        <div class="retention-explain">
+                            <p>🛡️ 订阅到期后，如果满足以下条件，系统将<b>自动续期 ${renewDays} 天</b>，无需手动操作。</p>
+                        </div>
+                        <div class="retention-conditions">
+                            ${conditionCards}
+                        </div>
+                        ${bothTip}
+                    </div>
+                </div>`;
         }
 
         // ==================== 线路信息功能 ====================

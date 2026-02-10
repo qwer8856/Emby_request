@@ -16096,6 +16096,25 @@ def get_current_subscription():
         if not user:
             return jsonify({'error': '用户不存在'}), 404
         
+        # ===== 构建保号配置信息 =====
+        config = load_system_config()
+        expire_config = config.get('subscription_expire', {})
+        checkin_config = config.get('checkin', {})
+        retention_mode = expire_config.get('retention_mode', 'off')
+        retention_info = None
+        if retention_mode != 'off':
+            retention_info = {
+                'mode': retention_mode,
+                'renew_days': expire_config.get('retention_renew_days', 30),
+                'coin_name': checkin_config.get('coin_name', '积分'),
+                'user_coins': user.coins or 0,
+            }
+            if retention_mode in ('checkin', 'both'):
+                retention_info['checkin_cost'] = expire_config.get('retention_checkin_cost', 10)
+            if retention_mode in ('watch', 'both'):
+                retention_info['watch_days'] = expire_config.get('retention_watch_days', 30)
+                retention_info['watch_minutes'] = expire_config.get('retention_watch_minutes', 30)
+        
         # 白名单用户特殊处理：lv='a' 的用户是白名单用户，不需要购买订阅
         if user.lv == 'a':
             return jsonify({
@@ -16113,7 +16132,8 @@ def get_current_subscription():
                     'status': 'active',
                     'days_remaining': '永久',
                     'is_whitelist': True
-                }
+                },
+                'retention': retention_info
             }), 200
         
         # 优先检查用户的 ex（到期时间）字段 - 这是订阅状态的主要来源
@@ -16130,7 +16150,8 @@ def get_current_subscription():
             if subscription:
                 return jsonify({
                     'success': True,
-                    'subscription': subscription.to_dict()
+                    'subscription': subscription.to_dict(),
+                    'retention': retention_info
                 }), 200
             else:
                 # 没有 Subscription 记录但有 user.ex，说明是通过其他方式设置的（如管理员手动设置）
@@ -16149,13 +16170,15 @@ def get_current_subscription():
                         'status': 'active',
                         'days_remaining': days_remaining,
                         'is_whitelist': False
-                    }
+                    },
+                    'retention': retention_info
                 }), 200
         
         # 用户没有有效的到期时间
         return jsonify({
             'success': True,
             'subscription': None,
+            'retention': retention_info,
             'message': '暂无有效订阅'
         }), 200
     except Exception as e:
