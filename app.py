@@ -4993,6 +4993,7 @@ class AdminUser(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
+    password_plain = db.Column(db.String(255), nullable=True)  # 子管理员明文密码（仅超级管理员可见）
     is_super = db.Column(db.Boolean, default=False)  # 超级管理员（站点所有者）
     permissions = db.Column(db.Text, nullable=True)   # JSON 数组，如 ["requests","users","orders"]
     is_active = db.Column(db.Boolean, default=True)   # 是否启用
@@ -5021,8 +5022,8 @@ class AdminUser(db.Model):
             return True
         return perm in self.get_permissions()
     
-    def to_dict(self):
-        return {
+    def to_dict(self, include_password=False):
+        d = {
             'id': self.id,
             'username': self.username,
             'is_super': self.is_super,
@@ -5032,6 +5033,9 @@ class AdminUser(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_login': self.last_login.isoformat() if self.last_login else None,
         }
+        if include_password and not self.is_super:
+            d['password_plain'] = self.password_plain or ''
+        return d
 
 
 class CheckInRecord(db.Model):
@@ -9928,7 +9932,7 @@ def get_admin_list():
         admins = AdminUser.query.order_by(AdminUser.is_super.desc(), AdminUser.created_at.asc()).all()
         return jsonify({
             'success': True,
-            'admins': [a.to_dict() for a in admins],
+            'admins': [a.to_dict(include_password=True) for a in admins],
             'permission_groups': ADMIN_PERMISSION_GROUPS
         })
     except Exception as e:
@@ -9973,6 +9977,7 @@ def create_admin():
         admin_user = AdminUser(
             username=username,
             password_hash=hash_admin_password(password),
+            password_plain=password,  # 存储明文密码供超级管理员查看
             is_super=False,
             is_active=True,
             created_by=current_admin.username
@@ -10035,6 +10040,8 @@ def update_admin(admin_id):
         if len(new_password) < 6:
             return jsonify({'error': '密码至少6个字符'}), 400
         admin_user.password_hash = hash_admin_password(new_password)
+        if not admin_user.is_super:
+            admin_user.password_plain = new_password  # 同步更新明文密码
     
     # 更新权限
     permissions = data.get('permissions')
@@ -10110,6 +10117,76 @@ def toggle_admin_status(admin_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': '操作失败'}), 500
+
+
+@app.route('/api/admin/change-my-password', methods=['POST'])
+@admin_required
+def admin_change_my_password():
+    """管理员修改自己的密码"""
+    current_admin = get_current_admin()
+    if not current_admin:
+        return jsonify({'error': '未登录'}), 401
+    
+    data = request.get_json()
+    old_password = data.get('old_password', '').strip()
+    new_password = data.get('new_password', '').strip()
+    
+    if not old_password:
+        return jsonify({'error': '请输入旧密码'}), 400
+    if not new_password or len(new_password) < 6:
+        return jsonify({'error': '新密码至少6个字符'}), 400
+    if old_password == new_password:
+        return jsonify({'error': '新密码不能与旧密码相同'}), 400
+    
+    # 获取真实的 AdminUser 对象（get_current_admin 可能返回虚拟对象）
+    admin_id = session.get('admin_user_id')
+    if admin_id:
+        admin_user = db.session.get(AdminUser, admin_id)
+    else:
+        # 旧 session 兼容：通过用户名查找
+        admin_user = AdminUser.query.filter_by(username=session.get('admin_username')).first()
+    
+    if not admin_user:
+        return jsonify({'error': '管理员账号不存在'}), 404
+    
+    # 验证旧密码
+    if admin_user.password_hash != hash_admin_password(old_password):
+        # 超级管理员额外检查 SystemConfig 中的密码
+        if admin_user.is_super:
+            admin_config = get_admin_config()
+            if admin_config.get('password', '') != hash_admin_password(old_password):
+                return jsonify({'error': '旧密码错误'}), 400
+        else:
+            return jsonify({'error': '旧密码错误'}), 400
+    
+    try:
+        new_hash = hash_admin_password(new_password)
+        admin_user.password_hash = new_hash
+        
+        # 子管理员同步更新明文密码
+        if not admin_user.is_super:
+            admin_user.password_plain = new_password
+        
+        # 超级管理员同步更新 SystemConfig
+        if admin_user.is_super:
+            config = load_system_config()
+            config['admin']['password'] = new_hash
+            save_system_config(config)
+        
+        db.session.commit()
+        
+        app.logger.info(f'管理员 {admin_user.username} 修改了自己的密码')
+        log_admin_audit('admin_change_password', detail=f'管理员 {admin_user.username} 修改了密码')
+        
+        # 清除当前管理员 session，强制重新登录
+        for _k in ['admin_logged_in', 'admin_username', 'admin_user_id', 'admin_is_super', 'admin_login_time']:
+            session.pop(_k, None)
+        
+        return jsonify({'success': True, 'message': '密码修改成功，请重新登录', 'require_relogin': True})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'管理员修改密码失败: {e}')
+        return jsonify({'error': '修改密码失败'}), 500
 
 
 @app.route('/api/admin/current-permissions', methods=['GET'])
@@ -22328,6 +22405,8 @@ def migrate_database():
         ('emby', 'email', 'VARCHAR(255) NULL'),
         # 订单表天数字段（支持自定义天数套餐）
         ('orders', 'duration_days', 'INTEGER NULL'),
+        # 管理员表明文密码字段（子管理员密码供超级管理员查看）
+        ('admin_users', 'password_plain', 'VARCHAR(255) NULL'),
     ]
     
     app.logger.info('开始检查数据库迁移...')

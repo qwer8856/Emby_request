@@ -8979,7 +8979,7 @@ async function loadAdminList() {
         }
         
         let html = '<div class="admin-list-table"><table class="data-table"><thead><tr>';
-        html += '<th>用户名</th><th>角色</th><th>权限</th><th>状态</th><th>最后登录</th><th>操作</th>';
+        html += '<th>用户名</th><th>角色</th><th>密码</th><th>权限</th><th>状态</th><th>最后登录</th><th>操作</th>';
         html += '</tr></thead><tbody>';
         
         _adminListCache.forEach(admin => {
@@ -8987,6 +8987,20 @@ async function loadAdminList() {
             const status = admin.is_active 
                 ? '<span class="badge badge-success">启用</span>' 
                 : '<span class="badge badge-danger">禁用</span>';
+            
+            // 密码列：超级管理员显示"—"，子管理员显示可切换的密码
+            let pwdHtml = '';
+            if (admin.is_super) {
+                pwdHtml = '<span style="color:var(--text-tertiary);font-size:12px;">—</span>';
+            } else if (admin.password_plain) {
+                pwdHtml = `<span class="admin-pwd-wrap">
+                    <code class="admin-pwd-hidden" id="adminPwd${admin.id}">••••••</code>
+                    <button class="btn-link" onclick="toggleAdminPwd(${admin.id}, '${admin.password_plain.replace(/'/g, "\\'")}')" 
+                        title="点击显示/隐藏" style="font-size:11px;margin-left:4px;">👁</button>
+                </span>`;
+            } else {
+                pwdHtml = '<span style="color:var(--text-tertiary);font-size:11px;">未记录</span>';
+            }
             
             let permHtml = '';
             if (admin.is_super) {
@@ -9019,6 +9033,7 @@ async function loadAdminList() {
             html += `<tr>
                 <td><strong>${admin.username}</strong></td>
                 <td>${role}</td>
+                <td>${pwdHtml}</td>
                 <td><div class="perm-tags-wrap">${permHtml}</div></td>
                 <td>${status}</td>
                 <td style="font-size:12px;">${lastLogin}</td>
@@ -9199,5 +9214,95 @@ async function toggleAdminStatus(adminId) {
         }
     } catch (e) {
         showToast('操作失败', '请检查网络连接', 'error');
+    }
+}
+
+
+/* ===================== 管理员密码管理 ===================== */
+
+// 切换子管理员密码显示/隐藏
+function toggleAdminPwd(adminId, plainPwd) {
+    const el = document.getElementById('adminPwd' + adminId);
+    if (!el) return;
+    if (el.dataset.shown === '1') {
+        el.textContent = '••••••';
+        el.dataset.shown = '0';
+    } else {
+        el.textContent = plainPwd;
+        el.dataset.shown = '1';
+    }
+}
+
+// 显示修改密码弹窗
+function showChangeMyPwdModal() {
+    const modal = document.getElementById('changePwdModal');
+    if (!modal) return;
+    document.getElementById('pwdOld').value = '';
+    document.getElementById('pwdNew').value = '';
+    document.getElementById('pwdConfirm').value = '';
+    modal.classList.add('active');
+}
+
+// 关闭修改密码弹窗
+function closeChangePwdModal() {
+    const modal = document.getElementById('changePwdModal');
+    if (modal) modal.classList.remove('active');
+}
+
+// 提交修改密码
+async function changeMyPassword() {
+    const oldPwd = document.getElementById('pwdOld').value.trim();
+    const newPwd = document.getElementById('pwdNew').value.trim();
+    const confirmPwd = document.getElementById('pwdConfirm').value.trim();
+    
+    if (!oldPwd) {
+        showToast('提示', '请输入当前密码', 'warning');
+        return;
+    }
+    if (!newPwd || newPwd.length < 6) {
+        showToast('提示', '新密码至少需要6个字符', 'warning');
+        return;
+    }
+    if (newPwd !== confirmPwd) {
+        showToast('提示', '两次输入的新密码不一致', 'warning');
+        return;
+    }
+    if (oldPwd === newPwd) {
+        showToast('提示', '新密码不能与当前密码相同', 'warning');
+        return;
+    }
+    
+    const confirmed = await showConfirm({
+        title: '确认修改密码',
+        message: '修改密码后将自动退出登录，需要使用新密码重新登录。确定要继续吗？',
+        confirmText: '确认修改',
+        cancelText: '取消',
+        type: 'warning'
+    });
+    if (!confirmed) return;
+    
+    try {
+        const res = await fetch('/api/admin/change-my-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                old_password: oldPwd,
+                new_password: newPwd
+            })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+            showToast('修改成功', data.message || '密码已修改，即将跳转到登录页...', 'success');
+            closeChangePwdModal();
+            // 延迟后跳转到管理员登录页
+            setTimeout(() => {
+                window.location.href = '/admin/login';
+            }, 1500);
+        } else {
+            showToast('修改失败', data.error || '未知错误', 'error');
+        }
+    } catch (e) {
+        showToast('修改失败', '网络错误，请稍后重试', 'error');
     }
 }

@@ -189,6 +189,7 @@
                 <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
                 <h1 class="page-title" id="pageTitle">仪表盘</h1>
                 <div class="topbar-actions">
+                    <button class="btn btn-sm" onclick="showChangeMyPwdModal()" style="font-size:12px;padding:3px 10px;margin-right:8px;" title="修改我的密码">🔑 修改密码</button>
                     <span class="admin-user">{{ admin_info.username or session.get('admin_username', '管理员') }}{% if admin_info and not admin_info.is_super %} <small style="opacity:0.7">(子管理员)</small>{% endif %}</span>
                 </div>
             </div>
@@ -3319,6 +3320,31 @@
         </div>
     </div>
 
+    <!-- 修改密码弹窗 -->
+    <div class="modal" id="changePwdModal">
+        <div class="modal-content" style="max-width:420px;">
+            <h3>🔑 修改密码</h3>
+            <div class="settings-form" style="margin-bottom:16px;">
+                <div class="form-group">
+                    <label>当前密码</label>
+                    <input type="password" id="pwdOld" class="form-input" placeholder="请输入当前密码" autocomplete="current-password">
+                </div>
+                <div class="form-group">
+                    <label>新密码</label>
+                    <input type="password" id="pwdNew" class="form-input" placeholder="至少6个字符" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label>确认新密码</label>
+                    <input type="password" id="pwdConfirm" class="form-input" placeholder="再次输入新密码" autocomplete="new-password">
+                </div>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn-cancel" onclick="closeChangePwdModal()">取消</button>
+                <button class="btn-confirm" onclick="changeMyPassword()">确认修改</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 加载动画遮罩 -->
     <div class="loading-overlay" id="loadingOverlay">
         <div class="loading-content">
@@ -3806,7 +3832,7 @@
         window.ADMIN_INFO = {{ admin_info | default({'is_super': true, 'permissions': [], 'username': '管理员'}) | tojson }};
         window.PERMISSION_GROUPS = {{ permission_groups | default({}) | tojson }};
     </script>
-    <script src="{{ url_for('static', filename='js/admin.js') }}?v=36"></script>
+    <script src="{{ url_for('static', filename='js/admin.js') }}?v=37"></script>
     <script src="{{ url_for('static', filename='js/admin-checkin.js') }}?v=8"></script>
 
 </body>
