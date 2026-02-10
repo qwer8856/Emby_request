@@ -3852,8 +3852,9 @@ def log_response(response):
 # 全局错误处理
 @app.errorhandler(404)
 def not_found(error):
-    # 忽略 favicon.ico 的 404 警告
-    if request.path == '/favicon.ico':
+    # 静默忽略浏览器自动请求的图标文件（favicon / apple-touch-icon）
+    ignored_paths = ('/favicon.ico', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png')
+    if request.path in ignored_paths:
         return '', 204
     app.logger.warning(f'404 错误: {request.path}')
     if request.path.startswith('/api/') or request.is_json:
@@ -16457,7 +16458,7 @@ def create_order():
         }), 200
         
     except Exception as e:
-        app.logger.error(f'创建订单失败: {e}')
+        app.logger.error(f'创建订单失败: {e}', exc_info=True)
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
