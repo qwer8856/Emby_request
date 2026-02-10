@@ -12652,14 +12652,24 @@ def handle_start_panel_callback(callback_id, callback_data, chat_id, message_id,
             user = User.query.filter_by(telegram_id=user_id).first()
             if user:
                 now = datetime.now()
-                lv_display = {
-                    'a': '👑 白名单',
-                    'b': '⭐ 订阅用户' if user.ex and user.ex > now else '普通用户',
-                    'c': '🚫 已禁用',
-                    'd': '📭 无账号'
-                }.get(user.lv, '未知')
+                
+                # 订阅状态（含剩余天数）
+                if user.lv == 'a':
+                    status_text = '✅ 白名单 (永久有效)'
+                elif user.lv == 'c':
+                    status_text = '🚫 已禁用'
+                elif user.ex and user.ex > now:
+                    days_left = (user.ex - now).days
+                    status_text = f'✅ 已订阅 ({days_left} 天后到期)'
+                else:
+                    status_text = '❌ 未订阅'
                 
                 ex_display = '永久' if user.lv == 'a' else (user.ex.strftime('%Y-%m-%d %H:%M') if user.ex else '未设置')
+                emby_status = '✅ 已绑定' if user.embyid else '❌ 未绑定'
+                
+                # 今日求片
+                today_count = user.get_today_request_count()
+                daily_limit = user.get_daily_limit()
                 
                 checkin_config = get_db_config('checkin', {})
                 coin_name = checkin_config.get('coin_name', '积分')
@@ -12667,9 +12677,11 @@ def handle_start_panel_callback(callback_id, callback_data, chat_id, message_id,
                 reply = f"""📊 <b>账号状态</b>
 
 <b>· 💠 账号名称</b> | {user.name or '未设置'}
-<b>· 📊 当前状态</b> | {lv_display}
+<b>· 📊 订阅状态</b> | {status_text}
+<b>· 🎬 Emby</b> | {emby_status}
 <b>· 🍒 持有{coin_name}</b> | {user.coins or 0}
-<b>· 🚨 到期时间</b> | {ex_display}"""
+<b>· 🚨 到期时间</b> | {ex_display}
+<b>· 🎯 今日求片</b> | {today_count}/{daily_limit}"""
                 send_telegram_reply(chat_id, reply)
             else:
                 send_telegram_reply(chat_id, "❌ 您还未绑定账号")
@@ -12680,15 +12692,13 @@ def handle_start_panel_callback(callback_id, callback_data, chat_id, message_id,
             delete_telegram_message(chat_id, message_id)
             answer_callback_query(callback_id, "正在统计...")
             try:
-                counts = emby_client.get_media_counts()
+                counts = emby_client.get_library_counts()
                 if counts:
                     reply = f"""🎬 <b>媒体库统计</b>
 
-📽️ 电影: {counts.get('MovieCount', 0)} 部
-📺 电视剧: {counts.get('SeriesCount', 0)} 部
-🎞️ 剧集: {counts.get('EpisodeCount', 0)} 集
-🎵 音乐: {counts.get('MusicCount', 0)} 首
-📚 书籍: {counts.get('BookCount', 0)} 本"""
+📽️ 电影: {counts.get('movies', 0)} 部
+📺 电视剧: {counts.get('series', 0)} 部
+🎞️ 剧集: {counts.get('episodes', 0)} 集"""
                     send_telegram_reply(chat_id, reply)
                 else:
                     send_telegram_reply(chat_id, "❌ 获取媒体统计失败")
@@ -12731,15 +12741,22 @@ def handle_start_panel_callback(callback_id, callback_data, chat_id, message_id,
                 send_telegram_reply(chat_id, reply)
                 return jsonify({'ok': True})
             
-            # 生成验证码图片
+            # 生成验证码
             verify_code = str(random.randint(1000, 9999))
             
-            # 保存验证码
+            # 清理过期的验证码
+            now = datetime.now()
+            expired_keys = [uid for uid, data in TELEGRAM_CHECKIN_CODES.items()
+                           if data.get('expires_at') and data['expires_at'] < now]
+            for key in expired_keys:
+                del TELEGRAM_CHECKIN_CODES[key]
+            
+            # 保存验证码（2分钟有效期）
             TELEGRAM_CHECKIN_CODES[user_id] = {
                 'code': verify_code,
                 'user_tg': user.tg,
-                'created_at': datetime.now(),
-                'expires_at': datetime.now() + timedelta(minutes=2)
+                'created_at': now,
+                'expires_at': now + timedelta(minutes=2)
             }
             
             # 生成验证码图片
