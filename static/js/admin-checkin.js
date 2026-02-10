@@ -36,6 +36,12 @@ async function loadCheckinConfig() {
                 checkinBotEnabledElement.checked = config.bot_enabled || false;
             }
             
+            // 签到权限
+            const checkinPermEl = document.getElementById('checkinPermission');
+            if (checkinPermEl) {
+                checkinPermEl.value = config.checkin_permission || 'all';
+            }
+            
             document.getElementById('coinName').value = config.coin_name || '积分';
             document.getElementById('coinMin').value = config.coin_min || 1;
             document.getElementById('coinMax').value = config.coin_max || 10;
@@ -59,6 +65,7 @@ async function loadCheckinConfig() {
                             checkin: {
                                 enabled: config.enabled || false,
                                 bot_enabled: config.bot_enabled || false,
+                                checkin_permission: config.checkin_permission || 'all',
                                 coin_name: config.coin_name || '积分',
                                 coin_min: config.coin_min || 1,
                                 coin_max: config.coin_max || 10,
@@ -366,6 +373,7 @@ async function saveCheckinConfig() {
         
         const enabled = document.getElementById('checkinEnabled').checked;
         const botEnabled = document.getElementById('checkinBotEnabled').checked;
+        const checkinPermission = document.getElementById('checkinPermission')?.value || 'all';
         const coinName = document.getElementById('coinName').value.trim() || '积分';
         const coinMin = parseInt(document.getElementById('coinMin').value) || 1;
         const coinMax = parseInt(document.getElementById('coinMax').value) || 10;
@@ -395,6 +403,7 @@ async function saveCheckinConfig() {
             checkin: {
                 enabled,
                 bot_enabled: botEnabled,
+                checkin_permission: checkinPermission,
                 coin_name: coinName,
                 coin_min: coinMin,
                 coin_max: coinMax,

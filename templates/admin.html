@@ -2681,6 +2681,16 @@
                                     </div>
                                 </div>
 
+                                <div class="form-group">
+                                    <label for="checkinPermission">签到权限</label>
+                                    <select id="checkinPermission" class="form-input">
+                                        <option value="all">所有用户均可签到</option>
+                                        <option value="subscribed">仅有订阅的用户可签到</option>
+                                        <option value="none">所有用户都不能签到</option>
+                                    </select>
+                                    <span class="form-hint">控制哪些用户可以签到。"有订阅"指当前订阅未过期的用户</span>
+                                </div>
+
                                 <div id="checkinConfigDetails" style="display: none;">
                                     <div class="form-group">
                                         <label for="coinName">货币名称</label>
@@ -2732,6 +2742,7 @@
                                 <h4>📌 配置说明</h4>
                                 <ul>
                                     <li>签到功能关闭时，用户仪表盘不会显示签到卡片</li>
+                                    <li><b>签到权限</b>：可设置"所有用户均可签到"、"仅有订阅的用户可签到"或"所有用户都不能签到"</li>
                                     <li>每个用户每天只能签到一次，签到获得的积分数在配置范围内随机</li>
                                     <li>连续签到可以累计天数，断签后重新计算</li>
                                     <li>用户可以使用积分兑换配置的订阅套餐，兑换后订阅时间会自动延长</li>

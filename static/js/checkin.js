@@ -39,7 +39,13 @@ async function loadCheckinStatus() {
             
             // 更新签到按钮状态
             if (checkinMiniBtn) {
-                if (status.checked_today) {
+                if (!config.can_checkin) {
+                    // 无权签到（权限限制）
+                    checkinMiniBtn.disabled = true;
+                    checkinMiniBtn.classList.add('disabled');
+                    checkinMiniBtn.innerHTML = '<span class="btn-text">不可签到</span>';
+                    if (checkinMiniHint) checkinMiniHint.textContent = config.checkin_hint || '暂无签到权限';
+                } else if (status.checked_today) {
                     checkinMiniBtn.disabled = true;
                     checkinMiniBtn.classList.add('disabled');
                     checkinMiniBtn.innerHTML = '<span class="btn-text">已签到</span>';

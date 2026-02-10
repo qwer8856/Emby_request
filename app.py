@@ -1487,6 +1487,7 @@ def get_default_system_config():
         'checkin': {
             'enabled': False,
             'bot_enabled': False,
+            'checkin_permission': 'all',
             'coin_name': '积分',
             'coin_min': 1,
             'coin_max': 10,
@@ -3866,9 +3867,20 @@ def log_response(response):
                 response.headers['Content-Length'] = len(gzip_buffer)
                 response.headers['Vary'] = 'Accept-Encoding'
     
-    # 记录错误响应
+    # 记录错误响应（自动提取 JSON 中的 error 详情）
     if response.status_code >= 400:
-        app.logger.warning(f'{request.method} {request.path} - Status: {response.status_code}')
+        error_detail = ''
+        try:
+            if response.content_type and 'json' in response.content_type:
+                resp_data = response.get_json(silent=True)
+                if resp_data:
+                    error_detail = resp_data.get('error', '') or resp_data.get('message', '')
+        except Exception:
+            pass
+        if error_detail:
+            app.logger.warning(f'{request.method} {request.path} - Status: {response.status_code} - {error_detail}')
+        else:
+            app.logger.warning(f'{request.method} {request.path} - Status: {response.status_code}')
     
     return response
 
@@ -12875,6 +12887,16 @@ def _do_process_telegram_update(data):
             send_telegram_reply(chat_id, "❌ 您还未绑定账号\n\n请先使用 /bind 命令绑定账号")
             return jsonify({'ok': True})
         
+        # 签到权限检查
+        checkin_perm = checkin_config.get('checkin_permission', 'all')
+        if checkin_perm == 'none':
+            send_telegram_reply(chat_id, "❌ 管理员已关闭签到功能")
+            return jsonify({'ok': True})
+        if checkin_perm == 'subscribed':
+            if not user.ex or user.ex < datetime.now():
+                send_telegram_reply(chat_id, "❌ 仅限有订阅的用户签到，请先订阅后再来签到")
+                return jsonify({'ok': True})
+        
         # 检查今天是否已签到
         today = datetime.now().date()
         existing = CheckInRecord.query.filter_by(
@@ -20233,6 +20255,14 @@ def user_checkin():
         if not checkin_config.get('enabled', False):
             return jsonify({'success': False, 'error': '签到功能未开启'}), 400
         
+        # 签到权限检查
+        checkin_perm = checkin_config.get('checkin_permission', 'all')
+        if checkin_perm == 'none':
+            return jsonify({'success': False, 'error': '管理员已关闭签到功能'}), 403
+        if checkin_perm == 'subscribed':
+            if not user.ex or user.ex < datetime.now():
+                return jsonify({'success': False, 'error': '仅限有订阅的用户签到，请先订阅后再来签到'}), 403
+        
         # 检查今天是否已签到
         today = datetime.now().date()
         existing = CheckInRecord.query.filter_by(
@@ -20340,12 +20370,26 @@ def get_checkin_status():
             })
         
         # 构建配置响应 - 需要包含 enabled 字段供前端判断
+        checkin_perm = checkin_config.get('checkin_permission', 'all')
+        has_subscription = bool(user.ex and user.ex > datetime.now())
+        can_checkin = True
+        checkin_hint = ''
+        if checkin_perm == 'none':
+            can_checkin = False
+            checkin_hint = '管理员已关闭签到功能'
+        elif checkin_perm == 'subscribed' and not has_subscription:
+            can_checkin = False
+            checkin_hint = '仅限有订阅的用户签到，请先订阅后再来签到'
+        
         config_response = {
             'enabled': checkin_config.get('enabled', False),
             'coin_name': checkin_config.get('coin_name', '积分'),
             'coin_min': checkin_config.get('coin_min', 1),
             'coin_max': checkin_config.get('coin_max', 10),
-            'exchange_plans': fixed_exchange_plans
+            'exchange_plans': fixed_exchange_plans,
+            'checkin_permission': checkin_perm,
+            'can_checkin': can_checkin,
+            'checkin_hint': checkin_hint
         }
         
         # 如果签到功能未开启，返回空状态
