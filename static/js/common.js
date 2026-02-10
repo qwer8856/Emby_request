@@ -248,7 +248,7 @@
                     ${message ? `<p class="global-confirm-message" style="margin-bottom:10px;">${message}</p>` : ''}
                     <div style="text-align:center;margin:8px 0 6px;">
                         <img src="${image}" alt="验证码" class="captcha-img"
-                             style="border-radius:6px;border:1px solid #ddd;cursor:pointer;height:48px;"
+                             style="border-radius:6px;border:1px solid #ddd;cursor:pointer;height:56px;"
                              title="点击刷新验证码">
                     </div>
                     <input type="text" maxlength="4" inputmode="numeric" autocomplete="off"

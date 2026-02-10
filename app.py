@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '1.0.0'
+APP_VERSION = '2.1.1'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -18822,9 +18822,11 @@ def save_system_config_api():
             tg = data['telegram']
             if 'bot_token' in tg:
                 new_token = tg['bot_token'].strip()
-                # ★ 检测 Bot Token 变更：自动清除旧 Bot 的 Webhook，防止旧 Bot 消息转发到本系统
+                # ★ 检测 Bot Token 变更：清除旧 Bot Webhook + 为新 Bot 设置 Webhook
                 if _old_bot_token and new_token and _old_bot_token != new_token:
-                    def _cleanup_old_bot_webhook(old_token):
+                    _configured_url = current_config.get('telegram', {}).get('configured_url', '') or TELEGRAM_CONFIGURED_URL
+                    def _migrate_bot_webhook(old_token, new_tkn, cfg_url):
+                        # 1) 删除旧 Bot 的 Webhook，防止旧 Bot 继续收到消息
                         try:
                             del_url = f"https://api.telegram.org/bot{old_token}/deleteWebhook"
                             resp = PROXY_SESSION.post(del_url, json={'drop_pending_updates': True}, timeout=10)
@@ -18832,8 +18834,25 @@ def save_system_config_api():
                             app.logger.info(f'[Telegram] 已清除旧 Bot Webhook: {result}')
                         except Exception as e:
                             app.logger.warning(f'[Telegram] 清除旧 Bot Webhook 失败（可忽略）: {e}')
+                        # 2) 为新 Bot 设置 Webhook（使用已保存的 configured_url）
+                        if cfg_url:
+                            try:
+                                webhook_url = cfg_url.rstrip('/') + '/api/webhook/telegram'
+                                set_url = f"https://api.telegram.org/bot{new_tkn}/setWebhook"
+                                payload = {
+                                    'url': webhook_url,
+                                    'allowed_updates': ['message', 'callback_query', 'chat_member'],
+                                    'drop_pending_updates': True
+                                }
+                                resp2 = PROXY_SESSION.post(set_url, json=payload, timeout=10)
+                                result2 = resp2.json()
+                                app.logger.info(f'[Telegram] 已为新 Bot 设置 Webhook: {result2}')
+                            except Exception as e:
+                                app.logger.warning(f'[Telegram] 为新 Bot 设置 Webhook 失败: {e}')
+                        else:
+                            app.logger.info('[Telegram] 无 configured_url，跳过新 Bot Webhook 设置（需手动设置）')
                     # 后台线程执行，不阻塞配置保存
-                    Thread(target=_cleanup_old_bot_webhook, args=(_old_bot_token,), daemon=True).start()
+                    Thread(target=_migrate_bot_webhook, args=(_old_bot_token, new_token, _configured_url), daemon=True).start()
                 current_config['telegram']['bot_token'] = new_token
             if 'chat_id' in tg:
                 current_config['telegram']['chat_id'] = tg['chat_id'].strip()
@@ -20540,7 +20559,7 @@ def get_captcha():
 def _generate_web_captcha_image(code):
     """为 Web 端生成带干扰的 4 位数字验证码图片，返回 BytesIO"""
     try:
-        width, height = 160, 60
+        width, height = 200, 70
         image = Image.new('RGB', (width, height), color=(245, 245, 245))
         draw = ImageDraw.Draw(image)
 
@@ -20567,7 +20586,7 @@ def _generate_web_captcha_image(code):
 
         # 加载字体
         font = None
-        font_size = 36
+        font_size = 42
         for fp in [
             '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
             '/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf',
