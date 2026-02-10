@@ -1,16 +1,25 @@
 // Service Worker for PWA
-const CACHE_NAME = 'emby-request-v2';
+const CACHE_NAME = 'emby-request-v3';
 const STATIC_ASSETS = [
-  '/static/logo.png',
-  '/static/manifest.json'
+  '/manifest.json',
+  '/static/css/common.css',
+  '/static/css/dashboard.css',
+  '/static/js/common.js',
+  '/static/js/dashboard.js'
 ];
 
-// 安装 Service Worker
+// 安装 Service Worker - 逐个缓存，跳过失败的资源
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        return cache.addAll(STATIC_ASSETS);
+        return Promise.all(
+          STATIC_ASSETS.map(url =>
+            cache.add(url).catch(err => {
+              console.warn('SW: 缓存失败，跳过:', url, err);
+            })
+          )
+        );
       })
       .then(() => self.skipWaiting())
   );
@@ -69,8 +78,8 @@ self.addEventListener('push', (event) => {
     const data = event.data.json();
     const options = {
       body: data.body || '您有新的通知',
-      icon: '/static/logo.png',
-      badge: '/static/logo.png',
+      icon: data.icon || '/favicon.ico',
+      badge: data.badge || '/favicon.ico',
       vibrate: [100, 50, 100],
       data: {
         url: data.url || '/dashboard'
