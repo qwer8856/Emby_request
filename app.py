@@ -11624,21 +11624,31 @@ def telegram_webhook():
         app.logger.error(f'[Webhook] 解析 JSON 失败: {e}')
         return jsonify({'ok': True})
     
-    # ★ update_id 去重：防止 Telegram 超时重试导致同一消息被处理两次
-    # 使用线程锁保护，防止多线程并发时同一 update_id 通过检查
-    update_id = data.get('update_id')
-    if update_id:
-        with _PROCESSED_UPDATE_IDS_LOCK:
-            if update_id in _PROCESSED_UPDATE_IDS:
-                app.logger.info(f'[Webhook] 跳过重复 update_id={update_id}')
+    # ★ 消息去重：用 message_id + chat_id 做唯一标识
+    # 日志证实同一条消息会以不同 update_id 被推送多次，所以 update_id 去重无效
+    # 必须用消息本身的标识来去重
+    msg_key = None
+    msg = data.get('message') or data.get('callback_query', {}).get('message')
+    cb = data.get('callback_query')
+    if cb:
+        # callback_query 用 callback_id 去重
+        msg_key = f"cb_{cb.get('id')}"
+    elif msg:
+        # 普通消息用 chat_id + message_id 去重
+        chat_id = msg.get('chat', {}).get('id')
+        message_id = msg.get('message_id')
+        if chat_id and message_id:
+            msg_key = f"{chat_id}_{message_id}"
+    
+    if msg_key:
+        with _PROCESSED_MSG_KEYS_LOCK:
+            if msg_key in _PROCESSED_MSG_KEYS:
+                app.logger.info(f'[Webhook] 跳过重复消息 key={msg_key}')
                 return jsonify({'ok': True})
-            _PROCESSED_UPDATE_IDS.add(update_id)
-            # 防止内存无限增长，超过上限时清理较旧的一半
-            if len(_PROCESSED_UPDATE_IDS) > _PROCESSED_UPDATE_IDS_MAX:
-                sorted_ids = sorted(_PROCESSED_UPDATE_IDS)
-                half = len(sorted_ids) // 2
-                _PROCESSED_UPDATE_IDS.clear()
-                _PROCESSED_UPDATE_IDS.update(sorted_ids[half:])
+            _PROCESSED_MSG_KEYS.add(msg_key)
+            # 防止内存无限增长
+            if len(_PROCESSED_MSG_KEYS) > _PROCESSED_MSG_KEYS_MAX:
+                _PROCESSED_MSG_KEYS.clear()
     
     # ★ 先返回 200 给 Telegram，再在后台线程处理消息
     # 这样即使处理耗时较长（发图片、查数据库），Telegram 也不会因为超时而重试推送
@@ -19096,10 +19106,10 @@ TELEGRAM_BIND_CODES = {}
 TELEGRAM_CHECKIN_CODES = {}
 
 # Telegram Webhook 消息去重缓存（防止重复推送导致重复回复）
-# 存储最近处理过的 update_id，最多保留 200 条
-_PROCESSED_UPDATE_IDS = set()
-_PROCESSED_UPDATE_IDS_MAX = 200
-_PROCESSED_UPDATE_IDS_LOCK = threading.Lock()
+# 用 message_id+chat_id 做去重（同一消息可能以不同 update_id 推送多次）
+_PROCESSED_MSG_KEYS = set()
+_PROCESSED_MSG_KEYS_MAX = 500
+_PROCESSED_MSG_KEYS_LOCK = threading.Lock()
 
 # 存储忘记密码验证码 {username: {'code': '1234', 'telegram_id': xxx, 'created_at': datetime, 'expires_at': datetime}}
 PASSWORD_RESET_CODES = {}
@@ -22787,12 +22797,13 @@ def bootstrap_background_tasks():
 download_monitor_started = False
 last_subscription_check_time = None
 last_expire_remind_time = None
-_expire_remind_sent = {}  # {date_str: set(user_tg)} 已发送提醒的用户记录，按日期清理
+
+# 数据库 key: 存储已发送提醒的记录，格式 {'date': '2026-02-10', 'keys': ['tg:days', ...]}
+CONFIG_KEY_EXPIRE_REMIND_SENT = '_expire_remind_sent'
 
 
 def check_subscription_expiry_reminders():
     """检查即将到期的订阅，发送到期提醒（邮件 + Telegram）"""
-    global _expire_remind_sent
     with app.app_context():
         try:
             config = load_system_config()
@@ -22807,10 +22818,13 @@ def check_subscription_expiry_reminders():
             today_str = now.strftime('%Y-%m-%d')
             reminded_count = 0
             
-            # 清理旧日期的已发送记录（只保留今天的）
-            _expire_remind_sent = {k: v for k, v in _expire_remind_sent.items() if k == today_str}
-            if today_str not in _expire_remind_sent:
-                _expire_remind_sent[today_str] = set()
+            # ★ 从数据库读取已发送记录（持久化，容器重建不丢失）
+            sent_data = get_db_config(CONFIG_KEY_EXPIRE_REMIND_SENT, {}) or {}
+            # 如果日期不是今天，说明是新的一天，清空旧记录
+            if sent_data.get('date') != today_str:
+                sent_data = {'date': today_str, 'keys': []}
+            sent_keys = set(sent_data.get('keys', []))
+            new_keys_added = False
             
             for remind_days in remind_days_list:
                 # 查找在 remind_days 天后过期的用户（按日期匹配整天，确保不会遗漏）
@@ -22827,11 +22841,12 @@ def check_subscription_expiry_reminders():
                 ).all()
                 
                 for user in users:
-                    # 去重：同一天同一用户只提醒一次
+                    # ★ 去重：从数据库读取，同一天同一用户只提醒一次
                     remind_key = f'{user.tg}:{remind_days}'
-                    if remind_key in _expire_remind_sent[today_str]:
+                    if remind_key in sent_keys:
                         continue
-                    _expire_remind_sent[today_str].add(remind_key)
+                    sent_keys.add(remind_key)
+                    new_keys_added = True
                     
                     username = user.name or '用户'
                     expire_date = user.ex.strftime('%Y-%m-%d') if user.ex else '未知'
@@ -22865,6 +22880,11 @@ def check_subscription_expiry_reminders():
                             reminded_count += 1
                         except Exception as e:
                             app.logger.debug(f'到期提醒TG发送失败({username}): {e}')
+            
+            # ★ 把已发送记录写回数据库（持久化，容器重建也不会重发）
+            if new_keys_added:
+                sent_data = {'date': today_str, 'keys': list(sent_keys)}
+                set_db_config(CONFIG_KEY_EXPIRE_REMIND_SENT, sent_data, '到期提醒已发送记录')
             
             if reminded_count > 0:
                 app.logger.info(f'订阅到期提醒: 已发送 {reminded_count} 条提醒')
