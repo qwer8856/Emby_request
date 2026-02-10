@@ -464,7 +464,7 @@ let currentRequestId = null;
             if (overlay && titleEl && bodyEl) {
                 titleEl.textContent = title;
                 bodyEl.innerHTML = content;
-                overlay.style.display = 'flex';
+                overlay.classList.add('show');
                 // 点击背景关闭
                 overlay.onclick = function(e) {
                     if (e.target === overlay) {
@@ -478,7 +478,7 @@ let currentRequestId = null;
         function closeGenericModal() {
             const overlay = document.getElementById('genericModalOverlay');
             if (overlay) {
-                overlay.style.display = 'none';
+                overlay.classList.remove('show');
             }
         }
         
@@ -2131,7 +2131,7 @@ async function openTicketDetail(ticketId) {
         
         document.getElementById('ticketReplyInput').value = '';
         
-        document.getElementById('ticketDetailModal').style.display = 'flex';
+        document.getElementById('ticketDetailModal').classList.add('show');
         
     } catch (error) {
         console.error('加载工单详情失败:', error);
@@ -2140,7 +2140,7 @@ async function openTicketDetail(ticketId) {
 }
 
 function closeTicketDetailModal() {
-    document.getElementById('ticketDetailModal').style.display = 'none';
+    document.getElementById('ticketDetailModal').classList.remove('show');
     currentTicketId = null;
 }
 
@@ -2844,11 +2844,11 @@ function openUserDetail(userId) {
         document.getElementById('userDetailSubscription').textContent = user.subscription_status === 'active' ? '已订阅' : '未订阅';
     }
     
-    document.getElementById('userDetailModal').style.display = 'flex';
+    document.getElementById('userDetailModal').classList.add('show');
 }
 
 function closeUserDetailModal() {
-    document.getElementById('userDetailModal').style.display = 'none';
+    document.getElementById('userDetailModal').classList.remove('show');
     currentUserId = null;
 }
 
@@ -5929,7 +5929,7 @@ function showAddLineModal() {
     document.getElementById('lineAccessLevel').value = 'whitelist';
     document.getElementById('lineDescription').value = '';
     document.getElementById('lineSortOrder').value = '0';
-    document.getElementById('lineModal').style.display = 'flex';
+    document.getElementById('lineModal').classList.add('show');
 }
 
 function editLine(lineId) {
@@ -5945,11 +5945,11 @@ function editLine(lineId) {
     document.getElementById('lineAccessLevel').value = line.access_level || 'whitelist';
     document.getElementById('lineDescription').value = line.description || '';
     document.getElementById('lineSortOrder').value = line.sort_order || 0;
-    document.getElementById('lineModal').style.display = 'flex';
+    document.getElementById('lineModal').classList.add('show');
 }
 
 function closeLineModal() {
-    document.getElementById('lineModal').style.display = 'none';
+    document.getElementById('lineModal').classList.remove('show');
 }
 
 async function saveLine() {
@@ -7059,7 +7059,7 @@ async function showUserDetail(userId) {
     currentDetailUserId = userId;
     activityPage = 1;
     
-    document.getElementById('userDetailModal').style.display = 'flex';
+    document.getElementById('userDetailModal').classList.add('show');
     document.getElementById('userDetailTitle').textContent = '用户详情';
     
     // 重置标签页
@@ -7073,7 +7073,7 @@ async function showUserDetail(userId) {
 }
 
 function closeUserDetailModal() {
-    document.getElementById('userDetailModal').style.display = 'none';
+    document.getElementById('userDetailModal').classList.remove('show');
     currentDetailUserId = null;
 }
 
@@ -7948,11 +7948,11 @@ function openAnnouncementModal(id = null) {
     document.getElementById('announcementEndTime').value = '';
     document.getElementById('announcementModalTitle').textContent = '📢 发布公告';
     
-    document.getElementById('announcementModalOverlay').style.display = 'flex';
+    document.getElementById('announcementModalOverlay').classList.add('show');
 }
 
 function closeAnnouncementModal() {
-    document.getElementById('announcementModalOverlay').style.display = 'none';
+    document.getElementById('announcementModalOverlay').classList.remove('show');
 }
 
 function editAnnouncement(id) {
@@ -7981,7 +7981,7 @@ function editAnnouncement(id) {
     }
     
     document.getElementById('announcementModalTitle').textContent = '✏️ 编辑公告';
-    document.getElementById('announcementModalOverlay').style.display = 'flex';
+    document.getElementById('announcementModalOverlay').classList.add('show');
 }
 
 function formatDateTimeLocal(date) {
@@ -8207,7 +8207,7 @@ function openAddKnowledgeModal() {
     document.getElementById('knowledgeCategory').value = 'account';
     document.getElementById('knowledgeQuestion').value = '';
     document.getElementById('knowledgeAnswer').value = '';
-    document.getElementById('knowledgeModal').style.display = 'flex';
+    document.getElementById('knowledgeModal').classList.add('show');
 }
 
 function openEditKnowledgeModal(id) {
@@ -8219,11 +8219,11 @@ function openEditKnowledgeModal(id) {
     document.getElementById('knowledgeCategory').value = item.category || 'other';
     document.getElementById('knowledgeQuestion').value = item.question;
     document.getElementById('knowledgeAnswer').value = item.answer;
-    document.getElementById('knowledgeModal').style.display = 'flex';
+    document.getElementById('knowledgeModal').classList.add('show');
 }
 
 function closeKnowledgeModal() {
-    document.getElementById('knowledgeModal').style.display = 'none';
+    document.getElementById('knowledgeModal').classList.remove('show');
 }
 
 async function saveKnowledgeItem() {
@@ -8272,11 +8272,11 @@ async function saveKnowledgeItem() {
 
 function openDeleteKnowledgeModal(id) {
     document.getElementById('deleteKnowledgeId').value = id;
-    document.getElementById('deleteKnowledgeModal').style.display = 'flex';
+    document.getElementById('deleteKnowledgeModal').classList.add('show');
 }
 
 function closeDeleteKnowledgeModal() {
-    document.getElementById('deleteKnowledgeModal').style.display = 'none';
+    document.getElementById('deleteKnowledgeModal').classList.remove('show');
 }
 
 async function confirmDeleteKnowledge() {
@@ -8304,11 +8304,11 @@ async function confirmDeleteKnowledge() {
 // 分类管理
 function openCategoryModal() {
     renderCategoryList();
-    document.getElementById('categoryModal').style.display = 'flex';
+    document.getElementById('categoryModal').classList.add('show');
 }
 
 function closeCategoryModal() {
-    document.getElementById('categoryModal').style.display = 'none';
+    document.getElementById('categoryModal').classList.remove('show');
 }
 
 function renderCategoryList() {

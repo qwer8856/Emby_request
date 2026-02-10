@@ -208,7 +208,7 @@ async function openPlanSelectModal() {
             // 显示模态弹窗
             const modal = document.getElementById('planSelectModal');
             if (modal) {
-                modal.classList.add('active');
+                modal.classList.add('show');
                 
                 // 重置选择和输入
                 selectedPlanForExchange = null;
@@ -289,7 +289,7 @@ function selectPlan(plan) {
 function closePlanSelectModal() {
     const modal = document.getElementById('planSelectModal');
     if (modal) {
-        modal.classList.remove('active');
+        modal.classList.remove('show');
     }
     selectedPlanForExchange = null;
 }
