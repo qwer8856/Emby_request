@@ -79,11 +79,28 @@
     <script>
         (function () {
             var hash = window.location.hash.slice(1);
-            var validSections = ['dashboard', 'requests', 'users', 'orders', 'redeem', 'playback', 'tickets', 'invites', 'plans', 'knowledge', 'settings'];
-            // 如果没有hash或hash是dashboard（默认），移除预加载样式让默认的active生效
+            var validSections = ['dashboard', 'requests', 'subscriptions', 'users', 'orders', 'redeem', 'playback', 'tickets', 'invites', 'plans', 'knowledge', 'settings', 'audit'];
             if (!hash || hash === 'dashboard' || validSections.indexOf(hash) === -1) {
+                // 默认显示仪表盘，直接移除预加载样式
                 var style = document.getElementById('preload-style');
                 if (style) style.remove();
+            } else {
+                // 有非默认hash：在DOM就绪时先切换再显示，避免闪屏
+                document.addEventListener('DOMContentLoaded', function() {
+                    // 先移除dashboard的active（避免闪一下仪表盘）
+                    var dashSection = document.getElementById('section-dashboard');
+                    var dashNav = document.querySelector('.sidebar-nav .nav-item[data-section="dashboard"]');
+                    if (dashSection) dashSection.classList.remove('active');
+                    if (dashNav) dashNav.classList.remove('active');
+                    // 激活目标section
+                    var targetSection = document.getElementById('section-' + hash);
+                    var targetNav = document.querySelector('.sidebar-nav .nav-item[data-section="' + hash + '"]');
+                    if (targetSection) targetSection.classList.add('active');
+                    if (targetNav) targetNav.classList.add('active');
+                    // 移除预加载样式
+                    var style = document.getElementById('preload-style');
+                    if (style) style.remove();
+                });
             }
         })();
     </script>

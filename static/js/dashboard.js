@@ -1161,16 +1161,46 @@ async function unbindTelegramId() {
                 closeMobileSidebar();
             }
             
-            // 如果切换到热门推荐且未加载，则加载
-            if (sectionName === 'trending' && !trendingLoaded) {
-                loadTrending('movie', 'trendingMovies', 'moviePagination', 1);
-                loadTrending('tv', 'trendingTV', 'tvPagination', 1);
-                trendingLoaded = true;
+            // 离开播放监控页面时停止自动刷新
+            if (sectionName !== 'playback') {
+                stopPlaybackAutoRefresh();
             }
             
-            // 如果切换到主页，更新统计数据
-            if (sectionName === 'home') {
-                updateDashboardStats();
+            // 每次点击菜单都重新加载对应模块数据
+            switch(sectionName) {
+                case 'home':
+                    updateDashboardStats();
+                    break;
+                case 'subscription':
+                    loadSubscriptionInfo();
+                    break;
+                case 'purchase':
+                    loadPlans();
+                    break;
+                case 'trending':
+                    loadTrending('movie', 'trendingMovies', 'moviePagination', 1);
+                    loadTrending('tv', 'trendingTV', 'tvPagination', 1);
+                    trendingLoaded = true;
+                    break;
+                case 'requests':
+                    refreshRequestList();
+                    break;
+                case 'playback':
+                    loadPlaybackData();
+                    startPlaybackAutoRefresh();
+                    break;
+                case 'invite':
+                    loadInviteInfo();
+                    break;
+                case 'faq':
+                    loadFAQ();
+                    break;
+                case 'support':
+                    loadMyTickets();
+                    break;
+                case 'activity-logs':
+                    loadMyActivityLogs(1);
+                    break;
             }
         }
         
@@ -6046,30 +6076,7 @@ async function unbindTelegramId() {
             }
         }
 
-        // ==================== Section 切换时加载数据 ====================
-        const originalSwitchSection = switchSection;
-        switchSection = function(sectionName) {
-            originalSwitchSection(sectionName);
-            
-            // 根据section加载对应数据
-            if (sectionName === 'subscription') {
-                loadSubscriptionInfo();
-            } else if (sectionName === 'invite') {
-                loadInviteInfo();
-            } else if (sectionName === 'support') {
-                loadMyTickets();
-            } else if (sectionName === 'playback') {
-                loadPlaybackData();
-                startPlaybackAutoRefresh();
-            } else if (sectionName === 'activity-logs') {
-                loadMyActivityLogs();
-            }
-            
-            // 离开播放监控页面时停止自动刷新
-            if (sectionName !== 'playback') {
-                stopPlaybackAutoRefresh();
-            }
-        };
+
 
         // ==================== 用户活动日志功能 ====================
         let myActivityCurrentPage = 1;

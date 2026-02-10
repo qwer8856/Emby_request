@@ -1510,10 +1510,13 @@ function switchAdminSection(section, event, updateHash = true) {
         history.replaceState(null, '', `#${section}`);
     }
     
-    // 加载对应模块数据
+    // 加载对应模块数据（每次点击都重新加载，包括点击当前已选中的菜单）
     switch(section) {
         case 'dashboard':
             loadDashboardStats();
+            break;
+        case 'requests':
+            refreshDashboard();
             break;
         case 'subscriptions':
             loadSubscriptions();

@@ -28,11 +28,28 @@
     <script>
     (function() {
         var hash = window.location.hash.slice(1);
-        var validSections = ['home','subscription','purchase','search','trending','requests',{% if invite_reward_enabled %}'invite',{% endif %}'playback','profile','activity-logs'];
-        // 如果没有hash或hash是home，移除预加载样式让默认的active生效
+        var validSections = ['home','subscription','purchase','search','trending','requests',{% if invite_reward_enabled %}'invite',{% endif %}'playback','profile','activity-logs','docs','faq','support'];
         if (!hash || hash === 'home' || validSections.indexOf(hash) === -1) {
+            // 默认显示首页，直接移除预加载样式
             var style = document.getElementById('preload-style');
             if (style) style.remove();
+        } else {
+            // 有非默认hash：在DOM就绪时先切换再显示，避免闪屏
+            document.addEventListener('DOMContentLoaded', function() {
+                // 先移除home的active
+                var homeSection = document.getElementById('section-home');
+                var homeNav = document.querySelector('.nav-item[data-section="home"]');
+                if (homeSection) homeSection.classList.remove('active');
+                if (homeNav) homeNav.classList.remove('active');
+                // 激活目标section
+                var targetSection = document.getElementById('section-' + hash);
+                var targetNav = document.querySelector('.nav-item[data-section="' + hash + '"]');
+                if (targetSection) targetSection.classList.add('active');
+                if (targetNav) targetNav.classList.add('active');
+                // 移除预加载样式
+                var style = document.getElementById('preload-style');
+                if (style) style.remove();
+            });
         }
     })();
     </script>
