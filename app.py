@@ -17224,13 +17224,16 @@ def use_redeem_code():
         code = data.get('code', '').strip().upper()
         
         if not code:
+            app.logger.warning(f'兑换码使用失败 - 原因: 未输入兑换码')
             return jsonify({'success': False, 'error': '请输入兑换码'}), 400
         
         user = db.session.get(User, session.get('user_id'))
         if not user:
+            app.logger.warning(f'兑换码使用失败 - 原因: 用户不存在 (session user_id={session.get("user_id")})')
             return jsonify({'success': False, 'error': '用户不存在，请重新登录'}), 401
         
         if not user.tg:
+            app.logger.warning(f'兑换码使用失败 - 用户: {user.name}, 原因: 缺少TG标识')
             return jsonify({'success': False, 'error': '用户账户异常，缺少TG标识'}), 400
         
         app.logger.info(f'用户 {user.name}(tg={user.tg}) 尝试使用兑换码: {code}')
@@ -17239,24 +17242,30 @@ def use_redeem_code():
         redeem = RedeemCode.query.filter_by(code=code).first()
         
         if not redeem:
+            app.logger.warning(f'兑换码使用失败 - 用户: {user.name}(tg={user.tg}), 兑换码: {code}, 原因: 兑换码不存在')
             return jsonify({'success': False, 'error': '兑换码不存在，请检查输入是否正确'}), 404
         
         if redeem.is_used:
+            app.logger.warning(f'兑换码使用失败 - 用户: {user.name}(tg={user.tg}), 兑换码: {code}, 原因: 兑换码已被使用 (used_by={redeem.used_by}, used_at={redeem.used_at})')
             return jsonify({'success': False, 'error': '兑换码已被使用，每个兑换码只能使用一次'}), 400
         
         if not redeem.is_active:
+            app.logger.warning(f'兑换码使用失败 - 用户: {user.name}(tg={user.tg}), 兑换码: {code}, 原因: 兑换码已被禁用')
             return jsonify({'success': False, 'error': '兑换码已被禁用，请联系管理员'}), 400
         
         # 检查是否过期
         if redeem.expires_at and redeem.expires_at < datetime.now():
+            app.logger.warning(f'兑换码使用失败 - 用户: {user.name}(tg={user.tg}), 兑换码: {code}, 原因: 兑换码已过期 (expires_at={redeem.expires_at})')
             return jsonify({'success': False, 'error': '兑换码已过期，请使用有效的兑换码'}), 400
         
         # 校验兑换码类型与用户状态是否匹配
         has_emby = bool(user.embyid)
         if redeem.code_type == 'new' and has_emby:
+            app.logger.warning(f'兑换码使用失败 - 用户: {user.name}(tg={user.tg}), 兑换码: {code}, 原因: 类型不匹配(注册码但用户已有Emby账号)')
             return jsonify({'success': False, 'error': '您已有 Emby 账号，此为注册码，仅限未开通账号的用户使用。请使用续期码延长订阅。'}), 400
         
         if redeem.code_type == 'renew' and not has_emby:
+            app.logger.warning(f'兑换码使用失败 - 用户: {user.name}(tg={user.tg}), 兑换码: {code}, 原因: 类型不匹配(续期码但用户无Emby账号)')
             return jsonify({'success': False, 'error': '您还没有 Emby 账号，此为续期码，仅限已有账号的用户使用。请先使用注册码开通账号。'}), 400
         
         # 获取套餐配置
