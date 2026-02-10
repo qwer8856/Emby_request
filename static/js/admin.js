@@ -3532,6 +3532,44 @@ async function loadSystemConfig() {
                 }
             }
             
+            // 填充播放排行配置
+            if (config.ranking) {
+                const rkEnabled = document.getElementById('rankingEnabled');
+                const rkMovieLimit = document.getElementById('rankingMovieLimit');
+                const rkEpisodeLimit = document.getElementById('rankingEpisodeLimit');
+                const rkUserLimit = document.getElementById('rankingUserLimit');
+                const rkExcludeUsers = document.getElementById('rankingExcludeUsers');
+                const rkPushEnabled = document.getElementById('rankingPushEnabled');
+                const rkPushChatId = document.getElementById('rankingPushChatId');
+                const rkPushDailyTime = document.getElementById('rankingPushDailyTime');
+                const rkPushWeeklyDay = document.getElementById('rankingPushWeeklyDay');
+                const rkPushWeeklyTime = document.getElementById('rankingPushWeeklyTime');
+                const rkPushDaily = document.getElementById('rankingPushDaily');
+                const rkPushWeekly = document.getElementById('rankingPushWeekly');
+                const rkStatus = document.getElementById('rankingStatus');
+
+                if (rkEnabled) rkEnabled.checked = config.ranking.enabled === true;
+                if (rkMovieLimit) rkMovieLimit.value = config.ranking.movie_limit ?? 10;
+                if (rkEpisodeLimit) rkEpisodeLimit.value = config.ranking.episode_limit ?? 10;
+                if (rkUserLimit) rkUserLimit.value = config.ranking.user_limit ?? 20;
+                if (rkExcludeUsers) rkExcludeUsers.value = config.ranking.exclude_users || '';
+                if (rkPushEnabled) rkPushEnabled.checked = config.ranking.push_enabled === true;
+                if (rkPushChatId) rkPushChatId.value = config.ranking.push_chat_id || '';
+                if (rkPushDailyTime) rkPushDailyTime.value = config.ranking.push_daily_time || '21:00';
+                if (rkPushWeeklyDay) rkPushWeeklyDay.value = config.ranking.push_weekly_day ?? 0;
+                if (rkPushWeeklyTime) rkPushWeeklyTime.value = config.ranking.push_weekly_time || '21:00';
+                if (rkPushDaily) rkPushDaily.checked = config.ranking.push_daily !== false;
+                if (rkPushWeekly) rkPushWeekly.checked = config.ranking.push_weekly !== false;
+
+                if (rkStatus) {
+                    rkStatus.textContent = config.ranking.enabled ? '已开启' : '已关闭';
+                    rkStatus.className = 'status-badge ' + (config.ranking.enabled ? 'configured' : '');
+                }
+
+                toggleRankingConfig();
+                toggleRankingPushConfig();
+            }
+
             // 加载邮箱统计
             loadEmailStats();
         }
@@ -8582,6 +8620,95 @@ async function testEmailConfig() {
         }
     } catch (error) {
         showToast('错误', '测试请求失败', 'error');
+    }
+}
+
+// ==================== 播放排行配置 ====================
+function toggleRankingConfig() {
+    const enabled = document.getElementById('rankingEnabled')?.checked;
+    const details = document.getElementById('rankingConfigDetails');
+    if (details) details.style.display = enabled ? 'block' : 'none';
+}
+
+function toggleRankingPushConfig() {
+    const enabled = document.getElementById('rankingPushEnabled')?.checked;
+    const details = document.getElementById('rankingPushDetails');
+    if (details) details.style.display = enabled ? 'block' : 'none';
+}
+
+async function saveRankingConfig() {
+    try {
+        const config = {
+            ranking: {
+                enabled: document.getElementById('rankingEnabled')?.checked || false,
+                movie_limit: parseInt(document.getElementById('rankingMovieLimit')?.value) || 10,
+                episode_limit: parseInt(document.getElementById('rankingEpisodeLimit')?.value) || 10,
+                user_limit: parseInt(document.getElementById('rankingUserLimit')?.value) || 20,
+                exclude_users: document.getElementById('rankingExcludeUsers')?.value?.trim() || '',
+                push_enabled: document.getElementById('rankingPushEnabled')?.checked || false,
+                push_chat_id: document.getElementById('rankingPushChatId')?.value?.trim() || '',
+                push_daily_time: document.getElementById('rankingPushDailyTime')?.value || '21:00',
+                push_weekly_day: parseInt(document.getElementById('rankingPushWeeklyDay')?.value) || 0,
+                push_weekly_time: document.getElementById('rankingPushWeeklyTime')?.value || '21:00',
+                push_daily: document.getElementById('rankingPushDaily')?.checked ?? true,
+                push_weekly: document.getElementById('rankingPushWeekly')?.checked ?? true,
+            }
+        };
+
+        const response = await fetch('/api/admin/system-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showToast('成功', '播放排行配置已保存', 'success');
+            const badge = document.getElementById('rankingStatus');
+            if (badge) {
+                badge.textContent = config.ranking.enabled ? '已开启' : '已关闭';
+                badge.className = 'status-badge ' + (config.ranking.enabled ? 'configured' : '');
+            }
+            // 清除前端排行缓存以便下次用新配置加载
+            if (typeof _rankingsCache !== 'undefined') _rankingsCache = {};
+        } else {
+            showToast('错误', data.error || '保存失败', 'error');
+        }
+    } catch (error) {
+        console.error('保存排行配置失败:', error);
+        showToast('错误', '保存失败', 'error');
+    }
+}
+
+async function testRankingPush() {
+    const days = await showPrompt({
+        title: '📤 推送排行测试',
+        message: '选择推送类型：输入 1 推送日榜，输入 7 推送周榜',
+        placeholder: '1',
+        confirmText: '立即推送',
+        type: 'info'
+    });
+    if (!days) return;
+    const d = parseInt(days.trim());
+    if (d !== 1 && d !== 7) {
+        showToast('提示', '请输入 1（日榜）或 7（周榜）', 'warning');
+        return;
+    }
+
+    showToast('推送中', '正在生成并推送排行...', 'info');
+
+    try {
+        const response = await fetch(`/api/admin/playback/rankings/push?days=${d}`, {
+            method: 'POST'
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('成功', data.message || '推送成功', 'success');
+        } else {
+            showToast('错误', data.error || '推送失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', '推送请求失败', 'error');
     }
 }
 

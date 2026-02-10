@@ -3219,6 +3219,159 @@
                         </div>
                     </div>
 
+                    <!-- 播放排行配置 - 可折叠 -->
+                    <div class="settings-card collapsible collapsed" data-settings-group="advanced">
+                        <div class="settings-card-header" onclick="toggleSettingsCard(this)">
+                            <div class="header-left">
+                                <span class="collapse-icon">▶</span>
+                                <h3>🏆 播放排行配置</h3>
+                            </div>
+                            <span class="status-badge" id="rankingStatus">未开启</span>
+                        </div>
+                        <div class="settings-card-body collapsible-content">
+                            <p class="settings-desc">配置播放排行榜功能：管理后台排行展示、定时推送到 Telegram 群组。需要 Emby 安装 <b>Playback Reporting</b> 插件。</p>
+
+                            <div class="settings-form">
+                                <!-- 开关 -->
+                                <div class="form-group">
+                                    <div class="toggle-switch-container">
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="rankingEnabled" onchange="toggleRankingConfig()">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                        <div class="toggle-label-text">
+                                            <strong>启用播放排行功能</strong>
+                                            <span class="form-hint">开启后管理后台播放监控页面显示排行标签页</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="rankingConfigDetails" style="display:none;">
+                                    <!-- 排行数量 -->
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="rankingMovieLimit">电影排行数量</label>
+                                            <input type="number" id="rankingMovieLimit" class="form-input" min="1" max="50" value="10">
+                                            <span class="form-hint">TOP N 部电影</span>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="rankingEpisodeLimit">剧集排行数量</label>
+                                            <input type="number" id="rankingEpisodeLimit" class="form-input" min="1" max="50" value="10">
+                                            <span class="form-hint">TOP N 部剧集</span>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="rankingUserLimit">用户排行数量</label>
+                                            <input type="number" id="rankingUserLimit" class="form-input" min="1" max="100" value="20">
+                                            <span class="form-hint">TOP N 名用户</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- 排除用户 -->
+                                    <div class="form-group">
+                                        <label for="rankingExcludeUsers">排除用户</label>
+                                        <input type="text" id="rankingExcludeUsers" class="form-input" placeholder="admin,test_user">
+                                        <span class="form-hint">填写 Emby 用户名，多个用逗号分隔。这些用户的播放不计入排行</span>
+                                    </div>
+
+                                    <hr style="border:none; border-top:1px dashed #e2e8f0; margin:20px 0;">
+
+                                    <!-- 推送开关 -->
+                                    <div class="form-group">
+                                        <div class="toggle-switch-container">
+                                            <label class="toggle-switch">
+                                                <input type="checkbox" id="rankingPushEnabled" onchange="toggleRankingPushConfig()">
+                                                <span class="toggle-slider"></span>
+                                            </label>
+                                            <div class="toggle-label-text">
+                                                <strong>定时推送到 Telegram 群组</strong>
+                                                <span class="form-hint">自动在指定时间将排行榜推送到 Telegram 群组</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div id="rankingPushDetails" style="display:none;">
+                                        <div class="form-group">
+                                            <label for="rankingPushChatId">推送群组 Chat ID</label>
+                                            <input type="text" id="rankingPushChatId" class="form-input" placeholder="留空使用默认通知群组">
+                                            <span class="form-hint">留空则使用 Telegram 设置中的入库通知群组或管理员群组</span>
+                                        </div>
+
+                                        <!-- 日榜 -->
+                                        <div class="form-group">
+                                            <div class="toggle-switch-container">
+                                                <label class="toggle-switch">
+                                                    <input type="checkbox" id="rankingPushDaily" checked>
+                                                    <span class="toggle-slider"></span>
+                                                </label>
+                                                <div class="toggle-label-text">
+                                                    <strong>推送日榜</strong>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="rankingPushDailyTime">日榜推送时间</label>
+                                            <input type="time" id="rankingPushDailyTime" class="form-input" value="21:00">
+                                            <span class="form-hint">每天几点推送日榜（北京时间）</span>
+                                        </div>
+
+                                        <!-- 周榜 -->
+                                        <div class="form-group">
+                                            <div class="toggle-switch-container">
+                                                <label class="toggle-switch">
+                                                    <input type="checkbox" id="rankingPushWeekly" checked>
+                                                    <span class="toggle-slider"></span>
+                                                </label>
+                                                <div class="toggle-label-text">
+                                                    <strong>推送周榜</strong>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label for="rankingPushWeeklyDay">周榜推送星期</label>
+                                                <select id="rankingPushWeeklyDay" class="form-input">
+                                                    <option value="0">周一</option>
+                                                    <option value="1">周二</option>
+                                                    <option value="2">周三</option>
+                                                    <option value="3">周四</option>
+                                                    <option value="4">周五</option>
+                                                    <option value="5">周六</option>
+                                                    <option value="6">周日</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="rankingPushWeeklyTime">周榜推送时间</label>
+                                                <input type="time" id="rankingPushWeeklyTime" class="form-input" value="21:00">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn-primary" onclick="saveRankingConfig()">
+                                    <span>💾</span> 保存配置
+                                </button>
+                                <button class="btn-secondary" onclick="testRankingPush()">
+                                    <span>📤</span> 立即推送测试
+                                </button>
+                            </div>
+
+                            <div class="settings-tips">
+                                <h4>📌 配置说明</h4>
+                                <ul>
+                                    <li>需要 Emby 安装 <b>Playback Reporting</b> 插件</li>
+                                    <li>排行数据来源于 Emby 播放记录，非实时</li>
+                                    <li>排除用户填写 Emby 中的用户名（非本站用户名）</li>
+                                    <li>定时推送依赖 Telegram Bot 配置正确</li>
+                                    <li>推送消息会发送到指定群组，格式为纯文本排行榜</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- 系统信息 - 可折叠 -->
                     <div class="settings-card collapsible collapsed" data-settings-group="advanced">
                         <div class="settings-card-header" onclick="toggleSettingsCard(this)">

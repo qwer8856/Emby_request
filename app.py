@@ -717,6 +717,7 @@ CONFIG_KEY_INVITE_REWARD = 'invite_reward'
 CONFIG_KEY_EMAIL = 'email'
 CONFIG_KEY_LOGIN_NOTIFY = 'login_notify'
 CONFIG_KEY_EXPIRE_REMIND = 'expire_remind'
+CONFIG_KEY_RANKING = 'ranking'
 
 # 易支付配置（支持环境变量或配置文件）
 EPAY_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'epay_config.json')
@@ -1303,6 +1304,20 @@ DEFAULT_SYSTEM_CONFIG = {
         'smtp_password': '',         # SMTP 密码/授权码
         'sender_name': 'Emby管理系统', # 发件人名称
         'require_email_register': False  # 注册时是否强制绑定邮箱
+    },
+    'ranking': {
+        'enabled': False,              # 是否启用播放排行功能
+        'movie_limit': 10,             # 电影排行显示数量
+        'episode_limit': 10,           # 剧集排行显示数量
+        'user_limit': 20,              # 用户排行显示数量
+        'exclude_users': '',           # 排除用户（Emby用户名，逗号分隔）
+        'push_enabled': False,         # 是否启用定时推送到群组
+        'push_chat_id': '',            # 推送目标群组 Chat ID（留空使用默认群组）
+        'push_daily_time': '21:00',    # 日榜推送时间 (HH:MM)
+        'push_weekly_day': 0,          # 周榜推送星期几 (0=周一, 6=周日)
+        'push_weekly_time': '21:00',   # 周榜推送时间 (HH:MM)
+        'push_daily': True,            # 推送日榜
+        'push_weekly': True,           # 推送周榜
     }
 }
 
@@ -1602,6 +1617,9 @@ def save_system_config(config):
             if 'expire_remind' in config:
                 if not set_db_config(CONFIG_KEY_EXPIRE_REMIND, config['expire_remind'], '到期提醒配置'):
                     _save_failures.append('expire_remind')
+            if 'ranking' in config:
+                if not set_db_config(CONFIG_KEY_RANKING, config['ranking'], '播放排行配置'):
+                    _save_failures.append('ranking')
             
             if _save_failures:
                 db_success = False
@@ -8984,6 +9002,13 @@ def admin_get_playback_rankings():
     if not emby_client.is_enabled():
         return jsonify({'success': False, 'error': 'Emby 未配置'}), 400
 
+    # 读取排行配置
+    ranking_config = load_system_config().get('ranking', {})
+    movie_limit = ranking_config.get('movie_limit', 10)
+    episode_limit = ranking_config.get('episode_limit', 10)
+    user_limit = ranking_config.get('user_limit', 20)
+    exclude_users_str = ranking_config.get('exclude_users', '')
+
     try:
         from datetime import timezone as tz
 
@@ -8995,6 +9020,27 @@ def admin_get_playback_rankings():
         api_key = emby_client.api_key
         headers = {'X-Emby-Token': api_key, 'Accept': 'application/json', 'Content-Type': 'application/json'}
 
+        # 构建排除用户名列表 → 映射到 Emby UserId
+        exclude_user_ids = set()
+        if exclude_users_str:
+            exclude_names = [n.strip() for n in exclude_users_str.split(',') if n.strip()]
+            if exclude_names:
+                import requests as req_lib
+                try:
+                    users_resp = req_lib.get(f"{base}/emby/Users", headers=headers, timeout=10)
+                    if users_resp.status_code == 200:
+                        for u in users_resp.json():
+                            if u.get('Name', '') in exclude_names:
+                                exclude_user_ids.add(u.get('Id', ''))
+                except Exception:
+                    pass
+
+        # 排除条件
+        exclude_clause = ''
+        if exclude_user_ids:
+            ids_str = ','.join(f"'{uid}'" for uid in exclude_user_ids)
+            exclude_clause = f" AND UserId NOT IN ({ids_str})"
+
         # ---------- 1. 媒体排行（电影 + 剧集，按播放次数和时长） ----------
         movie_sql = (
             "SELECT UserId, ItemId, ItemType, ItemName AS name, "
@@ -9002,7 +9048,8 @@ def admin_get_playback_rankings():
             "FROM PlaybackActivity "
             f"WHERE ItemType = 'Movie' AND DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' "
             "AND UserId NOT IN (SELECT UserId FROM UserList) "
-            "GROUP BY name ORDER BY play_count DESC, total_duration DESC LIMIT 10"
+            f"{exclude_clause} "
+            f"GROUP BY name ORDER BY play_count DESC, total_duration DESC LIMIT {movie_limit}"
         )
         episode_sql = (
             "SELECT UserId, ItemId, ItemType, "
@@ -9011,7 +9058,8 @@ def admin_get_playback_rankings():
             "FROM PlaybackActivity "
             f"WHERE ItemType = 'Episode' AND DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' "
             "AND UserId NOT IN (SELECT UserId FROM UserList) "
-            "GROUP BY name ORDER BY play_count DESC, total_duration DESC LIMIT 10"
+            f"{exclude_clause} "
+            f"GROUP BY name ORDER BY play_count DESC, total_duration DESC LIMIT {episode_limit}"
         )
 
         # ---------- 2. 用户观影时长排行 ----------
@@ -9019,7 +9067,8 @@ def admin_get_playback_rankings():
             "SELECT UserId, SUM(PlayDuration - PauseDuration) AS WatchTime "
             "FROM PlaybackActivity "
             f"WHERE DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' "
-            "GROUP BY UserId ORDER BY WatchTime DESC LIMIT 20"
+            f"{exclude_clause} "
+            f"GROUP BY UserId ORDER BY WatchTime DESC LIMIT {user_limit}"
         )
 
         submit_url = f"{base}/emby/user_usage_stats/submit_custom_query"
@@ -9152,6 +9201,327 @@ def admin_get_playback_rankings():
 
     except Exception as e:
         app.logger.error(f'获取播放排行失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== 播放排行定时推送 ====================
+_ranking_timers = {}  # 存储定时器: {'daily': timer, 'weekly': timer}
+
+def _build_ranking_text(days, ranking_config):
+    """构建排行榜文本消息（供定时推送使用）"""
+    from datetime import timezone as tz
+    import requests as req_lib
+
+    if not emby_client.is_enabled():
+        return None
+
+    movie_limit = ranking_config.get('movie_limit', 10)
+    episode_limit = ranking_config.get('episode_limit', 10)
+    user_limit = ranking_config.get('user_limit', 20)
+    exclude_users_str = ranking_config.get('exclude_users', '')
+
+    end_dt = datetime.now(tz(timedelta(hours=8)))
+    start_time = (end_dt - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    end_time = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    base = emby_client.base_url
+    api_key = emby_client.api_key
+    headers = {'X-Emby-Token': api_key, 'Accept': 'application/json', 'Content-Type': 'application/json'}
+
+    # 排除用户
+    exclude_user_ids = set()
+    if exclude_users_str:
+        exclude_names = [n.strip() for n in exclude_users_str.split(',') if n.strip()]
+        if exclude_names:
+            try:
+                users_resp = req_lib.get(f"{base}/emby/Users", headers=headers, timeout=10)
+                if users_resp.status_code == 200:
+                    for u in users_resp.json():
+                        if u.get('Name', '') in exclude_names:
+                            exclude_user_ids.add(u.get('Id', ''))
+            except Exception:
+                pass
+
+    exclude_clause = ''
+    if exclude_user_ids:
+        ids_str = ','.join(f"'{uid}'" for uid in exclude_user_ids)
+        exclude_clause = f" AND UserId NOT IN ({ids_str})"
+
+    def format_duration(seconds):
+        try:
+            s = int(float(seconds))
+        except (ValueError, TypeError):
+            return '0分钟'
+        if s < 60:
+            return f'{s}秒'
+        h, m = divmod(s // 60, 60)
+        if h > 0:
+            return f'{h}小时{m}分钟'
+        return f'{m}分钟'
+
+    submit_url = f"{base}/emby/user_usage_stats/submit_custom_query"
+    medals = ['🥇', '🥈', '🥉']
+    period = '日' if days == 1 else '周'
+
+    # 查询
+    queries = {
+        'movies': (
+            "SELECT UserId, ItemId, ItemType, ItemName AS name, "
+            "COUNT(1) AS play_count, SUM(PlayDuration - PauseDuration) AS total_duration "
+            "FROM PlaybackActivity "
+            f"WHERE ItemType = 'Movie' AND DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' "
+            f"AND UserId NOT IN (SELECT UserId FROM UserList) {exclude_clause} "
+            f"GROUP BY name ORDER BY play_count DESC, total_duration DESC LIMIT {movie_limit}"
+        ),
+        'episodes': (
+            "SELECT UserId, ItemId, ItemType, "
+            "substr(ItemName, 0, instr(ItemName, ' - ')) AS name, "
+            "COUNT(1) AS play_count, SUM(PlayDuration - PauseDuration) AS total_duration "
+            "FROM PlaybackActivity "
+            f"WHERE ItemType = 'Episode' AND DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' "
+            f"AND UserId NOT IN (SELECT UserId FROM UserList) {exclude_clause} "
+            f"GROUP BY name ORDER BY play_count DESC, total_duration DESC LIMIT {episode_limit}"
+        ),
+        'users': (
+            "SELECT UserId, SUM(PlayDuration - PauseDuration) AS WatchTime "
+            "FROM PlaybackActivity "
+            f"WHERE DateCreated >= '{start_time}' AND DateCreated <= '{end_time}' {exclude_clause} "
+            f"GROUP BY UserId ORDER BY WatchTime DESC LIMIT {user_limit}"
+        )
+    }
+
+    results = {}
+    for key, sql in queries.items():
+        try:
+            resp = req_lib.post(submit_url, json={"CustomQueryString": sql, "ReplaceUserId": True},
+                                headers=headers, timeout=15)
+            results[key] = resp.json().get('results', []) if resp.status_code == 200 else []
+        except Exception:
+            results[key] = []
+
+    # 获取用户名映射
+    emby_user_map = {}
+    try:
+        users_resp = req_lib.get(f"{base}/emby/Users", headers=headers, timeout=10)
+        if users_resp.status_code == 200:
+            for u in users_resp.json():
+                emby_user_map[u.get('Id', '')] = u.get('Name', '')
+    except Exception:
+        pass
+
+    local_user_map = {}
+    try:
+        all_local = User.query.filter(User.embyid.isnot(None)).all()
+        for u in all_local:
+            if u.embyid:
+                local_user_map[u.embyid] = u.name or u.emby_name or ''
+    except Exception:
+        pass
+
+    # 组装文本
+    lines = [f'📊 <b>播放{period}榜</b>  {end_dt.strftime("%Y-%m-%d")}', '']
+
+    # 用户排行
+    if results.get('users'):
+        lines.append('👤 <b>用户观影时长</b>')
+        for i, row in enumerate(results['users']):
+            try:
+                uid = str(row[0]) if row[0] else ''
+                secs = int(float(row[1])) if row[1] else 0
+                if secs <= 0:
+                    continue
+                name = local_user_map.get(uid) or emby_user_map.get(uid, '未知')
+                medal = medals[i] if i < 3 else f'{i+1}.'
+                lines.append(f'  {medal} {name} — {format_duration(secs)}')
+            except (IndexError, ValueError):
+                continue
+        lines.append('')
+
+    # 电影排行
+    if results.get('movies'):
+        lines.append('🎬 <b>电影排行</b>')
+        for i, row in enumerate(results['movies']):
+            try:
+                name = str(row[3]).strip()
+                count = int(row[4])
+                dur = format_duration(row[5])
+                if not name:
+                    continue
+                medal = medals[i] if i < 3 else f'{i+1}.'
+                lines.append(f'  {medal} {name}  ▶{count}次 ⏱{dur}')
+            except (IndexError, ValueError):
+                continue
+        lines.append('')
+
+    # 剧集排行
+    if results.get('episodes'):
+        lines.append('📺 <b>剧集排行</b>')
+        for i, row in enumerate(results['episodes']):
+            try:
+                name = str(row[3]).strip()
+                count = int(row[4])
+                dur = format_duration(row[5])
+                if not name:
+                    continue
+                medal = medals[i] if i < 3 else f'{i+1}.'
+                lines.append(f'  {medal} {name}  ▶{count}次 ⏱{dur}')
+            except (IndexError, ValueError):
+                continue
+
+    if len(lines) <= 2:
+        return None  # 没有数据
+
+    return '\n'.join(lines)
+
+
+def _do_ranking_push(days, ranking_config):
+    """执行一次排行推送到群组"""
+    try:
+        with app.app_context():
+            text = _build_ranking_text(days, ranking_config)
+            if not text:
+                app.logger.info(f'排行推送: 无数据，跳过 (days={days})')
+                return
+
+            bot_token = TELEGRAM_BOT_TOKEN
+            chat_id = ranking_config.get('push_chat_id', '').strip() or TELEGRAM_GROUP_ID or TELEGRAM_CHAT_ID
+            if not bot_token or not chat_id:
+                app.logger.warning('排行推送: Telegram 未配置')
+                return
+
+            url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+            data = {
+                'chat_id': chat_id,
+                'text': text,
+                'parse_mode': 'HTML',
+                'disable_web_page_preview': True
+            }
+
+            import requests as req_lib
+            resp = req_lib.post(url, json=data, timeout=10)
+            if resp.status_code == 200:
+                app.logger.info(f'排行推送成功: days={days} -> {chat_id}')
+            else:
+                app.logger.warning(f'排行推送失败: {resp.status_code} {resp.text[:200]}')
+    except Exception as e:
+        try:
+            with app.app_context():
+                app.logger.error(f'排行推送异常: {e}', exc_info=True)
+        except:
+            pass
+
+    # 推送完毕后，重新调度下一次
+    _schedule_next_ranking_push(days, ranking_config)
+
+
+def _schedule_next_ranking_push(days, ranking_config):
+    """计算下一次推送时间并设置定时器"""
+    from datetime import timezone as tz
+    now = datetime.now(tz(timedelta(hours=8)))
+
+    if days == 1:
+        # 日榜：每天 push_daily_time
+        time_str = ranking_config.get('push_daily_time', '21:00')
+        key = 'daily'
+    else:
+        # 周榜：每周 push_weekly_day 的 push_weekly_time
+        time_str = ranking_config.get('push_weekly_time', '21:00')
+        key = 'weekly'
+
+    try:
+        h, m = [int(x) for x in time_str.split(':')]
+    except:
+        h, m = 21, 0
+
+    # 计算下一次目标时间
+    target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+
+    if days == 1:
+        # 日榜：如果今天时间已过，延到明天
+        if target <= now:
+            target += timedelta(days=1)
+    else:
+        # 周榜：找到下一个目标星期
+        target_day = ranking_config.get('push_weekly_day', 0)  # 0=周一
+        # Python weekday(): 0=Mon
+        days_ahead = target_day - now.weekday()
+        if days_ahead < 0 or (days_ahead == 0 and target <= now):
+            days_ahead += 7
+        target += timedelta(days=days_ahead)
+
+    delay_seconds = (target - now).total_seconds()
+    if delay_seconds < 60:
+        delay_seconds += 86400 if days == 1 else 604800
+
+    timer = threading.Timer(delay_seconds, _do_ranking_push, args=[days, ranking_config])
+    timer.daemon = True
+
+    # 取消旧定时器
+    old = _ranking_timers.pop(key, None)
+    if old:
+        old.cancel()
+
+    _ranking_timers[key] = timer
+    timer.start()
+
+    target_str = target.strftime('%Y-%m-%d %H:%M')
+    app.logger.info(f'排行{key}推送已调度: {target_str} (约{int(delay_seconds)}秒后)')
+
+
+def _restart_ranking_scheduler(ranking_config):
+    """根据配置重启排行推送调度器"""
+    # 取消所有现有定时器
+    for key in list(_ranking_timers.keys()):
+        t = _ranking_timers.pop(key, None)
+        if t:
+            t.cancel()
+
+    if not ranking_config.get('push_enabled'):
+        app.logger.info('排行定时推送: 已关闭')
+        return
+
+    if ranking_config.get('push_daily', True):
+        _schedule_next_ranking_push(1, ranking_config)
+
+    if ranking_config.get('push_weekly', True):
+        _schedule_next_ranking_push(7, ranking_config)
+
+
+@app.route('/api/admin/playback/rankings/push', methods=['POST'])
+@admin_required
+def admin_push_ranking_now():
+    """手动立即推送排行榜到群组"""
+    days = request.args.get('days', 1, type=int)
+    days = 7 if days == 7 else 1
+
+    ranking_config = load_system_config().get('ranking', {})
+
+    try:
+        text = _build_ranking_text(days, ranking_config)
+        if not text:
+            return jsonify({'success': False, 'error': '无排行数据可推送'}), 400
+
+        bot_token = TELEGRAM_BOT_TOKEN
+        chat_id = ranking_config.get('push_chat_id', '').strip() or TELEGRAM_GROUP_ID or TELEGRAM_CHAT_ID
+        if not bot_token or not chat_id:
+            return jsonify({'success': False, 'error': 'Telegram 未配置，无法推送'}), 400
+
+        import requests as req_lib
+        url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+        data = {
+            'chat_id': chat_id,
+            'text': text,
+            'parse_mode': 'HTML',
+            'disable_web_page_preview': True
+        }
+        resp = req_lib.post(url, json=data, timeout=10)
+        if resp.status_code == 200:
+            period = '日' if days == 1 else '周'
+            return jsonify({'success': True, 'message': f'{period}榜已推送到群组 {chat_id}'})
+        else:
+            return jsonify({'success': False, 'error': f'Telegram API 返回 {resp.status_code}'}), 500
+    except Exception as e:
+        app.logger.error(f'手动推送排行失败: {e}', exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -17993,6 +18363,20 @@ def get_system_config_api():
                 'days': config.get('expire_remind', {}).get('days', [3, 7]),
                 'email': config.get('expire_remind', {}).get('email', True),
                 'telegram': config.get('expire_remind', {}).get('telegram', True),
+            },
+            'ranking': {
+                'enabled': config.get('ranking', {}).get('enabled', False),
+                'movie_limit': config.get('ranking', {}).get('movie_limit', 10),
+                'episode_limit': config.get('ranking', {}).get('episode_limit', 10),
+                'user_limit': config.get('ranking', {}).get('user_limit', 20),
+                'exclude_users': config.get('ranking', {}).get('exclude_users', ''),
+                'push_enabled': config.get('ranking', {}).get('push_enabled', False),
+                'push_chat_id': config.get('ranking', {}).get('push_chat_id', ''),
+                'push_daily_time': config.get('ranking', {}).get('push_daily_time', '21:00'),
+                'push_weekly_day': config.get('ranking', {}).get('push_weekly_day', 0),
+                'push_weekly_time': config.get('ranking', {}).get('push_weekly_time', '21:00'),
+                'push_daily': config.get('ranking', {}).get('push_daily', True),
+                'push_weekly': config.get('ranking', {}).get('push_weekly', True),
             }
         }
     }), 200
@@ -18201,6 +18585,39 @@ def save_system_config_api():
             if 'telegram' in er:
                 current_config['expire_remind']['telegram'] = bool(er['telegram'])
             app.logger.info(f'[CONFIG] 更新 expire_remind: {current_config["expire_remind"]}')
+        
+        # 更新播放排行配置
+        if 'ranking' in data:
+            rk = data['ranking']
+            if 'ranking' not in current_config:
+                current_config['ranking'] = {}
+            if 'enabled' in rk:
+                current_config['ranking']['enabled'] = bool(rk['enabled'])
+            if 'movie_limit' in rk:
+                current_config['ranking']['movie_limit'] = max(1, min(50, int(rk['movie_limit'])))
+            if 'episode_limit' in rk:
+                current_config['ranking']['episode_limit'] = max(1, min(50, int(rk['episode_limit'])))
+            if 'user_limit' in rk:
+                current_config['ranking']['user_limit'] = max(1, min(100, int(rk['user_limit'])))
+            if 'exclude_users' in rk:
+                current_config['ranking']['exclude_users'] = str(rk['exclude_users']).strip()
+            if 'push_enabled' in rk:
+                current_config['ranking']['push_enabled'] = bool(rk['push_enabled'])
+            if 'push_chat_id' in rk:
+                current_config['ranking']['push_chat_id'] = str(rk['push_chat_id']).strip()
+            if 'push_daily_time' in rk:
+                current_config['ranking']['push_daily_time'] = str(rk['push_daily_time']).strip()
+            if 'push_weekly_day' in rk:
+                current_config['ranking']['push_weekly_day'] = max(0, min(6, int(rk['push_weekly_day'])))
+            if 'push_weekly_time' in rk:
+                current_config['ranking']['push_weekly_time'] = str(rk['push_weekly_time']).strip()
+            if 'push_daily' in rk:
+                current_config['ranking']['push_daily'] = bool(rk['push_daily'])
+            if 'push_weekly' in rk:
+                current_config['ranking']['push_weekly'] = bool(rk['push_weekly'])
+            app.logger.info(f'[CONFIG] 更新 ranking: {current_config["ranking"]}')
+            # 重新启动排行定时推送
+            _restart_ranking_scheduler(current_config['ranking'])
         
         # 保存到文件
         if save_system_config(current_config):
@@ -23036,6 +23453,13 @@ def bootstrap_background_tasks():
     if should_start:
         download_monitor.start()
         download_monitor_started = True
+        # 启动排行定时推送
+        try:
+            ranking_cfg = load_system_config().get('ranking', {})
+            if ranking_cfg.get('push_enabled'):
+                _restart_ranking_scheduler(ranking_cfg)
+        except Exception as e:
+            print(f'[WARNING] 启动排行定时推送失败: {e}')
 
 
 download_monitor_started = False
