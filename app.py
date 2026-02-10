@@ -1261,6 +1261,7 @@ DEFAULT_SYSTEM_CONFIG = {
         'max_streams': 0,  # 最大同时播放流数（0表示不限制）
         'bot_photo': '',   # Bot 欢迎图片 URL（留空使用默认图片）
         'configured_url': '',  # 用户配置的 Webhook 服务器地址
+        'require_bindtg': False,  # 是否强制用户绑定 Telegram 后才能使用系统
         'templates': {
             'request': '',   # 求片通知模板（空则使用默认）
             'completion': '' # 入库通知模板（空则使用默认）
@@ -8246,6 +8247,11 @@ def dashboard():
         _email_cfg = get_system_config().get('email', {})
         email_enabled = _email_cfg.get('enabled', False)
         
+        # 检查是否强制绑定 Telegram
+        _tg_cfg = get_system_config().get('telegram', {})
+        require_telegram_bind = _tg_cfg.get('require_bindtg', False)
+        user_has_telegram = bool(user.telegram_id)
+        
         return render_template('dashboard.html', 
                              user=user, 
                              today_count=today_count, 
@@ -8266,6 +8272,8 @@ def dashboard():
                              invite_reward_enabled=invite_reward_enabled,
                              invite_reward_percent=invite_reward_percent,
                              email_enabled=email_enabled,
+                             require_telegram_bind=require_telegram_bind,
+                             user_has_telegram=user_has_telegram,
                              app_version=APP_VERSION)
     except Exception as e:
         app.logger.error(f'Dashboard 渲染异常: {e}', exc_info=True)
@@ -11874,9 +11882,12 @@ def emby_playback_webhook():
         emby_user = User.query.filter_by(embyid=emby_user_id).first()
     if not emby_user and emby_user_name:
         emby_user = User.query.filter_by(emby_name=emby_user_name).first()
+    # 回退：用网站用户名匹配（有些用户的网站用户名与 Emby 用户名一致）
+    if not emby_user and emby_user_name:
+        emby_user = User.query.filter_by(name=emby_user_name).first()
     
     if not emby_user:
-        app.logger.warning(f'播放检测: 未找到用户 {emby_user_name}')
+        app.logger.warning(f'播放检测: 未找到用户 {emby_user_name} (emby_id={emby_user_id})')
         return jsonify({'success': True, 'message': '用户未注册'})
     
     if not device_id:
@@ -18410,6 +18421,7 @@ def get_system_config_api():
                 'max_streams': config['telegram'].get('max_streams', 0),
                 'bot_admins': config['telegram'].get('bot_admins', ''),
                 'bot_photo': config['telegram'].get('bot_photo', ''),
+                'require_bindtg': config['telegram'].get('require_bindtg', False),
                 'templates': templates,
                 'request_notification': config['telegram'].get('request_notification', {
                     'enabled': True,
@@ -18553,6 +18565,9 @@ def save_system_config_api():
             # 更新欢迎图片 URL
             if 'bot_photo' in tg:
                 current_config['telegram']['bot_photo'] = tg['bot_photo'].strip()
+            # 更新强制绑定 Telegram 开关
+            if 'require_bindtg' in tg:
+                current_config['telegram']['require_bindtg'] = bool(tg['require_bindtg'])
             # 更新通知模板配置
             if 'templates' in tg:
                 if 'templates' not in current_config['telegram']:

@@ -128,6 +128,13 @@ let currentRequestId = null;
             const defaultTab = document.querySelector('.settings-tab[data-group="basic"]');
             if (defaultTab) switchSettingsGroup('basic', defaultTab);
         }, 100);
+
+        // 强制清空所有搜索框，防止浏览器自动填充历史值
+        setTimeout(function() {
+            document.querySelectorAll('input[name^="_no_autofill"]').forEach(function(input) {
+                input.value = '';
+            });
+        }, 50);
     });
         
     // ==================== 图表初始化 ====================
@@ -3315,6 +3322,8 @@ async function loadSystemConfig() {
             document.getElementById('tgMaxStreams').value = config.telegram.max_streams || 0;
             document.getElementById('tgBotAdmins').value = config.telegram.bot_admins || '';
             document.getElementById('tgBotPhoto').value = config.telegram.bot_photo || '';
+            const requireBindTgEl = document.getElementById('requireBindTg');
+            if (requireBindTgEl) requireBindTgEl.checked = config.telegram.require_bindtg || false;
             
             // 填充 Telegram 通知模板配置
             if (config.telegram.templates) {
@@ -3837,6 +3846,7 @@ async function saveTelegramConfig() {
     const tgMaxStreams = parseInt(document.getElementById('tgMaxStreams').value) || 0;
     const tgBotAdmins = document.getElementById('tgBotAdmins').value.trim();
     const tgBotPhoto = document.getElementById('tgBotPhoto').value.trim();
+    const requireBindTg = document.getElementById('requireBindTg')?.checked || false;
     
     // 允许保存空白配置（空白表示未配置该功能）
     
@@ -3852,7 +3862,8 @@ async function saveTelegramConfig() {
                     gift_days: tgGiftDays,
                     max_streams: tgMaxStreams,
                     bot_admins: tgBotAdmins,
-                    bot_photo: tgBotPhoto
+                    bot_photo: tgBotPhoto,
+                    require_bindtg: requireBindTg
                 }
             })
         });

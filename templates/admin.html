@@ -573,8 +573,9 @@
                                 <!-- 搜索框 -->
                                 <div class="search-box">
                                     <input type="text" id="searchInput" placeholder="🔍 搜索影片名称、用户..."
-                                        onkeyup="searchRequests()" autocomplete="off" autocorrect="off"
-                                        autocapitalize="off" spellcheck="false" data-form-type="other">
+                                        onkeyup="searchRequests()" autocomplete="one-time-code" autocorrect="off"
+                                        autocapitalize="off" spellcheck="false" data-form-type="other"
+                                        name="_no_autofill_search" role="presentation">
                                 </div>
                                 <!-- 导出按钮 -->
                                 <button class="export-btn" onclick="exportRequests()" title="导出当前数据">📤 导出</button>
@@ -796,8 +797,9 @@
                         <div class="header-actions">
                             <div class="search-box">
                                 <input type="text" id="subscriptionSearch" placeholder="🔍 搜索用户..."
-                                    onkeyup="searchSubscriptions()" autocomplete="off" autocorrect="off"
-                                    autocapitalize="off" spellcheck="false" data-form-type="other">
+                                    onkeyup="searchSubscriptions()" autocomplete="one-time-code" autocorrect="off"
+                                    autocapitalize="off" spellcheck="false" data-form-type="other"
+                                    name="_no_autofill_sub" role="presentation">
                             </div>
                             <select id="subscriptionStatusFilter" onchange="loadSubscriptions()">
                                 <option value="">全部状态</option>
@@ -870,8 +872,8 @@
                         <div class="header-actions">
                             <div class="search-box">
                                 <input type="text" id="orderSearch" placeholder="🔍 搜索订单号..." onkeyup="searchOrders()"
-                                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                                    data-form-type="other">
+                                    autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                    data-form-type="other" name="_no_autofill_order" role="presentation">
                             </div>
                             <select id="orderStatusFilter" onchange="loadOrders()">
                                 <option value="">全部状态</option>
@@ -1075,8 +1077,8 @@
                     <div id="playbackTabDevices" class="playback-tab-content">
                         <div class="filter-bar">
                             <input type="text" id="deviceSearchInput" placeholder="搜索用户/设备名称..."
-                                onkeyup="searchAdminDevices()" autocomplete="off" autocorrect="off" autocapitalize="off"
-                                spellcheck="false" data-form-type="other">
+                                onkeyup="searchAdminDevices()" autocomplete="one-time-code" autocorrect="off" autocapitalize="off"
+                                spellcheck="false" data-form-type="other" name="_no_autofill_device" role="presentation">
                         </div>
                         <div class="batch-actions" id="deviceBatchActions" style="display:none;">
                             <span class="batch-info">已选择 <strong id="selectedDeviceCount">0</strong> 条</span>
@@ -1112,8 +1114,8 @@
                     <div id="playbackTabHistory" class="playback-tab-content">
                         <div class="filter-bar">
                             <input type="text" id="historySearchInput" placeholder="搜索媒体名称..."
-                                onkeyup="searchAdminHistory()" autocomplete="off" autocorrect="off" autocapitalize="off"
-                                spellcheck="false" data-form-type="other">
+                                onkeyup="searchAdminHistory()" autocomplete="one-time-code" autocorrect="off" autocapitalize="off"
+                                spellcheck="false" data-form-type="other" name="_no_autofill_history" role="presentation">
                         </div>
                         <div class="batch-actions" id="historyBatchActions" style="display:none;">
                             <span class="batch-info">已选择 <strong id="selectedHistoryCount">0</strong> 条</span>
@@ -1213,8 +1215,8 @@
                         <div class="header-actions">
                             <div class="search-box">
                                 <input type="text" id="ticketSearch" placeholder="🔍 搜索工单..." onkeyup="searchTickets()"
-                                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                                    data-form-type="other">
+                                    autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                    data-form-type="other" name="_no_autofill_ticket" role="presentation">
                             </div>
                             <select id="ticketStatusFilter" onchange="loadTickets()">
                                 <option value="">全部状态</option>
@@ -1362,8 +1364,8 @@
                         <div class="header-actions">
                             <div class="search-box">
                                 <input type="text" id="userSearch" placeholder="🔍 搜索用户名/TG ID..."
-                                    onkeyup="searchUsers()" autocomplete="off" autocorrect="off" autocapitalize="off"
-                                    spellcheck="false" data-form-type="other">
+                                    onkeyup="searchUsers()" autocomplete="one-time-code" autocorrect="off" autocapitalize="off"
+                                    spellcheck="false" data-form-type="other" name="_no_autofill_user" role="presentation">
                             </div>
                             <select id="userRoleFilter" onchange="loadUsers()">
                                 <option value="">全部角色</option>
@@ -1837,6 +1839,14 @@
                                     <input type="text" id="tgBotPhoto" placeholder="https://example.com/welcome.jpg"
                                         class="form-input">
                                     <span class="form-hint">/start 命令显示的欢迎图片，支持 JPG/PNG，建议尺寸 800x400，留空使用默认图片</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="requireBindTg">
+                                        <span>强制用户绑定 Telegram</span>
+                                    </label>
+                                    <span class="form-hint">开启后，未绑定 Telegram 的用户登录系统后将被强制弹窗要求绑定，完成绑定前无法使用任何功能</span>
                                 </div>
                             </div>
 

@@ -449,6 +449,91 @@ function updateEmailBindSidebar(isBound) {
 
 let bindCodeExpireTimer = null;
 let bindStatusCheckTimer = null;
+let forceBindCheckTimer = null;
+let forceBindExpireTimer = null;
+
+// ====== 强制绑定 Telegram 逻辑 ======
+function initForceBindTelegram() {
+    const overlay = document.getElementById('forceBindTgOverlay');
+    if (!overlay) return; // 模板没有渲染此块，说明不需要强制绑定
+    
+    // 生成绑定码
+    generateForceBindCode(false);
+    // 每 3 秒轮询绑定状态
+    forceBindCheckTimer = setInterval(async () => {
+        try {
+            const resp = await fetch('/api/user/telegram');
+            const data = await resp.json();
+            if (data.success && data.is_bound) {
+                // 绑定成功，移除遮罩
+                clearInterval(forceBindCheckTimer);
+                if (forceBindExpireTimer) clearInterval(forceBindExpireTimer);
+                overlay.style.display = 'none';
+                showToast('🎉 Telegram 绑定成功！', 'success');
+                loadTelegramBindStatus();
+            }
+        } catch (e) { /* ignore */ }
+    }, 3000);
+}
+
+async function generateForceBindCode(forceRegenerate) {
+    const codeEl = document.getElementById('forceBindCode');
+    const instrEl = document.getElementById('forceBindInstruction');
+    const botLinkEl = document.getElementById('forceBindBotLink');
+    const botNameEl = document.getElementById('forceBindBotName');
+    const expireEl = document.getElementById('forceBindExpire');
+    
+    if (codeEl) codeEl.textContent = '生成中...';
+    
+    try {
+        const resp = await fetch('/api/user/telegram/bindcode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ force_regenerate: !!forceRegenerate })
+        });
+        const data = await resp.json();
+        if (data.success) {
+            if (codeEl) codeEl.textContent = data.bind_code;
+            if (instrEl) instrEl.textContent = '/bind ' + data.bind_code;
+            if (data.bot_username) {
+                if (botLinkEl) botLinkEl.href = 'https://t.me/' + data.bot_username;
+                if (botNameEl) botNameEl.textContent = '@' + data.bot_username;
+            }
+            // 倒计时
+            if (forceBindExpireTimer) clearInterval(forceBindExpireTimer);
+            let remaining = data.expires_in || 300;
+            const updateExpire = () => {
+                if (remaining <= 0) {
+                    if (expireEl) expireEl.textContent = '已过期，请点击 🔄 重新生成';
+                    clearInterval(forceBindExpireTimer);
+                    return;
+                }
+                const m = Math.floor(remaining / 60);
+                const s = remaining % 60;
+                if (expireEl) expireEl.textContent = `${m}:${s.toString().padStart(2, '0')} 后过期`;
+                remaining--;
+            };
+            updateExpire();
+            forceBindExpireTimer = setInterval(updateExpire, 1000);
+        } else {
+            if (codeEl) codeEl.textContent = '生成失败';
+        }
+    } catch (e) {
+        if (codeEl) codeEl.textContent = '网络错误';
+    }
+}
+
+function copyForceBindCommand(event) {
+    const instrEl = document.getElementById('forceBindInstruction');
+    if (instrEl) {
+        navigator.clipboard.writeText(instrEl.textContent).then(() => {
+            const btn = event.currentTarget;
+            const orig = btn.textContent;
+            btn.textContent = '✅';
+            setTimeout(() => btn.textContent = orig, 1500);
+        });
+    }
+}
 
 // 加载 Telegram 绑定状态
 async function loadTelegramBindStatus() {
@@ -1702,6 +1787,9 @@ async function unbindTelegramId() {
             
             // 加载 Telegram 绑定状态
             loadTelegramBindStatus();
+            
+            // 强制绑定 Telegram 检查（如果管理员开启）
+            initForceBindTelegram();
             
             // 更新问候时间
             updateGreetingTime();

@@ -1754,6 +1754,56 @@
         </div>
     </div>
 
+    {% if require_telegram_bind and not user_has_telegram %}
+    <!-- 强制绑定 Telegram 遮罩（不可关闭） -->
+    <div class="force-bind-tg-overlay" id="forceBindTgOverlay">
+        <div class="force-bind-tg-dialog">
+            <div class="force-bind-header">
+                <div class="force-bind-icon">🔐</div>
+                <h2>请先绑定 Telegram</h2>
+                <p>管理员要求所有用户绑定 Telegram 后才能使用系统功能<br>完成绑定后此窗口将自动关闭</p>
+            </div>
+            <div class="force-bind-steps">
+                <div class="force-step">
+                    <div class="force-step-num">1</div>
+                    <div class="force-step-content">
+                        <label>打开 Telegram Bot</label>
+                        <a href="#" id="forceBindBotLink" target="_blank" class="force-bot-link">
+                            <span>🤖</span>
+                            <span id="forceBindBotName">@加载中...</span>
+                            <span class="arrow">→</span>
+                        </a>
+                    </div>
+                </div>
+                <div class="force-step">
+                    <div class="force-step-num">2</div>
+                    <div class="force-step-content">
+                        <label>向 Bot 发送绑定指令</label>
+                        <div class="force-bind-code-box">
+                            <code id="forceBindInstruction">/bind 加载中...</code>
+                            <button class="copy-btn" type="button" onclick="copyForceBindCommand(event)" title="复制指令">📋</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="force-bind-code-display">
+                <div class="code-header">
+                    <span class="code-label">您的绑定码</span>
+                    <span class="code-expire" id="forceBindExpire"></span>
+                </div>
+                <div class="code-main">
+                    <span class="code-value" id="forceBindCode">加载中...</span>
+                    <button class="refresh-btn" onclick="generateForceBindCode(true)" title="重新生成">🔄</button>
+                </div>
+            </div>
+            <div class="force-bind-status">
+                <span class="hint-icon">⏳</span>
+                <span>等待绑定中... 绑定成功后将自动进入系统</span>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Emby 账号引导弹窗（未绑定时自动弹出） -->
     <div class="emby-bind-overlay" id="embyGuideOverlay" style="display: none;">
         <div class="emby-bind-dialog emby-guide-dialog">
@@ -2337,6 +2387,156 @@
             background: rgba(239, 68, 68, 0.25);
         }
         
+        /* ====== 强制绑定 Telegram 遮罩样式 ====== */
+        .force-bind-tg-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 99999;
+            animation: fadeIn 0.3s ease;
+        }
+        .force-bind-tg-dialog {
+            background: var(--card-bg, #fff);
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 440px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            text-align: center;
+        }
+        .force-bind-header .force-bind-icon {
+            font-size: 48px;
+            margin-bottom: 8px;
+        }
+        .force-bind-header h2 {
+            margin: 8px 0;
+            font-size: 20px;
+            color: var(--text-primary, #333);
+        }
+        .force-bind-header p {
+            color: var(--text-secondary, #888);
+            font-size: 13px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+        .force-bind-steps {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        .force-step {
+            flex: 1;
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+        }
+        .force-step-num {
+            width: 24px; height: 24px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: #fff;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+        .force-step-content label {
+            display: block;
+            font-size: 12px;
+            color: var(--text-secondary, #999);
+            margin-bottom: 6px;
+        }
+        .force-bot-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: #229ED9;
+            color: #fff;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+        .force-bot-link:hover { background: #1a8bc7; }
+        .force-bind-code-box {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-color, #f5f5f5);
+            border-radius: 8px;
+            padding: 6px 10px;
+        }
+        .force-bind-code-box code {
+            font-family: monospace;
+            font-size: 13px;
+            color: var(--text-primary, #333);
+        }
+        .force-bind-code-display {
+            background: var(--bg-color, #f8f9fa);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .force-bind-code-display .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .force-bind-code-display .code-label {
+            font-size: 12px;
+            color: var(--text-secondary, #999);
+        }
+        .force-bind-code-display .code-expire {
+            font-size: 12px;
+            color: #f59e0b;
+        }
+        .force-bind-code-display .code-main {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .force-bind-code-display .code-value {
+            font-size: 28px;
+            font-weight: bold;
+            letter-spacing: 4px;
+            color: var(--text-primary, #333);
+            font-family: monospace;
+        }
+        .force-bind-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 8px;
+            font-size: 13px;
+            color: var(--text-secondary, #666);
+        }
+        .force-bind-status .hint-icon {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        @media (max-width: 480px) {
+            .force-bind-steps { flex-direction: column; }
+            .force-bind-tg-dialog { padding: 24px 16px; }
+            .force-bind-code-display .code-value { font-size: 22px; letter-spacing: 2px; }
+        }
+
         /* Telegram 绑定弹窗样式 */
         .telegram-bind-overlay {
             position: fixed;
