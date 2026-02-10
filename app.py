@@ -1456,6 +1456,10 @@ def load_system_config(use_cache=True):
             if db_expire_remind:
                 config['expire_remind'] = db_expire_remind
             
+            db_ranking = get_db_config(CONFIG_KEY_RANKING, use_cache=use_cache)
+            if db_ranking:
+                config['ranking'] = db_ranking
+            
             # 如果数据库有配置，直接返回
             if db_admin or db_emby or db_telegram:
                 return config
@@ -1524,7 +1528,8 @@ def get_default_system_config():
             'days': [3, 7],
             'email': True,
             'telegram': True
-        }
+        },
+        'ranking': DEFAULT_SYSTEM_CONFIG['ranking'].copy()
     }
     config['telegram']['templates'] = DEFAULT_SYSTEM_CONFIG['telegram']['templates'].copy()
     return config
