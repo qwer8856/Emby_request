@@ -11601,6 +11601,8 @@ def telegram_webhook():
     """
     接收 Telegram Bot Webhook 消息
     
+    ★ 采用"先返回200再异步处理"模式，防止处理耗时过长导致 Telegram 超时重试
+    
     设置 Webhook 方法:
     1. 获取你的域名，如: https://your-domain.com
     2. 调用: https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://your-domain.com/api/webhook/telegram
@@ -11612,12 +11614,8 @@ def telegram_webhook():
     - /unbind - 解绑账号
     - /status - 查看账号状态
     """
-    # 记录 Webhook 请求信息
-    app.logger.info(f'[Webhook] 收到 Telegram Webhook 请求 - IP: {request.remote_addr}, Headers: {dict(request.headers)}')
-    
     if not TELEGRAM_BOT_TOKEN:
-        app.logger.warning('[Webhook] TELEGRAM_BOT_TOKEN 未配置')
-        return jsonify({'ok': True})  # 静默返回
+        return jsonify({'ok': True})
     
     try:
         data = request.get_json(force=True) or {}
@@ -11626,19 +11624,39 @@ def telegram_webhook():
         app.logger.error(f'[Webhook] 解析 JSON 失败: {e}')
         return jsonify({'ok': True})
     
-    # ★ update_id 去重：防止 Telegram 重复推送同一条消息
+    # ★ update_id 去重：防止 Telegram 超时重试导致同一消息被处理两次
+    # 使用线程锁保护，防止多线程并发时同一 update_id 通过检查
     update_id = data.get('update_id')
     if update_id:
-        if update_id in _PROCESSED_UPDATE_IDS:
-            app.logger.info(f'[Webhook] 跳过重复 update_id={update_id}')
-            return jsonify({'ok': True})
-        _PROCESSED_UPDATE_IDS.add(update_id)
-        # 防止内存无限增长，超过上限时清理较旧的一半
-        if len(_PROCESSED_UPDATE_IDS) > _PROCESSED_UPDATE_IDS_MAX:
-            sorted_ids = sorted(_PROCESSED_UPDATE_IDS)
-            half = len(sorted_ids) // 2
-            _PROCESSED_UPDATE_IDS.clear()
-            _PROCESSED_UPDATE_IDS.update(sorted_ids[half:])
+        with _PROCESSED_UPDATE_IDS_LOCK:
+            if update_id in _PROCESSED_UPDATE_IDS:
+                app.logger.info(f'[Webhook] 跳过重复 update_id={update_id}')
+                return jsonify({'ok': True})
+            _PROCESSED_UPDATE_IDS.add(update_id)
+            # 防止内存无限增长，超过上限时清理较旧的一半
+            if len(_PROCESSED_UPDATE_IDS) > _PROCESSED_UPDATE_IDS_MAX:
+                sorted_ids = sorted(_PROCESSED_UPDATE_IDS)
+                half = len(sorted_ids) // 2
+                _PROCESSED_UPDATE_IDS.clear()
+                _PROCESSED_UPDATE_IDS.update(sorted_ids[half:])
+    
+    # ★ 先返回 200 给 Telegram，再在后台线程处理消息
+    # 这样即使处理耗时较长（发图片、查数据库），Telegram 也不会因为超时而重试推送
+    def _process_in_background(data_copy):
+        with app.app_context():
+            try:
+                _do_process_telegram_update(data_copy)
+            except Exception as e:
+                app.logger.error(f'[Webhook] 后台处理异常: {e}', exc_info=True)
+    
+    t = threading.Thread(target=_process_in_background, args=(data,), daemon=True)
+    t.start()
+    
+    return jsonify({'ok': True})
+
+
+def _do_process_telegram_update(data):
+    """实际处理 Telegram Webhook 推送的消息（在后台线程中执行）"""
     
     # 处理回调查询（内联按钮点击）
     callback_query = data.get('callback_query')
@@ -19081,6 +19099,7 @@ TELEGRAM_CHECKIN_CODES = {}
 # 存储最近处理过的 update_id，最多保留 200 条
 _PROCESSED_UPDATE_IDS = set()
 _PROCESSED_UPDATE_IDS_MAX = 200
+_PROCESSED_UPDATE_IDS_LOCK = threading.Lock()
 
 # 存储忘记密码验证码 {username: {'code': '1234', 'telegram_id': xxx, 'created_at': datetime, 'expires_at': datetime}}
 PASSWORD_RESET_CODES = {}
