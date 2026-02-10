@@ -11626,6 +11626,20 @@ def telegram_webhook():
         app.logger.error(f'[Webhook] 解析 JSON 失败: {e}')
         return jsonify({'ok': True})
     
+    # ★ update_id 去重：防止 Telegram 重复推送同一条消息
+    update_id = data.get('update_id')
+    if update_id:
+        if update_id in _PROCESSED_UPDATE_IDS:
+            app.logger.info(f'[Webhook] 跳过重复 update_id={update_id}')
+            return jsonify({'ok': True})
+        _PROCESSED_UPDATE_IDS.add(update_id)
+        # 防止内存无限增长，超过上限时清理较旧的一半
+        if len(_PROCESSED_UPDATE_IDS) > _PROCESSED_UPDATE_IDS_MAX:
+            sorted_ids = sorted(_PROCESSED_UPDATE_IDS)
+            half = len(sorted_ids) // 2
+            _PROCESSED_UPDATE_IDS.clear()
+            _PROCESSED_UPDATE_IDS.update(sorted_ids[half:])
+    
     # 处理回调查询（内联按钮点击）
     callback_query = data.get('callback_query')
     if callback_query:
@@ -14600,6 +14614,16 @@ def setup_telegram_webhook():
         app.logger.info(f'[Webhook模式] 构建 Webhook URL: {webhook_url}')
         
         try:
+            # ★ 先删除旧 Webhook，确保 drop_pending_updates 生效
+            # Telegram 在 URL 不变时可能不会重新 drop pending updates
+            # 先 delete 再 set 保证每次都是干净状态，不会重复推送
+            delete_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/deleteWebhook"
+            try:
+                del_resp = PROXY_SESSION.post(delete_url, json={'drop_pending_updates': True}, timeout=10)
+                app.logger.info(f'[Webhook模式] 删除旧 Webhook: {del_resp.json()}')
+            except Exception as e:
+                app.logger.warning(f'[Webhook模式] 删除旧 Webhook 失败（可忽略）: {e}')
+            
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
             payload = {
                 'url': webhook_url,
@@ -19052,6 +19076,11 @@ TELEGRAM_BIND_CODES = {}
 
 # 存储签到验证码 {telegram_user_id: {'code': '1234', 'created_at': datetime, 'expires_at': datetime}}
 TELEGRAM_CHECKIN_CODES = {}
+
+# Telegram Webhook 消息去重缓存（防止重复推送导致重复回复）
+# 存储最近处理过的 update_id，最多保留 200 条
+_PROCESSED_UPDATE_IDS = set()
+_PROCESSED_UPDATE_IDS_MAX = 200
 
 # 存储忘记密码验证码 {username: {'code': '1234', 'telegram_id': xxx, 'created_at': datetime, 'expires_at': datetime}}
 PASSWORD_RESET_CODES = {}

@@ -4024,7 +4024,13 @@ async function checkWebhookStatus(botToken) {
 
 
 // 设置 Telegram Webhook
+let _webhookSetting = false;  // 防重复点击锁
 async function setTelegramWebhook() {
+    if (_webhookSetting) {
+        showToast('提示', '正在设置中，请稍候...', 'warning');
+        return;
+    }
+    
     // 获取当前配置的地址（如果有）
     let currentConfiguredUrl = window.location.origin;
     let currentModeInfo = '';
@@ -4064,6 +4070,7 @@ async function setTelegramWebhook() {
         return;
     }
     
+    _webhookSetting = true;
     showToast('设置中', '正在配置 Telegram Bot Webhook...', 'info');
     
     try {
@@ -4090,6 +4097,8 @@ async function setTelegramWebhook() {
         }
     } catch (error) {
         showToast('错误', '设置失败: ' + error.message, 'error');
+    } finally {
+        _webhookSetting = false;
     }
 }
 
