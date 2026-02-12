@@ -2328,7 +2328,14 @@ function renderInviteRankList(rankings) {
 
 // 审核通过邀请返利
 async function approveInviteReward(recordId) {
-    if (!confirm('确认通过此返利申请？奖励天数将发放到邀请人账户。')) return;
+    const confirmed = await showConfirm({
+        title: '通过返利申请',
+        message: '确认通过此返利申请？奖励天数将发放到邀请人账户。',
+        type: 'info',
+        confirmText: '确认通过',
+        cancelText: '取消'
+    });
+    if (!confirmed) return;
     try {
         const response = await fetch(`/api/admin/invite-reward/${recordId}/approve`, {
             method: 'POST',
@@ -2348,7 +2355,14 @@ async function approveInviteReward(recordId) {
 
 // 拒绝邀请返利
 async function rejectInviteReward(recordId) {
-    if (!confirm('确认拒绝此返利申请？待审核奖励将被清零。')) return;
+    const confirmed = await showConfirm({
+        title: '拒绝返利申请',
+        message: '确认拒绝此返利申请？待审核奖励将被清零。',
+        type: 'danger',
+        confirmText: '确认拒绝',
+        cancelText: '取消'
+    });
+    if (!confirmed) return;
     try {
         const response = await fetch(`/api/admin/invite-reward/${recordId}/reject`, {
             method: 'POST',
@@ -2607,7 +2621,13 @@ async function loadAuditLogs(page = 1) {
 }
 
 async function cleanupAuditLogs() {
-    const days = prompt('保留最近多少天的日志？（7-365天）', '90');
+    const days = await showPrompt({
+        title: '清理审计日志',
+        message: '保留最近多少天的日志？（7-365天）',
+        placeholder: '请输入天数',
+        defaultValue: '90',
+        type: 'warning'
+    });
     if (!days) return;
     
     const keepDays = parseInt(days);
@@ -2616,7 +2636,14 @@ async function cleanupAuditLogs() {
         return;
     }
     
-    if (!confirm(`确定要清理 ${keepDays} 天前的审计日志吗？此操作不可撤销。`)) return;
+    const confirmed = await showConfirm({
+        title: '确认清理',
+        message: `确定要清理 ${keepDays} 天前的审计日志吗？此操作不可撤销。`,
+        type: 'danger',
+        confirmText: '确认清理',
+        cancelText: '取消'
+    });
+    if (!confirmed) return;
     
     try {
         const response = await fetch('/api/admin/audit-logs/cleanup', {
@@ -8859,7 +8886,14 @@ async function sendBroadcastEmail() {
     }
     
     const targetNames = { all: '所有已绑定邮箱的用户', active: '活跃用户', custom: custom_emails.length + ' 个地址' };
-    if (!confirm('确认向「' + targetNames[target] + '」发送邮件？\n\n标题: ' + subject)) return;
+    const confirmed = await showConfirm({
+        title: '确认发送邮件',
+        message: `确认向「${targetNames[target]}」发送邮件？\n\n标题: ${subject}`,
+        type: 'warning',
+        confirmText: '确认发送',
+        cancelText: '取消'
+    });
+    if (!confirmed) return;
     
     showToast('发送中', '正在群发邮件，请稍候...', 'info');
     

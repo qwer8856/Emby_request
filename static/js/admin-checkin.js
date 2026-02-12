@@ -338,8 +338,15 @@ function confirmAddPlan() {
 }
 
 // 删除兑换套餐
-function removeExchangePlan(index) {
-    if (!confirm('确定要删除这个兑换套餐吗？')) return;
+async function removeExchangePlan(index) {
+    const confirmed = await showConfirm({
+        title: '删除套餐',
+        message: '确定要删除这个兑换套餐吗？',
+        type: 'danger',
+        confirmText: '删除',
+        cancelText: '取消'
+    });
+    if (!confirmed) return;
     
     currentExchangePlans.splice(index, 1);
     renderExchangePlansAdmin(currentExchangePlans);
@@ -393,7 +400,14 @@ async function saveCheckinConfig() {
         const exchangePlans = collectExchangePlans();
         
         if (enabled && exchangePlans.length === 0) {
-            if (!confirm('您还没有配置兑换套餐，用户将无法兑换。确定要继续吗？')) {
+            const confirmed = await showConfirm({
+                title: '未配置套餐',
+                message: '您还没有配置兑换套餐，用户将无法兑换。确定要继续吗？',
+                type: 'warning',
+                confirmText: '继续保存',
+                cancelText: '返回配置'
+            });
+            if (!confirmed) {
                 return;
             }
         }

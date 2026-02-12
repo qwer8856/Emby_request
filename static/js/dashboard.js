@@ -6656,7 +6656,14 @@ async function unbindTelegramId() {
         }
 
         async function unbindEmail() {
-            if (!confirm('确定要解绑邮箱吗？解绑后将无法通过邮箱找回密码。')) return;
+            const confirmed = await showConfirm({
+                title: '解绑邮箱',
+                message: '确定要解绑邮箱吗？解绑后将无法通过邮箱找回密码。',
+                type: 'warning',
+                confirmText: '确定解绑',
+                cancelText: '取消'
+            });
+            if (!confirmed) return;
             
             try {
                 const response = await fetch('/api/account/unbind-email', {
