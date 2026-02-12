@@ -536,6 +536,26 @@ body.page-admin {
     background: rgba(239, 68, 68, 0.25);
 }
 
+.btn-action.warning-emby {
+    background: rgba(251, 140, 0, 0.15);
+    color: #e65100;
+    border: 1px solid rgba(251, 140, 0, 0.3);
+}
+
+.btn-action.warning-emby:hover {
+    background: rgba(251, 140, 0, 0.3);
+}
+
+.btn-action.success-emby {
+    background: rgba(255, 152, 0, 0.15);
+    color: #f57c00;
+    border: 1px solid rgba(255, 152, 0, 0.3);
+}
+
+.btn-action.success-emby:hover {
+    background: rgba(255, 152, 0, 0.3);
+}
+
 /* 等级下拉选择框 - 白色主题 */
 .level-select {
     padding: 5px 8px;
