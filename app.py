@@ -16639,7 +16639,14 @@ def get_dashboard_stats():
 
         # 今日播放详细统计
         today_plays = PlaybackRecord.query.filter(db.func.date(PlaybackRecord.started_at) == today)
-        play_count = today_plays.count()
+        # 播放次数：同一用户看同一媒体算 1 次（去重，避免每10分钟进度记录导致虚高）
+        play_count = db.session.query(
+            db.func.count(db.func.distinct(
+                db.func.concat(PlaybackRecord.user_tg, '-', PlaybackRecord.emby_item_id)
+            ))
+        ).filter(
+            db.func.date(PlaybackRecord.started_at) == today
+        ).scalar() or 0
         play_users = db.session.query(db.func.count(db.func.distinct(PlaybackRecord.user_tg))).filter(
             db.func.date(PlaybackRecord.started_at) == today
         ).scalar() or 0
@@ -16667,8 +16674,23 @@ def get_dashboard_stats():
                 dur = min(dur, total)
             dur = min(dur, MAX_SINGLE_DURATION)
             play_duration_sec += dur
-        play_movies = today_plays.filter(PlaybackRecord.item_type == 'Movie').count()
-        play_episodes = today_plays.filter(PlaybackRecord.item_type == 'Episode').count()
+        # 电影/剧集次数同样按 (user_tg, emby_item_id) 去重
+        play_movies = db.session.query(
+            db.func.count(db.func.distinct(
+                db.func.concat(PlaybackRecord.user_tg, '-', PlaybackRecord.emby_item_id)
+            ))
+        ).filter(
+            db.func.date(PlaybackRecord.started_at) == today,
+            PlaybackRecord.item_type == 'Movie'
+        ).scalar() or 0
+        play_episodes = db.session.query(
+            db.func.count(db.func.distinct(
+                db.func.concat(PlaybackRecord.user_tg, '-', PlaybackRecord.emby_item_id)
+            ))
+        ).filter(
+            db.func.date(PlaybackRecord.started_at) == today,
+            PlaybackRecord.item_type == 'Episode'
+        ).scalar() or 0
         play_transcode = today_plays.filter(PlaybackRecord.play_method == 'Transcode').count()
 
         # 今日热播 Top 5
