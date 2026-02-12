@@ -7161,6 +7161,48 @@ def forgot_password():
         return jsonify({'success': False, 'error': '请求失败，请稍后重试'}), 500
 
 
+@app.route('/api/account/verify-reset-code', methods=['POST'])
+def verify_reset_code():
+    """预验证密码重置验证码（步骤1校验，不消耗验证码）"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        code = data.get('code', '').strip()
+        
+        if not username or not code:
+            return jsonify({'success': False, 'error': '请填写用户名和验证码'}), 400
+        
+        if username not in PASSWORD_RESET_CODES:
+            app.logger.warning(f'[密码重置预验证] 验证码不存在: username={username}, '
+                             f'当前存储的keys={list(PASSWORD_RESET_CODES.keys())}')
+            return jsonify({'success': False, 'error': '验证码无效或已过期，请重新获取'}), 400
+        
+        reset_data = PASSWORD_RESET_CODES[username]
+        
+        if datetime.now() > reset_data['expires_at']:
+            del PASSWORD_RESET_CODES[username]
+            return jsonify({'success': False, 'error': '验证码已过期，请重新获取'}), 400
+        
+        # 检查尝试次数
+        reset_data.setdefault('attempts', 0)
+        reset_data['attempts'] += 1
+        if reset_data['attempts'] > 5:
+            del PASSWORD_RESET_CODES[username]
+            return jsonify({'success': False, 'error': '验证码错误次数过多，请重新获取'}), 400
+        
+        if reset_data['code'] != code:
+            remaining = 5 - reset_data['attempts']
+            return jsonify({'success': False, 'error': f'验证码错误，还可尝试 {remaining} 次'}), 400
+        
+        # 验证通过，标记为已验证（后续 reset-password 直接信任）
+        reset_data['verified'] = True
+        app.logger.info(f'[密码重置预验证] 验证码正确: username={username}')
+        return jsonify({'success': True, 'message': '验证码正确'}), 200
+    except Exception as e:
+        app.logger.error(f'预验证失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': '验证失败，请重试'}), 500
+
+
 @app.route('/api/account/reset-password', methods=['POST'])
 def reset_password():
     """重置密码 - 验证验证码并设置新密码"""
@@ -7178,26 +7220,32 @@ def reset_password():
         
         # 检查验证码
         if username not in PASSWORD_RESET_CODES:
+            app.logger.warning(f'[密码重置] 验证码不存在: username={username}, '
+                             f'当前存储的keys={list(PASSWORD_RESET_CODES.keys())}')
             return jsonify({'success': False, 'error': '验证码无效或已过期，请重新获取'}), 400
         
         reset_data = PASSWORD_RESET_CODES[username]
         
-        # 检查是否过期
-        if datetime.now() > reset_data['expires_at']:
-            del PASSWORD_RESET_CODES[username]
-            return jsonify({'success': False, 'error': '验证码已过期，请重新获取'}), 400
-        
-        # 检查尝试次数（防暴力破解）
-        reset_data.setdefault('attempts', 0)
-        reset_data['attempts'] += 1
-        if reset_data['attempts'] > 5:
-            del PASSWORD_RESET_CODES[username]
-            return jsonify({'success': False, 'error': '验证码错误次数过多，请重新获取'}), 400
-        
-        # 验证码匹配
-        if reset_data['code'] != code:
-            remaining = 5 - reset_data['attempts']
-            return jsonify({'success': False, 'error': f'验证码错误，还可尝试 {remaining} 次'}), 400
+        # 如果已通过预验证，直接信任验证码
+        if reset_data.get('verified'):
+            app.logger.info(f'[密码重置] 使用已预验证的验证码: username={username}')
+        else:
+            # 检查是否过期
+            if datetime.now() > reset_data['expires_at']:
+                del PASSWORD_RESET_CODES[username]
+                return jsonify({'success': False, 'error': '验证码已过期，请重新获取'}), 400
+            
+            # 检查尝试次数（防暴力破解）
+            reset_data.setdefault('attempts', 0)
+            reset_data['attempts'] += 1
+            if reset_data['attempts'] > 5:
+                del PASSWORD_RESET_CODES[username]
+                return jsonify({'success': False, 'error': '验证码错误次数过多，请重新获取'}), 400
+            
+            # 验证码匹配
+            if reset_data['code'] != code:
+                remaining = 5 - reset_data['attempts']
+                return jsonify({'success': False, 'error': f'验证码错误，还可尝试 {remaining} 次'}), 400
         
         # 查找用户并更新密码
         user = User.query.filter_by(name=username).first()
