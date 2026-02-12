@@ -2745,7 +2745,7 @@ function renderUsers(users) {
                     <option value="normal" ${currentType === 'normal' ? 'disabled style="color:#999;"' : ''}>👤 非订阅用户${currentType === 'normal' ? ' ✓' : ''}</option>
                 </select>
                 ${user.level === 'c' ? `<button class="btn-action success" onclick="unbanWebsite(${user.id}, '${escapeHtml(user.name || '')}')">解除网站封禁</button>` : `<button class="btn-action danger" onclick="banWebsite(${user.id}, '${escapeHtml(user.name || '')}')">禁用网站</button>`}
-                ${isEmbyBanned ? `<button class="btn-action success" style="background:#ff9800;border-color:#ff9800;" onclick="unbanEmby(${user.id}, '${escapeHtml(user.name || '')}')">解除Emby封禁</button>` : `<button class="btn-action danger" style="background:#e65100;border-color:#e65100;" onclick="banEmby(${user.id}, '${escapeHtml(user.name || '')}')">禁用Emby</button>`}
+                ${isEmbyBanned ? `<button class="btn-action success" style="background:#ff9800;border-color:#ff9800;color:#fff;" onclick="unbanEmby(${user.id}, '${escapeHtml(user.name || '')}')">解除Emby封禁</button>` : `<button class="btn-action danger" style="background:#e65100;border-color:#e65100;color:#fff;" onclick="banEmby(${user.id}, '${escapeHtml(user.name || '')}')">禁用Emby</button>`}
             </td>
         </tr>
     `}).join('');
