@@ -3649,11 +3649,11 @@ class EmbyClient:
             policy['EnableAudioPlaybackTranscoding'] = False  # 允许音频转码为兼容格式
             policy['EnableVideoPlaybackTranscoding'] = False  # 允许视频转码为兼容格式
             policy['EnablePlaybackRemuxing'] = False  # 允许更改容器格式
-            policy['EnableContentDownloading'] = True  # 允许下载媒体
-            policy['EnableSubtitleDownloading'] = True  # 允许字幕下载
+            policy['EnableContentDownloading'] = False  # 允许下载媒体
+            policy['EnableSubtitleDownloading'] = False  # 允许字幕下载
             policy['EnableSubtitleManagement'] = False  # 允许删除现有字幕文件
-            policy['EnableSyncTranscoding'] = True  # 允许下载需要转码的媒体
-            policy['EnableMediaConversion'] = True  # 允许媒体转换
+            policy['EnableSyncTranscoding'] = False  # 允许下载需要转码的媒体
+            policy['EnableMediaConversion'] = False  # 允许媒体转换
             policy['EnableAllDevices'] = True  # 允许所有设备
             
             # 隐藏用户选项
