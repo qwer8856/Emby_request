@@ -6979,8 +6979,8 @@ def login():
             except Exception:
                 pass  # 通知失败不影响登录
             
-            # 登录时检查：如果用户有有效订阅但 Emby 账号可能被禁用，自动恢复
-            if user.embyid and emby_client.is_enabled():
+            # 登录时检查：如果用户有有效订阅但 Emby 账号可能被禁用，自动恢复（封禁用户除外）
+            if user.lv != 'c' and user.embyid and emby_client.is_enabled():
                 is_whitelist = user.lv == 'a'
                 has_valid_sub = user.ex and user.ex > datetime.now()
                 if is_whitelist or has_valid_sub:
@@ -7922,9 +7922,10 @@ def bind_emby_account():
         
         # 如果用户有有效订阅或白名单，确保Emby账号在服务器上是启用状态
         # （用户可能从embyboss迁移过来，Emby服务器上账号可能仍处于禁用状态）
+        # 封禁用户除外，不自动恢复
         is_whitelist = user.lv == 'a'
         has_valid_sub = user.ex and user.ex > datetime.now()
-        if (is_whitelist or has_valid_sub) and user.embyid and emby_client.is_enabled():
+        if user.lv != 'c' and (is_whitelist or has_valid_sub) and user.embyid and emby_client.is_enabled():
             try:
                 if emby_client.enable_user(user.embyid):
                     app.logger.info(f'用户 {user.tg} 绑定时自动启用Emby账号: {emby_name}')
@@ -17663,6 +17664,7 @@ def use_redeem_code():
         _emby_name = user.emby_name
         _user_name = user.name
         _user_tg = user.tg
+        _user_lv = user.lv
         _display_name = user.emby_name or user.name or str(user.tg)
         _code_type = redeem.code_type
         _plan_type = redeem.plan_type
@@ -17671,8 +17673,8 @@ def use_redeem_code():
         # —— 耗时 IO 操作放入后台线程，主线程立即返回给用户 ——
         def _post_redeem_tasks():
             with app.app_context():
-                # 恢复 Emby 账号
-                if _emby_id and emby_client.is_enabled():
+                # 恢复 Emby 账号（封禁用户不自动恢复）
+                if _user_lv != 'c' and _emby_id and emby_client.is_enabled():
                     if emby_client.enable_user(_emby_id):
                         app.logger.info(f'用户 {_user_name} 兑换成功，已恢复Emby账号 {_emby_name}')
                 
@@ -18014,14 +18016,14 @@ def payment_callback():
                 
                 # 更新用户信息
                 user.ex = end_date
-                if user.lv not in ['a', 'b']:  # 只升级访客(d)/封禁(c)用户，不降级白名单
+                if user.lv not in ['a', 'b', 'c']:  # 白名单/普通用户不变，封禁用户保持封禁状态
                     user.lv = 'b'
                 
                 # 邀请返利：检查是否有邀请人，给邀请人返利
                 process_invite_reward(user, purchased_days, source='支付回调')
                 
-                # 恢复Emby账号（如果之前因过期被禁用）
-                if user.embyid and emby_client.is_enabled():
+                # 恢复Emby账号（如果之前因过期被禁用，封禁用户不自动恢复）
+                if user.lv != 'c' and user.embyid and emby_client.is_enabled():
                     if emby_client.enable_user(user.embyid):
                         app.logger.info(f'用户 {user.name} 支付成功，已恢复Emby账号')
             
@@ -18124,11 +18126,11 @@ def query_payment():
                         )
                         db.session.add(subscription)
                         user.ex = end_date
-                        if user.lv not in ['a', 'b']:  # 只升级访客(d)/封禁(c)用户，不降级白名单
+                        if user.lv not in ['a', 'b', 'c']:  # 白名单/普通用户不变，封禁用户保持封禁状态
                             user.lv = 'b'
                         
-                        # 恢复Emby账号（如果之前因过期被禁用）
-                        if user.embyid and emby_client.is_enabled():
+                        # 恢复Emby账号（如果之前因过期被禁用，封禁用户不自动恢复）
+                        if user.lv != 'c' and user.embyid and emby_client.is_enabled():
                             if emby_client.enable_user(user.embyid):
                                 app.logger.info(f'用户 {user.name} 轮询确认支付成功，已恢复Emby账号')
                         
@@ -21085,11 +21087,12 @@ def exchange_plan():
         _new_expiry = user.ex.isoformat() if user.ex else None
         _emby_id = user.embyid
         _user_name = user.name
+        _user_lv = user.lv
         
         app.logger.info(f'用户兑换套餐成功: {_user_name}, 套餐: {plan_name}, 花费: {coins_cost}积分')
         
-        # —— Emby API 调用放入后台线程，不阻塞主请求 ——
-        if _emby_id and emby_client.is_enabled():
+        # —— Emby API 调用放入后台线程，不阻塞主请求（封禁用户不自动恢复） ——
+        if _user_lv != 'c' and _emby_id and emby_client.is_enabled():
             def _restore_emby():
                 with app.app_context():
                     if emby_client.enable_user(_emby_id):
@@ -23455,8 +23458,8 @@ def admin_mark_order_paid(order_no):
         
         db.session.commit()
         
-        # 恢复Emby账号（如果之前因过期被禁用）
-        if user.embyid and emby_client.is_enabled():
+        # 恢复Emby账号（如果之前因过期被禁用，封禁用户不自动恢复）
+        if user.lv != 'c' and user.embyid and emby_client.is_enabled():
             if emby_client.enable_user(user.embyid):
                 app.logger.info(f'管理员手动标记付款，已恢复用户 {user.name} 的Emby账号')
         
@@ -23572,14 +23575,14 @@ def admin_gift_subscription(user_id):
         # 更新用户的到期时间
         user.ex = end_date
         
-        # 确保用户等级为B（普通用户），但不降级白名单用户
-        if user.lv not in ['a']:
+        # 确保用户等级为B（普通用户），但不降级白名单用户，封禁用户保持封禁状态
+        if user.lv not in ['a', 'c']:
             user.lv = 'b'
         
         db.session.commit()
         
-        # 恢复Emby账号（如果之前因过期被禁用）
-        if user.embyid and emby_client.is_enabled():
+        # 恢复Emby账号（如果之前因过期被禁用，封禁用户不自动恢复）
+        if user.lv != 'c' and user.embyid and emby_client.is_enabled():
             if emby_client.enable_user(user.embyid):
                 app.logger.info(f'用户 {user.name} 获赠订阅，已恢复Emby账号')
         
