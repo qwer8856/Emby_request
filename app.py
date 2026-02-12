@@ -16151,10 +16151,23 @@ def batch_users():
                     user.ex = user.ex + timedelta(days=gift_days)
                 else:
                     user.ex = now + timedelta(days=gift_days)
-                if user.lv not in ['a']:
+                if user.lv not in ['a', 'c']:  # 白名单不变，封禁用户保持封禁状态
                     user.lv = 'b'
-                # 恢复Emby账号
-                if user.embyid and emby_client.is_enabled():
+                # 创建订阅记录
+                sub = Subscription(
+                    user_tg=user.tg,
+                    plan_type='gift',
+                    plan_name=f'管理员赠送 {gift_days}天',
+                    duration_months=max(1, -(-gift_days // 30)),
+                    price=0,
+                    start_date=now,
+                    end_date=user.ex,
+                    status='active',
+                    source='gift'
+                )
+                db.session.add(sub)
+                # 恢复Emby账号（封禁用户不自动恢复，需管理员手动解封）
+                if user.lv != 'c' and user.embyid and emby_client.is_enabled():
                     emby_client.enable_user(user.embyid)
                 success_count += 1
             elif action == 'whitelist':
@@ -16299,10 +16312,23 @@ def batch_subscriptions():
                         user.ex = user.ex + timedelta(days=extend_days)
                     else:
                         user.ex = now + timedelta(days=extend_days)
-                    if user.lv not in ['a']:
+                    if user.lv not in ['a', 'c']:  # 白名单不变，封禁用户保持封禁状态
                         user.lv = 'b'
-                    # 恢复Emby账号
-                    if user.embyid and emby_client.is_enabled():
+                    # 创建订阅记录
+                    sub = Subscription(
+                        user_tg=user.tg,
+                        plan_type='extend',
+                        plan_name=f'管理员延期 {extend_days}天',
+                        duration_months=max(1, -(-extend_days // 30)),
+                        price=0,
+                        start_date=now,
+                        end_date=user.ex,
+                        status='active',
+                        source='gift'
+                    )
+                    db.session.add(sub)
+                    # 恢复Emby账号（封禁用户不自动恢复，需管理员手动解封）
+                    if user.lv != 'c' and user.embyid and emby_client.is_enabled():
                         emby_client.enable_user(user.embyid)
                     success_count += 1
                 else:
@@ -17615,8 +17641,8 @@ def use_redeem_code():
         redeem.used_at = datetime.now()
         
         # 同步更新用户表的订阅状态
-        # 设置用户等级为 'b'（注册用户/付费用户），但不降级管理员
-        if user.lv not in ['a']:  # 不改变管理员等级
+        # 白名单不变，封禁用户保持封禁状态（需管理员手动解封）
+        if user.lv not in ['a', 'c']:
             user.lv = 'b'
         
         # 更新过期时间 - 直接使用上面已经正确计算（含叠加）的 end_date
@@ -17893,11 +17919,11 @@ def payment_notify():
             
             # 更新用户信息
             user.ex = end_date
-            if user.lv not in ['a', 'b']:  # 只升级访客(d)/封禁(c)用户，不降级白名单
+            if user.lv not in ['a', 'b', 'c']:  # 白名单/普通用户不变，封禁用户保持封禁状态
                 user.lv = 'b'
             
-            # 恢复Emby账号（如果之前因过期被禁用）
-            if user.embyid and emby_client.is_enabled():
+            # 恢复Emby账号（封禁用户不自动恢复，需管理员手动解封）
+            if user.lv != 'c' and user.embyid and emby_client.is_enabled():
                 if emby_client.enable_user(user.embyid):
                     app.logger.info(f'用户 {user.name} 续费成功，已恢复Emby账号')
             
@@ -21026,8 +21052,8 @@ def exchange_plan():
             # 无订阅或已过期，从现在开始计算
             user.ex = now + timedelta(days=duration_days)
         
-        # 如果是无账号用户，升级为普通用户
-        if user.lv == 'd':
+        # 无账号用户升级为普通用户，封禁用户保持封禁状态
+        if user.lv not in ['a', 'b', 'c']:
             user.lv = 'b'
         
         # 创建兑换记录
@@ -23234,8 +23260,8 @@ def admin_approve_invite_reward(record_id):
         else:
             inviter.ex = datetime.now() + timedelta(days=reward_days)
         
-        # 如果邀请人是无账号/封禁状态，升级为普通用户
-        if inviter.lv not in ['a', 'b']:
+        # 无账号用户升级为普通用户，封禁用户保持封禁状态
+        if inviter.lv not in ['a', 'b', 'c']:
             inviter.lv = 'b'
         
         # 更新记录
@@ -23420,8 +23446,8 @@ def admin_mark_order_paid(order_no):
             # 否则从现在开始计算
             user.ex = now + timedelta(days=purchased_days)
         
-        # 如果是访客/封禁等级，升级为注册用户（不降级白名单）
-        if user.lv not in ['a', 'b']:
+        # 白名单不变，封禁用户保持封禁状态（需管理员手动解封）
+        if user.lv not in ['a', 'b', 'c']:
             user.lv = 'b'
         
         # 邀请返利：检查是否有邀请人，给邀请人返利
