@@ -8124,6 +8124,19 @@ def bind_emby_account():
         if not emby_client.is_enabled():
             return jsonify({'success': False, 'error': 'Emby 服务器未配置'}), 500
         
+        # ===== 预检查：该 Emby 用户名是否已被其他正式用户绑定 =====
+        # 在验证密码之前先检查，避免因为旧记录导致 Emby 账号被禁用→密码验证401→误报"密码错误"
+        # 迁移记录（tg 为负数）不算"已被绑定"，允许新用户继承
+        existing_bindby_name = User.query.filter(
+            User.tg != user.tg,
+            User.emby_name == username,
+            User.embyid.isnot(None),
+            User.tg >= 0  # 排除迁移记录（tg 为负数）
+        ).first()
+        if existing_bindby_name:
+            app.logger.warning(f'Emby 绑定拦截: 用户 {user.tg} 尝试绑定已被 tg={existing_bindby_name.tg} 绑定的 Emby 用户名 "{username}"')
+            return jsonify({'success': False, 'error': '该 Emby 账号已被其他用户绑定，如需解绑请联系管理员'}), 400
+        
         # 验证 Emby 账号密码
         # 先查找数据库中是否有该 Emby 用户名的旧记录（可能从 embyboss 迁移过来的）
         # 如果有 embyid，传给 authenticate_user 作为 fallback，
