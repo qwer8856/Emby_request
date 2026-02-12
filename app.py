@@ -3264,6 +3264,12 @@ class EmbyClient:
             policy = user_info.get('Policy', {})
             policy['IsDisabled'] = False
             
+            # 确保媒体库和频道访问权限恢复（某些 Emby 版本禁用用户时会清除这些权限）
+            policy['EnableAllFolders'] = True
+            policy['EnableAllChannels'] = True
+            policy['EnableMediaPlayback'] = True
+            policy['EnableRemoteAccess'] = True
+            
             # 同步最大同时播放流数限制
             config = load_system_config()
             max_streams = config.get('telegram', {}).get('max_streams', 0)
@@ -3623,6 +3629,10 @@ class EmbyClient:
             policy = user_info.get('Policy', {})
             
             # 设置策略 - 根据截图配置
+            # 媒体库和频道访问权限（确保新用户能看到所有内容）
+            policy['EnableAllFolders'] = True  # 允许访问所有媒体库
+            policy['EnableAllChannels'] = True  # 允许访问所有频道
+            
             # 开启的选项
             policy['EnableRemoteAccess'] = True  # 允许远程访问此 Emby Server
             policy['EnableMediaPlayback'] = True  # 允许媒体播放
@@ -3639,11 +3649,11 @@ class EmbyClient:
             policy['EnableAudioPlaybackTranscoding'] = False  # 允许音频转码为兼容格式
             policy['EnableVideoPlaybackTranscoding'] = False  # 允许视频转码为兼容格式
             policy['EnablePlaybackRemuxing'] = False  # 允许更改容器格式
-            policy['EnableContentDownloading'] = False  # 允许下载媒体
-            policy['EnableSubtitleDownloading'] = False  # 允许字幕下载
+            policy['EnableContentDownloading'] = True  # 允许下载媒体
+            policy['EnableSubtitleDownloading'] = True  # 允许字幕下载
             policy['EnableSubtitleManagement'] = False  # 允许删除现有字幕文件
-            policy['EnableSyncTranscoding'] = False  # 允许下载需要转码的媒体
-            policy['EnableMediaConversion'] = False  # 允许媒体转换
+            policy['EnableSyncTranscoding'] = True  # 允许下载需要转码的媒体
+            policy['EnableMediaConversion'] = True  # 允许媒体转换
             policy['EnableAllDevices'] = True  # 允许所有设备
             
             # 隐藏用户选项
@@ -3686,10 +3696,29 @@ class EmbyClient:
             if response.status_code in [200, 204]:
                 app.logger.info(f'已设置 Emby 用户策略: {user_id}, SimultaneousStreamLimit={policy.get("SimultaneousStreamLimit")}, MaxActiveSessions={policy.get("MaxActiveSessions")}')
                 return True
-            else:
-                resp_text = response.text[:500] if response.text else ''
-                app.logger.warning(f'设置用户策略失败: {user_id}, status={response.status_code}, response={resp_text}')
+            
+            # === fallback: POST 完整用户对象 ===
+            # 某些 Emby 版本或反向代理配置下 /Users/{id}/Policy 会返回 404
+            if response.status_code == 404:
+                app.logger.info(f'Policy 端点 404，尝试通过完整用户对象设置策略: {user_id}')
+                user_info['Policy'] = policy
+                fallback_resp = self.session.post(
+                    url,
+                    params=params,
+                    json=user_info,
+                    headers={'Content-Type': 'application/json'},
+                    timeout=10
+                )
+                if fallback_resp.status_code in [200, 204]:
+                    app.logger.info(f'已设置 Emby 用户策略 (fallback): {user_id}')
+                    return True
+                resp_text = fallback_resp.text[:500] if fallback_resp.text else ''
+                app.logger.warning(f'设置用户策略 fallback 也失败: {user_id}, status={fallback_resp.status_code}, body={resp_text}')
                 return False
+            
+            resp_text = response.text[:500] if response.text else ''
+            app.logger.warning(f'设置用户策略失败: {user_id}, status={response.status_code}, response={resp_text}')
+            return False
                 
         except Exception as e:
             app.logger.error(f'设置用户策略异常: {user_id}, error={e}')
