@@ -9277,6 +9277,8 @@ def admin_get_playback_rankings():
 
 # ==================== 播放排行定时推送 ====================
 _ranking_timers = {}  # 存储定时器: {'daily': timer, 'weekly': timer}
+_ranking_timer_lock = threading.Lock()  # 保护 _ranking_timers 的线程锁
+_ranking_schedule_version = {'daily': 0, 'weekly': 0}  # 调度版本号，防止旧Timer回调覆盖新调度
 
 def _build_ranking_text(days, ranking_config):
     """构建排行榜文本消息（供定时推送使用）
@@ -9541,10 +9543,18 @@ def _build_ranking_text(days, ranking_config):
     return '\n'.join(lines)
 
 
-def _do_ranking_push(days, ranking_config):
+def _do_ranking_push(days, ranking_config, _version=0):
     """执行一次排行推送到群组"""
+    key = 'daily' if days == 1 else 'weekly'
     try:
         with app.app_context():
+            # 版本号检查：如果调度器已被重启（版本号更新），本次回调放弃执行
+            with _ranking_timer_lock:
+                current_ver = _ranking_schedule_version.get(key, 0)
+                if _version < current_ver:
+                    app.logger.info(f'排行推送: 旧版本回调 v{_version} < v{current_ver}，跳过 (days={days})')
+                    return
+
             # 重新读取最新配置（管理员可能已修改）
             fresh_config = load_system_config().get('ranking', {})
 
@@ -9638,28 +9648,37 @@ def _schedule_next_ranking_push(days, ranking_config):
     if delay_seconds < 60:
         delay_seconds += 86400 if days == 1 else 604800
 
-    timer = threading.Timer(delay_seconds, _do_ranking_push, args=[days, ranking_config])
-    timer.daemon = True
+    with _ranking_timer_lock:
+        # 取消旧定时器
+        old = _ranking_timers.pop(key, None)
+        if old:
+            old.cancel()
 
-    # 取消旧定时器
-    old = _ranking_timers.pop(key, None)
-    if old:
-        old.cancel()
+        # 获取当前版本号（传给Timer回调，用于判断是否过期）
+        ver = _ranking_schedule_version.get(key, 0)
 
-    _ranking_timers[key] = timer
-    timer.start()
+        timer = threading.Timer(delay_seconds, _do_ranking_push, args=[days, ranking_config],
+                                kwargs={'_version': ver})
+        timer.daemon = True
+        _ranking_timers[key] = timer
+        timer.start()
 
     target_str = target.strftime('%Y-%m-%d %H:%M')
-    app.logger.info(f'排行{key}推送已调度: {target_str} (约{int(delay_seconds)}秒后)')
+    app.logger.info(f'排行{key}推送已调度: {target_str} (约{int(delay_seconds)}秒后, v{ver})')
 
 
 def _restart_ranking_scheduler(ranking_config):
     """根据配置重启排行推送调度器"""
-    # 取消所有现有定时器
-    for key in list(_ranking_timers.keys()):
-        t = _ranking_timers.pop(key, None)
-        if t:
-            t.cancel()
+    with _ranking_timer_lock:
+        # 递增版本号，使所有旧Timer回调在执行时自动放弃
+        for key in ['daily', 'weekly']:
+            _ranking_schedule_version[key] = _ranking_schedule_version.get(key, 0) + 1
+        
+        # 取消所有现有定时器
+        for key in list(_ranking_timers.keys()):
+            t = _ranking_timers.pop(key, None)
+            if t:
+                t.cancel()
 
     if not ranking_config.get('push_enabled'):
         app.logger.info('排行定时推送: 已关闭')
@@ -19149,13 +19168,15 @@ def save_system_config_api():
             if 'push_weekly' in rk:
                 current_config['ranking']['push_weekly'] = bool(rk['push_weekly'])
             app.logger.info(f'[CONFIG] 更新 ranking: {current_config["ranking"]}')
-            # 重新启动排行定时推送
-            _restart_ranking_scheduler(current_config['ranking'])
         
-        # 保存到文件
+        # 保存到文件（必须在重启调度器之前，确保DB中是最新配置）
         if save_system_config(current_config):
             # 更新全局变量
             update_global_system_config()
+            
+            # 如果更新了排行配置，保存成功后再重启调度器
+            if 'ranking' in data:
+                _restart_ranking_scheduler(current_config['ranking'])
             
             # 如果更新了Telegram配置，重新注册命令
             if 'telegram' in data and 'bot_token' in data['telegram']:
