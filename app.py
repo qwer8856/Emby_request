@@ -2693,72 +2693,72 @@ class EmbyClient:
             max_users = 20  # 最多处理20个用户
             user_ids = user_ids[:max_users]
             
-            # 2. 遍历每一天，使用 GetItems API 获取详细数据
+            # 2. 并行获取所有用户 × 所有天的播放数据（大幅提升速度）
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            
+            # 构建所有需要请求的 (uid, date_str) 任务
+            fetch_tasks = []
             for day_offset in range(actual_days):
-                # 优化：如果已经获取足够多的记录，提前退出
-                if len(history) >= limit:
-                    break
-                    
                 date = end_date - timedelta(days=day_offset)
                 date_str = date.strftime('%Y-%m-%d')
-                
                 for uid in user_ids:
-                    # 优化：如果已经获取足够多的记录，提前退出
+                    fetch_tasks.append((uid, date_str))
+            
+            def fetch_user_day(uid, date_str):
+                """获取单个用户单天的播放记录"""
+                try:
+                    url = f"{self.base_url}/user_usage_stats/{uid}/{date_str}/GetItems"
+                    params = {'api_key': self.api_key}
+                    response = self.session.get(url, params=params, timeout=5)
+                    if response.status_code != 200:
+                        return []
+                    items = response.json()
+                    if not items:
+                        return []
+                    results = []
+                    for item in items:
+                        time_str = item.get('Time', '') or ''
+                        started_at = f"{date_str} {time_str}".strip()
+                        total_duration = int(item.get('Duration', 0) or 0)
+                        play_duration = int(item.get('PlayDuration', 0) or 0)
+                        play_percentage = None
+                        if total_duration > 0 and play_duration > 0:
+                            play_percentage = min(100, round(play_duration / total_duration * 100, 1))
+                        results.append({
+                            'id': str(item.get('RowId', '')),
+                            'user_id': uid,
+                            'user_name': item.get('UserName', '') or '未知',
+                            'item_id': str(item.get('Id', '')),
+                            'item_name': item.get('Name', '') or '未知',
+                            'item_type': item.get('Type', 'Movie'),
+                            'client': item.get('Client', '') or '',
+                            'device_name': item.get('Device', '') or item.get('Client', '') or '',
+                            'play_method': item.get('Method', '') or '',
+                            'play_duration': play_duration,
+                            'date': started_at,
+                            'started_at': started_at,
+                            'series_name': '',
+                            'season_number': None,
+                            'episode_number': None,
+                            'play_percentage': play_percentage,
+                            'display_name': item.get('Name', '') or '未知',
+                            'remote_address': item.get('RemoteAddress', '') or '',
+                        })
+                    return results
+                except Exception:
+                    return []
+            
+            # 并行执行，最多10个并发线程
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = {executor.submit(fetch_user_day, uid, ds): (uid, ds) for uid, ds in fetch_tasks}
+                for future in as_completed(futures):
+                    results = future.result()
+                    history.extend(results)
                     if len(history) >= limit:
+                        # 取消剩余任务
+                        for f in futures:
+                            f.cancel()
                         break
-                        
-                    try:
-                        # GetItems API: /user_usage_stats/{UserId}/{Date}/GetItems
-                        url = f"{self.base_url}/user_usage_stats/{uid}/{date_str}/GetItems"
-                        params = {'api_key': self.api_key}
-                        
-                        response = self.session.get(url, params=params, timeout=5)
-                        if response.status_code != 200:
-                            continue
-                        
-                        items = response.json()
-                        if not items:
-                            continue
-                        
-                        for item in items:
-                            # GetItems 返回的字段包括:
-                            # Time, Id, Name, Type, Client, Device, Method, 
-                            # Duration, RowId, UserId, RemoteAddress, PlayDuration
-                            
-                            time_str = item.get('Time', '') or ''
-                            started_at = f"{date_str} {time_str}".strip()
-                            
-                            # 计算播放进度百分比
-                            total_duration = int(item.get('Duration', 0) or 0)
-                            play_duration = int(item.get('PlayDuration', 0) or 0)
-                            play_percentage = None
-                            if total_duration > 0 and play_duration > 0:
-                                play_percentage = min(100, round(play_duration / total_duration * 100, 1))
-                            
-                            record = {
-                                'id': str(item.get('RowId', '')),
-                                'user_id': uid,
-                                'user_name': item.get('UserName', '') or '未知',
-                                'item_id': str(item.get('Id', '')),
-                                'item_name': item.get('Name', '') or '未知',
-                                'item_type': item.get('Type', 'Movie'),
-                                'client': item.get('Client', '') or '',
-                                'device_name': item.get('Device', '') or item.get('Client', '') or '',
-                                'play_method': item.get('Method', '') or '',  # DirectPlay, DirectStream, Transcode
-                                'play_duration': play_duration,
-                                'date': started_at,
-                                'started_at': started_at,
-                                'series_name': '',
-                                'season_number': None,
-                                'episode_number': None,
-                                'play_percentage': play_percentage,
-                                'display_name': item.get('Name', '') or '未知',
-                                'remote_address': item.get('RemoteAddress', '') or '',
-                            }
-                            history.append(record)
-                    except Exception as e:
-                        app.logger.debug(f'获取 {uid} 在 {date_str} 的播放记录失败: {e}')
-                        continue
             
             # 批量补充缺失进度：对没有 play_percentage 但有 play_duration 的记录，批量获取 RunTimeTicks
             missing_items = [r for r in history if r.get('play_percentage') is None and r.get('play_duration', 0) > 0]
@@ -3008,28 +3008,8 @@ class EmbyClient:
             except Exception as e:
                 app.logger.debug(f'获取 Devices 失败: {e}')
             
-            # 3. 从最近的播放历史获取 IP（使用 GetItems API）
-            history_ip_map = {}  # user_id -> ip
-            try:
-                # 获取今天的播放记录
-                today = datetime.now().strftime('%Y-%m-%d')
-                for uid in list(user_device_info_map.keys())[:20]:  # 限制数量
-                    try:
-                        url = f"{self.base_url}/user_usage_stats/{uid}/{today}/GetItems"
-                        params = {'api_key': self.api_key}
-                        response = self.session.get(url, params=params, timeout=5)
-                        if response.status_code == 200:
-                            items = response.json()
-                            if items:
-                                # 取最新的一条记录
-                                latest = items[0]
-                                ip = latest.get('RemoteAddress', '')
-                                if ip:
-                                    history_ip_map[uid] = ip
-                    except:
-                        continue
-            except Exception as e:
-                app.logger.debug(f'获取历史 IP 失败: {e}')
+            # 3. IP 信息已从 Sessions API 和 Devices API 获取，无需再逐用户查询历史
+            history_ip_map = {}  # 保留变量兼容后续代码
             
             # 4. 使用 user_activity API 获取用户活动统计
             url = f"{self.base_url}/user_usage_stats/user_activity"
@@ -8592,8 +8572,12 @@ def get_emby_sessions():
                         if existing_record:
                             # 更新现有记录的进度
                             existing_record.play_percentage = play_percentage
-                            existing_record.play_duration = int(position_ticks / 10000000) if position_ticks else 0
-                            existing_record.total_duration = int(total_ticks / 10000000) if total_ticks else 0
+                            _total_dur = int(total_ticks / 10000000) if total_ticks else 0
+                            _play_dur = int(position_ticks / 10000000) if position_ticks else 0
+                            if _total_dur > 0 and _play_dur > _total_dur:
+                                _play_dur = _total_dur
+                            existing_record.play_duration = _play_dur
+                            existing_record.total_duration = _total_dur
                         else:
                             # 创建新的播放记录
                             record = PlaybackRecord(
@@ -8605,7 +8589,7 @@ def get_emby_sessions():
                                 series_name=now_playing.get('series_name', ''),
                                 season_number=now_playing.get('season_number'),
                                 episode_number=now_playing.get('episode_number'),
-                                play_duration=int(position_ticks / 10000000) if position_ticks else 0,
+                                play_duration=min(int(position_ticks / 10000000), int(total_ticks / 10000000)) if position_ticks and total_ticks and total_ticks > 0 else (int(position_ticks / 10000000) if position_ticks else 0),
                                 total_duration=int(total_ticks / 10000000) if total_ticks else 0,
                                 play_percentage=play_percentage,
                                 play_method=play_state.get('play_method', ''),
@@ -8970,9 +8954,17 @@ def admin_get_all_sessions():
                     
                     if existing_record:
                         existing_record.play_percentage = play_percentage
-                        existing_record.play_duration = int(position_ticks / 10000000) if position_ticks else 0
-                        existing_record.total_duration = int(total_ticks / 10000000) if total_ticks else 0
+                        _total_dur2 = int(total_ticks / 10000000) if total_ticks else 0
+                        _play_dur2 = int(position_ticks / 10000000) if position_ticks else 0
+                        if _total_dur2 > 0 and _play_dur2 > _total_dur2:
+                            _play_dur2 = _total_dur2
+                        existing_record.play_duration = _play_dur2
+                        existing_record.total_duration = _total_dur2
                     else:
+                        _total_dur3 = int(total_ticks / 10000000) if total_ticks else 0
+                        _play_dur3 = int(position_ticks / 10000000) if position_ticks else 0
+                        if _total_dur3 > 0 and _play_dur3 > _total_dur3:
+                            _play_dur3 = _total_dur3
                         record = PlaybackRecord(
                             user_tg=emby_user.tg,
                             device_id=device.id,
@@ -8982,8 +8974,8 @@ def admin_get_all_sessions():
                             series_name=now_playing.get('series_name', ''),
                             season_number=now_playing.get('season_number'),
                             episode_number=now_playing.get('episode_number'),
-                            play_duration=int(position_ticks / 10000000) if position_ticks else 0,
-                            total_duration=int(total_ticks / 10000000) if total_ticks else 0,
+                            play_duration=_play_dur3,
+                            total_duration=_total_dur3,
                             play_percentage=play_percentage,
                             play_method=play_state.get('play_method', ''),
                             client_ip=s.get('remote_end_point', ''),
@@ -11981,8 +11973,11 @@ def emby_playback_webhook():
         # 记录播放历史（所有播放事件都记录）
         if emby_item_id:
             # 计算播放进度（先计算百分比再取整，避免精度丢失）
-            play_duration = int(position_ticks / 10000000) if position_ticks else 0
             total_duration = int(total_ticks / 10000000) if total_ticks else 0
+            play_duration = int(position_ticks / 10000000) if position_ticks else 0
+            # play_duration 不应超过 total_duration（防止异常 ticks）
+            if total_duration > 0 and play_duration > total_duration:
+                play_duration = total_duration
             # 使用 ticks 直接计算百分比，避免 int 转换导致的精度丢失
             play_percentage = min(100.0, (position_ticks / total_ticks * 100)) if total_ticks > 0 else 0
             
@@ -16559,14 +16554,25 @@ def get_dashboard_stats():
         # play_duration 字段存的是播放位置（position），不是实际消耗的时间
         # 同一用户对同一媒体可能有多条记录（每10分钟创建新记录），position 会重复累积
         # 方案：对每个 (user_tg, emby_item_id) 组合，只取最大 play_duration（即最终位置），避免重复
+        # 同时取 total_duration 做上限保护，防止异常 ticks 导致天文数字
         duration_by_item = db.session.query(
-            db.func.max(PlaybackRecord.play_duration)
+            db.func.max(PlaybackRecord.play_duration),
+            db.func.max(PlaybackRecord.total_duration)
         ).filter(
             db.func.date(PlaybackRecord.started_at) == today
         ).group_by(
             PlaybackRecord.user_tg, PlaybackRecord.emby_item_id
         ).all()
-        play_duration_sec = sum(r[0] or 0 for r in duration_by_item)
+        MAX_SINGLE_DURATION = 86400  # 单条记录最大24小时（秒）
+        play_duration_sec = 0
+        for r in duration_by_item:
+            dur = r[0] or 0
+            total = r[1] or 0
+            # play_duration 不应超过 total_duration（如果有），且不超过24小时
+            if total > 0:
+                dur = min(dur, total)
+            dur = min(dur, MAX_SINGLE_DURATION)
+            play_duration_sec += dur
         play_movies = today_plays.filter(PlaybackRecord.item_type == 'Movie').count()
         play_episodes = today_plays.filter(PlaybackRecord.item_type == 'Episode').count()
         play_transcode = today_plays.filter(PlaybackRecord.play_method == 'Transcode').count()
@@ -24081,6 +24087,22 @@ def init_db():
             except Exception as e:
                 db.session.rollback()
                 app.logger.warning(f'修复异常播放进度失败: {e}')
+            
+            # 修复播放记录中异常的播放时长（play_duration > total_duration 的修正）
+            try:
+                fixed_dur = PlaybackRecord.query.filter(
+                    PlaybackRecord.total_duration > 0,
+                    PlaybackRecord.play_duration > PlaybackRecord.total_duration
+                ).update(
+                    {PlaybackRecord.play_duration: PlaybackRecord.total_duration},
+                    synchronize_session=False
+                )
+                if fixed_dur > 0:
+                    db.session.commit()
+                    app.logger.info(f'已修复 {fixed_dur} 条异常播放时长记录（duration > total）')
+            except Exception as e:
+                db.session.rollback()
+                app.logger.warning(f'修复异常播放时长失败: {e}')
             
             # 初始化管理员配置
             admin_config = init_admin_config()
