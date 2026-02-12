@@ -4956,7 +4956,7 @@ class PlaybackRecord(db.Model):
             'episode_number': self.episode_number,
             'play_duration': self.play_duration,
             'total_duration': self.total_duration,
-            'play_percentage': self.play_percentage,
+            'play_percentage': min(100.0, self.play_percentage) if self.play_percentage else 0,
             'play_method': self.play_method,
             'started_at': self.started_at.isoformat() if self.started_at else None,
             'ended_at': self.ended_at.isoformat() if self.ended_at else None,
@@ -8587,7 +8587,7 @@ def get_emby_sessions():
                         play_state = s.get('play_state', {})
                         position_ticks = play_state.get('position_ticks', 0)
                         total_ticks = now_playing.get('run_time_ticks', 0)
-                        play_percentage = (position_ticks / total_ticks * 100) if total_ticks > 0 else 0
+                        play_percentage = min(100.0, (position_ticks / total_ticks * 100)) if total_ticks > 0 else 0
                         
                         if existing_record:
                             # 更新现有记录的进度
@@ -8966,7 +8966,7 @@ def admin_get_all_sessions():
                     play_state = s.get('play_state', {})
                     position_ticks = play_state.get('position_ticks', 0)
                     total_ticks = now_playing.get('run_time_ticks', 0)
-                    play_percentage = (position_ticks / total_ticks * 100) if total_ticks > 0 else 0
+                    play_percentage = min(100.0, (position_ticks / total_ticks * 100)) if total_ticks > 0 else 0
                     
                     if existing_record:
                         existing_record.play_percentage = play_percentage
@@ -9837,7 +9837,7 @@ def admin_get_all_playback_history():
                             ).order_by(PlaybackRecord.started_at.desc()).first()
                             
                             if local_record and local_record.play_percentage and local_record.play_percentage > 0:
-                                record['play_percentage'] = round(local_record.play_percentage, 1)
+                                record['play_percentage'] = min(100.0, round(local_record.play_percentage, 1))
                                 continue
                     except Exception:
                         pass
@@ -11984,7 +11984,7 @@ def emby_playback_webhook():
             play_duration = int(position_ticks / 10000000) if position_ticks else 0
             total_duration = int(total_ticks / 10000000) if total_ticks else 0
             # 使用 ticks 直接计算百分比，避免 int 转换导致的精度丢失
-            play_percentage = (position_ticks / total_ticks * 100) if total_ticks > 0 else 0
+            play_percentage = min(100.0, (position_ticks / total_ticks * 100)) if total_ticks > 0 else 0
             
             # 查找最近10分钟内同一媒体的记录（避免重复）
             ten_mins_ago = datetime.now() - timedelta(minutes=10)
@@ -24069,6 +24069,18 @@ def init_db():
             
             # 执行数据库迁移（添加缺失的列）
             migrate_database()
+            
+            # 修复播放记录中异常的进度数据（>100%的记录修正为100%）
+            try:
+                fixed = PlaybackRecord.query.filter(PlaybackRecord.play_percentage > 100).update(
+                    {PlaybackRecord.play_percentage: 100.0}
+                )
+                if fixed > 0:
+                    db.session.commit()
+                    app.logger.info(f'已修复 {fixed} 条异常播放进度记录（>100%）')
+            except Exception as e:
+                db.session.rollback()
+                app.logger.warning(f'修复异常播放进度失败: {e}')
             
             # 初始化管理员配置
             admin_config = init_admin_config()

@@ -6531,7 +6531,7 @@ async function deleteAdminDevice(deviceId) {
 async function loadAdminHistory(page = 1) {
     if (page === -1) { window._historyShowAll = true; page = 1; }
     else if (page >= 1 && window._historyShowAll) { window._historyShowAll = false; }
-    const histPerPage = window._historyShowAll ? 99999 : 6;
+    const histPerPage = window._historyShowAll ? 100 : 6;
     adminHistoryPage = page;
     const search = document.getElementById('historySearchInput')?.value || '';
     
@@ -6566,7 +6566,7 @@ async function loadAdminHistory(page = 1) {
             const typeText = r.item_type === 'Episode' ? '剧集' : '电影';
             let progress = '-';
             if (r.play_percentage && r.play_percentage > 0) {
-                progress = Math.round(r.play_percentage) + '%';
+                progress = Math.min(100, Math.round(r.play_percentage)) + '%';
             }
             
             return `
