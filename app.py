@@ -3793,7 +3793,7 @@ class EmbyClient:
             app.logger.error(f'删除用户异常: {emby_user_id}, error={e}')
             return False
 
-    def change_user_password(self, user_id: str, current_password: str, new_password: str) -> tuple[bool, str]:
+    def change_user_password(self, user_id: str, current_password: str, new_password: str, emby_username: str = '') -> tuple[bool, str]:
         """修改 Emby 用户密码
         
         兼容不同 Emby 版本和反向代理配置：
@@ -3805,6 +3805,7 @@ class EmbyClient:
             user_id: Emby 用户 ID
             current_password: 当前密码
             new_password: 新密码
+            emby_username: Emby 用户名（可选，用于 GET /Users/{id} 失败时的 fallback）
             
         Returns:
             tuple: (成功标志, 消息)
@@ -3815,18 +3816,20 @@ class EmbyClient:
         try:
             params = {'api_key': self.api_key}
             
-            # 先验证 Emby 用户是否存在
+            # 尝试获取 Emby 用户信息（用于获取用户名，方式2/3需要用户名认证）
+            # 某些 Emby 版本或反向代理配置下 GET /Users/{id} 可能返回 404
+            # 此时不放弃，使用传入的 emby_username 继续
             check_url = f"{self.base_url}/Users/{user_id}"
             check_resp = self.session.get(check_url, params=params, timeout=10)
-            if check_resp.status_code == 404:
-                app.logger.error(f'Emby 用户不存在: user_id={user_id}')
-                return False, 'Emby 账号在服务器上不存在，请联系管理员重新绑定'
-            elif check_resp.status_code != 200:
-                app.logger.error(f'获取 Emby 用户信息失败: user_id={user_id}, status={check_resp.status_code}')
-                return False, f'无法连接 Emby 服务器 (错误码: {check_resp.status_code})'
-            
-            emby_user = check_resp.json()
-            emby_username = emby_user.get('Name', '')
+            if check_resp.status_code == 200:
+                emby_user = check_resp.json()
+                emby_username = emby_user.get('Name', '') or emby_username or ''
+            else:
+                app.logger.warning(f'获取 Emby 用户信息失败（将继续尝试修改密码）: user_id={user_id}, status={check_resp.status_code}')
+                # 使用传入的 emby_username 作为 fallback
+                if not emby_username:
+                    app.logger.error(f'无法获取用户信息且无 fallback 用户名: user_id={user_id}')
+                    return False, 'Emby 服务器暂时无法访问，请稍后重试'
             
             # === 方式1: 管理员 API key 直接修改密码 ===
             url = f"{self.base_url}/Users/{user_id}/Password"
@@ -7994,8 +7997,8 @@ def change_emby_password():
         if not emby_client.is_enabled():
             return jsonify({'success': False, 'error': 'Emby 服务器未配置'}), 500
         
-        # 调用 Emby API 修改密码
-        success, message = emby_client.change_user_password(user.embyid, current_password, new_password)
+        # 调用 Emby API 修改密码（传入 emby_name 作为 fallback，防止 GET /Users/{id} 404 时无法获取用户名）
+        success, message = emby_client.change_user_password(user.embyid, current_password, new_password, emby_username=user.emby_name or '')
         
         if success:
             # 同步更新本地存储的 Emby 密码

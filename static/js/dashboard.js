@@ -1018,7 +1018,7 @@ async function unbindTelegramId() {
                 const data = await response.json();
                 
                 if (data.success) {
-                    showToast('密码修改成功！正在跳转登录页...', 'success');
+                    showToast('修改成功', '密码已修改，正在跳转登录页...', 'success');
                     // 清空表单
                     document.getElementById('changePasswordForm').reset();
                     // 密码修改成功后需要重新登录
@@ -1028,11 +1028,11 @@ async function unbindTelegramId() {
                         }, 1500);
                     }
                 } else {
-                    showToast(data.error || '密码修改失败', 'error');
+                    showToast('修改失败', data.error || '密码修改失败', 'error');
                 }
             } catch (error) {
                 console.error('修改密码错误:', error);
-                showToast('网络错误，请稍后重试', 'error');
+                showToast('网络错误', '请稍后重试', 'error');
             } finally {
                 // 恢复按钮状态
                 btn.disabled = false;
@@ -1093,15 +1093,15 @@ async function unbindTelegramId() {
                 const data = await response.json();
                 
                 if (data.success) {
-                    showToast('Emby 密码修改成功！', 'success');
+                    showToast('修改成功', 'Emby 密码已修改', 'success');
                     // 清空表单
                     document.getElementById('changeEmbyPasswordForm').reset();
                 } else {
-                    showToast(data.error || 'Emby 密码修改失败', 'error');
+                    showToast('修改失败', data.error || 'Emby 密码修改失败', 'error');
                 }
             } catch (error) {
                 console.error('修改 Emby 密码错误:', error);
-                showToast('网络错误，请稍后重试', 'error');
+                showToast('网络错误', '请稍后重试', 'error');
             } finally {
                 // 恢复按钮状态
                 btn.disabled = false;
