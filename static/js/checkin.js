@@ -225,8 +225,8 @@ async function exchangePlan(planId, planName, coins, days) {
     // 用户取消
     if (answer === null) return;
     
-    // 找到按钮并显示加载状态
-    const btn = event.target.closest('button');
+    // 找到按钮并显示加载状态（通过 planId 定位按钮，避免依赖隐式 event 变量）
+    const btn = document.querySelector(`.exchange-btn[onclick*="'${planId}'"]`);
     const originalText = btn ? btn.innerHTML : '';
     if (btn) {
         btn.disabled = true;

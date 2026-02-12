@@ -6726,13 +6726,6 @@ function renderPagination(containerId, currentPage, totalPages, loadFunc, extra)
     container.innerHTML = html;
 }
 
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
 
 // ==================== 设备黑名单管理 ====================
 let allBlacklistRules = [];
@@ -8131,13 +8124,6 @@ function truncateText(text, maxLength) {
     if (!text) return '-';
     if (text.length <= maxLength) return text;
     return text.substring(0, maxLength) + '...';
-}
-
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
 }
 
 

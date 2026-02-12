@@ -295,6 +295,30 @@ select {
     box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
 }
 
+/* Prompt 输入框样式 */
+.global-prompt-input {
+    width: 100%;
+    padding: 12px 14px;
+    margin: 10px 0;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #1e293b;
+    background: #f8fafc;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.global-prompt-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    background: #fff;
+}
+
+.global-prompt-input::placeholder {
+    color: #94a3b8;
+}
+
 /* 移动端适配 */
 @media (max-width: 768px) {
     .global-confirm-overlay {

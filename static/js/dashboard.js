@@ -1650,13 +1650,6 @@ async function unbindTelegramId() {
             }
         }
         
-        // HTML转义函数
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-        
         // 切换公告折叠状态
         function toggleAnnouncementsCollapse() {
             const list = document.getElementById('announcementsList');
@@ -5193,12 +5186,6 @@ async function unbindTelegramId() {
             `).join('');
         }
         
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-        
         function toggleFAQ(element) {
             const faqItem = element.parentElement;
             faqItem.classList.toggle('active');
@@ -6067,13 +6054,6 @@ async function unbindTelegramId() {
                     </div>
                 </div>
             `;
-        }
-        
-        function escapeHtml(text) {
-            if (!text) return '';
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
         }
         
         async function refreshPlaybackData() {

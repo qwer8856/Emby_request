@@ -123,6 +123,22 @@
 
     global.showToast = showToast;
     global.showConfirm = showConfirm;
+
+    /**
+     * HTML 转义函数（防 XSS）
+     * @param {string} text - 需要转义的文本
+     * @returns {string} 转义后的安全文本
+     */
+    function escapeHtml(text) {
+        if (text === undefined || text === null) return '';
+        return text.toString()
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+    global.escapeHtml = escapeHtml;
     
     /**
      * 显示输入弹窗
@@ -165,7 +181,7 @@
                     <div class="global-confirm-icon">${displayIcon}</div>
                     <h3 class="global-confirm-title">${title}</h3>
                     ${message ? `<p class="global-confirm-message">${message.replace(/\n/g, '<br>')}</p>` : ''}
-                    <input type="text" class="global-prompt-input" placeholder="${placeholder}" value="${defaultValue}" style="width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                    <input type="text" class="global-prompt-input" placeholder="${placeholder}" value="${defaultValue}">
                     <div class="global-confirm-buttons">
                         <button class="global-confirm-btn cancel">取消</button>
                         <button class="global-confirm-btn confirm ${type}">确定</button>
