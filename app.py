@@ -3318,7 +3318,13 @@ class EmbyClient:
             return False
 
     def get_all_users(self) -> list:
-        """获取所有 Emby 用户列表"""
+        """获取所有 Emby 用户列表（包括禁用和隐藏的用户）
+        
+        使用 API key 调用 GET /Users 不带 isDisabled/isHidden 过滤参数，
+        在 Jellyfin 中会返回所有用户。
+        某些 Emby 闭源版本可能不返回禁用/隐藏用户，
+        这种情况下 authenticate_user 中有额外的 fallback 机制处理。
+        """
         if not self.is_enabled():
             return []
         
@@ -3332,27 +3338,75 @@ class EmbyClient:
             app.logger.error(f'获取 Emby 用户列表失败: {e}')
             return []
 
+    def get_user_by_id(self, emby_user_id: str) -> Optional[dict]:
+        """通过 Emby 用户 ID 直接获取用户信息
+        
+        使用 GET /Users/{id} 直接获取，不受 /Users 列表过滤规则影响。
+        可以获取到禁用/隐藏用户的信息。
+        """
+        if not self.is_enabled() or not emby_user_id:
+            return None
+        
+        try:
+            url = f"{self.base_url}/Users/{emby_user_id}"
+            params = {'api_key': self.api_key}
+            response = self.session.get(url, params=params, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                app.logger.debug(f'通过 ID 获取 Emby 用户失败: {emby_user_id}, status={response.status_code}')
+                return None
+        except Exception as e:
+            app.logger.error(f'通过 ID 获取 Emby 用户异常: {emby_user_id}, error={e}')
+            return None
+
     def get_user_by_name(self, username: str) -> Optional[dict]:
-        """通过用户名查找 Emby 用户"""
+        """通过用户名查找 Emby 用户
+        
+        某些 Emby 闭源版本的 GET /Users 可能不返回禁用/隐藏用户，
+        因此在主列表找不到时，会额外查询 IsDisabled=true 和 IsHidden=true 的用户列表。
+        """
         if not self.is_enabled() or not username:
             return None
         
         try:
+            # 第一步：从主用户列表查找
             users = self.get_all_users()
             for user in users:
                 if user.get('Name', '').lower() == username.lower():
                     return user
+            
+            # 第二步：主列表找不到，尝试查找禁用和隐藏用户
+            # （某些 Emby 版本的 /Users 默认不返回禁用/隐藏用户）
+            for filter_param in [{'IsDisabled': 'true'}, {'IsHidden': 'true'}]:
+                try:
+                    url = f"{self.base_url}/Users"
+                    params = {'api_key': self.api_key}
+                    params.update(filter_param)
+                    resp = self.session.get(url, params=params, timeout=10)
+                    if resp.status_code == 200:
+                        filtered_users = resp.json()
+                        if isinstance(filtered_users, list):
+                            for user in filtered_users:
+                                if user.get('Name', '').lower() == username.lower():
+                                    app.logger.info(f'在 {filter_param} 用户列表中找到用户: {username}')
+                                    return user
+                except Exception as e:
+                    app.logger.debug(f'查询 {filter_param} 用户列表失败（忽略）: {e}')
+            
             return None
         except Exception as e:
             app.logger.error(f'查找 Emby 用户失败: {e}')
             return None
 
-    def authenticate_user(self, username: str, password: str) -> dict:
+    def authenticate_user(self, username: str, password: str, fallback_emby_id: str = None) -> dict:
         """验证 Emby 用户账号密码
         
         Args:
             username: 用户名
             password: 密码
+            fallback_emby_id: 可选的 Emby 用户 ID，当通过用户名找不到用户时用于直接查找
+                              （用于绑定已迁移的账号场景，数据库中可能保存了旧的 embyid）
             
         Returns:
             dict: 包含验证结果的字典
@@ -3394,13 +3448,85 @@ class EmbyClient:
                     'access_token': result.get('AccessToken')
                 }
             elif response.status_code == 401:
-                # 401 可能是用户名不存在或密码错误，尝试区分
-                # 通过查询用户列表来判断是用户不存在还是密码错误
+                # 401 可能是用户名不存在、密码错误、或账号被禁用
+                # 通过管理员 API 查询用户来区分原因
                 existing_user = self.get_user_by_name(username)
                 if existing_user:
-                    app.logger.warning(f'Emby 用户密码错误: {username}')
-                    return {'success': False, 'error': 'Emby 密码不正确', 'error_type': 'wrong_password'}
+                    # 检查是否因为账号被禁用导致认证失败
+                    is_disabled = existing_user.get('Policy', {}).get('IsDisabled', False)
+                    if is_disabled:
+                        # 账号被禁用，临时启用后重试认证
+                        emby_user_id = existing_user.get('Id')
+                        app.logger.info(f'Emby 用户 {username} 被禁用，临时启用后重试认证')
+                        
+                        if self.enable_user(emby_user_id):
+                            # 重试认证
+                            retry_resp = requests.post(url, json=data, headers=headers, timeout=10)
+                            
+                            if retry_resp.status_code == 200:
+                                result = retry_resp.json()
+                                user_info = result.get('User', {})
+                                app.logger.info(f'Emby 用户验证成功（临时启用后）: {username}')
+                                
+                                # 认证成功后把 Emby 账号重新禁用（保持原状态）
+                                # 调用方（如绑定接口）会根据用户订阅状态决定是否启用
+                                self.disable_user(emby_user_id)
+                                
+                                return {
+                                    'success': True,
+                                    'id': user_info.get('Id'),
+                                    'name': user_info.get('Name'),
+                                    'access_token': result.get('AccessToken'),
+                                    'was_disabled': True  # 标记：该账号在 Emby 上是禁用状态
+                                }
+                            else:
+                                # 密码确实错误，恢复禁用
+                                self.disable_user(emby_user_id)
+                                app.logger.warning(f'Emby 用户密码错误（临时启用后确认）: {username}')
+                                return {'success': False, 'error': 'Emby 密码不正确', 'error_type': 'wrong_password'}
+                        else:
+                            app.logger.warning(f'临时启用 Emby 用户失败: {username}')
+                            return {'success': False, 'error': 'Emby 账号已被禁用，启用失败，请联系管理员', 'error_type': 'user_disabled'}
+                    else:
+                        app.logger.warning(f'Emby 用户密码错误: {username}')
+                        return {'success': False, 'error': 'Emby 密码不正确', 'error_type': 'wrong_password'}
                 else:
+                    # get_user_by_name 找不到用户，可能是 Emby API 未返回禁用/隐藏用户
+                    # 如果提供了 fallback_emby_id，尝试通过 ID 直接获取用户
+                    if fallback_emby_id:
+                        app.logger.info(f'通过用户名找不到 Emby 用户 {username}，尝试通过 fallback ID {fallback_emby_id} 查找')
+                        fallback_user = self.get_user_by_id(fallback_emby_id)
+                        if fallback_user and fallback_user.get('Name', '').lower() == username.lower():
+                            is_disabled = fallback_user.get('Policy', {}).get('IsDisabled', False)
+                            if is_disabled:
+                                # 通过 ID 找到了禁用用户，临时启用后重试
+                                app.logger.info(f'通过 fallback ID 找到禁用用户 {username}，临时启用后重试认证')
+                                if self.enable_user(fallback_emby_id):
+                                    retry_resp = requests.post(url, json=data, headers=headers, timeout=10)
+                                    if retry_resp.status_code == 200:
+                                        result = retry_resp.json()
+                                        user_info = result.get('User', {})
+                                        app.logger.info(f'Emby 用户验证成功（通过 fallback ID 临时启用后）: {username}')
+                                        self.disable_user(fallback_emby_id)
+                                        return {
+                                            'success': True,
+                                            'id': user_info.get('Id'),
+                                            'name': user_info.get('Name'),
+                                            'access_token': result.get('AccessToken'),
+                                            'was_disabled': True
+                                        }
+                                    else:
+                                        self.disable_user(fallback_emby_id)
+                                        app.logger.warning(f'Emby 用户密码错误（通过 fallback ID 临时启用后确认）: {username}')
+                                        return {'success': False, 'error': 'Emby 密码不正确', 'error_type': 'wrong_password'}
+                                else:
+                                    app.logger.warning(f'通过 fallback ID 临时启用 Emby 用户失败: {username}')
+                                    return {'success': False, 'error': 'Emby 账号已被禁用，启用失败，请联系管理员', 'error_type': 'user_disabled'}
+                            else:
+                                # 通过 ID 找到用户但未禁用，确实是密码错误
+                                app.logger.warning(f'Emby 用户密码错误（通过 fallback ID 确认用户存在）: {username}')
+                                return {'success': False, 'error': 'Emby 密码不正确', 'error_type': 'wrong_password'}
+                    
                     app.logger.warning(f'Emby 用户名或密码错误: {username}')
                     return {'success': False, 'error': 'Emby 用户名或密码不正确', 'error_type': 'wrong_password'}
             else:
@@ -7999,7 +8125,20 @@ def bind_emby_account():
             return jsonify({'success': False, 'error': 'Emby 服务器未配置'}), 500
         
         # 验证 Emby 账号密码
-        auth_result = emby_client.authenticate_user(username, password)
+        # 先查找数据库中是否有该 Emby 用户名的旧记录（可能从 embyboss 迁移过来的）
+        # 如果有 embyid，传给 authenticate_user 作为 fallback，
+        # 以便在 Emby API 列表中找不到禁用用户时，可以通过 ID 直接查找
+        fallback_emby_id = None
+        old_emby_record = User.query.filter(
+            User.tg != user.tg,
+            User.emby_name == username,
+            User.embyid.isnot(None)
+        ).first()
+        if old_emby_record:
+            fallback_emby_id = old_emby_record.embyid
+            app.logger.info(f'找到旧 Emby 记录: emby_name={username}, embyid={fallback_emby_id}, tg={old_emby_record.tg}')
+        
+        auth_result = emby_client.authenticate_user(username, password, fallback_emby_id=fallback_emby_id)
         if not auth_result.get('success'):
             # 返回详细的错误信息（账号不存在 or 密码错误）
             error_msg = auth_result.get('error', 'Emby 验证失败')
