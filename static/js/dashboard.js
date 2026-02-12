@@ -1093,7 +1093,12 @@ async function unbindTelegramId() {
                 const data = await response.json();
                 
                 if (data.success) {
-                    showToast('修改成功', 'Emby 密码已修改', 'success');
+                    if (data.partial) {
+                        // 反代受限，密码验证通过但 Emby 端未修改
+                        showToast('部分成功', data.message || '本地密码已更新，Emby 端需联系管理员', 'warning');
+                    } else {
+                        showToast('修改成功', 'Emby 密码已修改', 'success');
+                    }
                     // 清空表单
                     document.getElementById('changeEmbyPasswordForm').reset();
                 } else {
@@ -3052,18 +3057,196 @@ async function unbindTelegramId() {
                 });
                 checkSessionExpiry(response);
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.requests) {
-                        // 更新 allUserRequests 并重新渲染
-                        if (typeof allUserRequests !== 'undefined') {
-                            allUserRequests.length = 0;
-                            allUserRequests.push(...data.requests);
-                        }
-                        renderRequestRecords();
-                        showMessage('刷新成功', 'success');
-                    }
+                if (!response.ok) {
+                    showMessage('刷新失败', 'error');
+                    return;
                 }
+                
+                const data = await response.json();
+                if (!data.success) {
+                    showMessage(data.error || '刷新失败', 'error');
+                    return;
+                }
+                
+                const requestList = document.getElementById('requestList');
+                if (!requestList) return;
+                
+                const requests = data.requests || [];
+                
+                if (requests.length === 0) {
+                    requestList.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">📭</div>
+                            <div class="empty-title">暂无求片记录</div>
+                            <div class="empty-desc">在上方搜索框中搜索想看的影片，点击即可提交求片请求</div>
+                        </div>
+                    `;
+                    const paginationEl = document.getElementById('requestPagination');
+                    if (paginationEl) paginationEl.innerHTML = '';
+                    return;
+                }
+                
+                let html = '';
+                requests.forEach((req, index) => {
+                    const posterHTML = req.poster_url
+                        ? `<img src="${req.poster_url}" alt="${escapeHtml(req.title)}">`
+                        : `<div style="width: 80px; height: 120px; background: #ddd; border-radius: 5px; display: flex; align-items: center; justify-content: center;">🎬</div>`;
+                    
+                    const mediaTypeLabel = req.media_type === 'movie'
+                        ? '🎬 电影'
+                        : '📺 剧集';
+                    
+                    const scopeHTML = (req.media_type === 'tv' && req.request_scope)
+                        ? `<span style="font-size: 12px; background: #10b981; color: white; padding: 2px 8px; border-radius: 3px; margin-left: 4px;">📑 ${escapeHtml(req.request_scope)}</span>`
+                        : '';
+                    
+                    // 状态文本
+                    const statusMap = {
+                        'pending': '待处理',
+                        'approved': '已批准',
+                        'processing': '已批准',
+                        'completed': '已完成',
+                        'rejected': '已拒绝',
+                        'downloading': '下载中',
+                        'downloaded': '待入库',
+                        'failed': '下载失败'
+                    };
+                    const statusText = statusMap[req.status] || req.status;
+                    
+                    // 下载状态卡片
+                    let downloadCard = '';
+                    const dt = req.download_task;
+                    
+                    if (req.status === 'downloading' && dt) {
+                        if (dt.progress && dt.progress >= 100) {
+                            downloadCard = `
+                                <div class="download-status-card pending-release">
+                                    <div class="card-header">
+                                        <span class="icon">📦</span>
+                                        <span class="title">下载完成</span>
+                                        <span class="badge">待入库</span>
+                                    </div>
+                                    <div class="download-progress completed" data-request-id="${req.id}">
+                                        <div class="progress-track">
+                                            <div class="progress-fill" style="width: 100%;"></div>
+                                        </div>
+                                        <div class="progress-meta">
+                                            <span class="progress-value" style="color: #f59e0b;">✅ 已下载完成</span>
+                                        </div>
+                                    </div>
+                                </div>`;
+                        } else {
+                            const progress = dt.progress ? dt.progress.toFixed(1) : '0.0';
+                            const speed = dt.download_speed || 0;
+                            const eta = dt.eta !== null && dt.eta !== undefined ? dt.eta : -1;
+                            downloadCard = `
+                                <div class="download-status-card downloading" data-request-id="${req.id}">
+                                    <div class="card-header">
+                                        <span class="icon">⬇️</span>
+                                        <span class="title">正在下载</span>
+                                        <span class="badge">进行中</span>
+                                    </div>
+                                    <div class="download-progress" data-request-id="${req.id}" data-progress="${progress}" data-speed="${speed}" data-eta="${eta}">
+                                        <div class="progress-track">
+                                            <div class="progress-fill" style="width: ${progress}%;"></div>
+                                        </div>
+                                        <div class="progress-meta">
+                                            <span class="progress-value">${progress}%</span>
+                                            <span class="progress-speed">0 B/s</span>
+                                            <span class="progress-eta">ETA --:--:--</span>
+                                        </div>
+                                    </div>
+                                </div>`;
+                        }
+                    } else if (req.status === 'downloaded') {
+                        downloadCard = `
+                            <div class="download-status-card pending-release">
+                                <div class="card-header">
+                                    <span class="icon">📦</span>
+                                    <span class="title">下载完成</span>
+                                    <span class="badge">待入库</span>
+                                </div>
+                                <div class="pending-message">
+                                    <div class="spinner"></div>
+                                    <span>资源已下载完成，等待入库到媒体库...</span>
+                                </div>
+                            </div>`;
+                    } else if (req.status === 'completed') {
+                        downloadCard = `
+                            <div class="download-status-card completed">
+                                <div class="card-header">
+                                    <span class="icon">✅</span>
+                                    <span class="title">已入库</span>
+                                    <span class="badge">完成</span>
+                                </div>
+                                <div class="complete-message">
+                                    <span>🎉 资源已成功上架，可前往媒体库观看！</span>
+                                </div>
+                            </div>`;
+                    } else if (req.status === 'failed' && dt) {
+                        const errMsg = escapeHtml(dt.error_message || '下载过程中出现错误');
+                        const retryCount = dt.retry_count || 0;
+                        const maxRetries = dt.max_retries || 3;
+                        const retryHTML = retryCount < maxRetries
+                            ? `<button class="retry-btn" onclick="retryDownload(${req.id}, this)"><span class="retry-icon">🔄</span> 重试下载 (${retryCount}/${maxRetries})</button>`
+                            : `<p class="retry-exhausted">已达到最大重试次数 (${maxRetries}次)</p>`;
+                        downloadCard = `
+                            <div class="download-status-card failed" data-request-id="${req.id}">
+                                <div class="card-header">
+                                    <span class="icon">❌</span>
+                                    <span class="title">下载失败</span>
+                                    <span class="badge failed-badge">失败</span>
+                                </div>
+                                <div class="failed-message">
+                                    <p class="error-text">${errMsg}</p>
+                                    ${retryHTML}
+                                </div>
+                            </div>`;
+                    }
+                    
+                    const overview = req.overview
+                        ? escapeHtml(req.overview.length > 100 ? req.overview.substring(0, 100) + '...' : req.overview)
+                        : '';
+                    
+                    const userNoteHTML = req.user_note
+                        ? `<p style="margin-top: 5px; font-size: 12px; color: #3b82f6;">💬 我的备注: ${escapeHtml(req.user_note)}</p>`
+                        : '';
+                    const adminNoteHTML = req.admin_note
+                        ? `<p style="margin-top: 5px; font-size: 12px; color: #e74c3c;">📝 管理员备注: ${escapeHtml(req.admin_note)}</p>`
+                        : '';
+                    
+                    html += `
+                        <div class="request-item" data-index="${index}" data-request-id="${req.id}">
+                            ${posterHTML}
+                            <div class="details">
+                                <h3>${escapeHtml(req.title)} (${req.year || ''}) 
+                                    <span style="font-size: 12px; background: #3b82f6; color: white; padding: 2px 8px; border-radius: 3px; margin-left: 8px;">
+                                        ${mediaTypeLabel}
+                                    </span>
+                                    ${scopeHTML}
+                                </h3>
+                                <p>${overview}</p>
+                                <span class="status ${req.status}">${statusText}</span>
+                                ${downloadCard}
+                                <p style="margin-top: 10px; font-size: 12px; color: #999;">
+                                    求片时间: ${req.created_at || ''}
+                                </p>
+                                ${userNoteHTML}
+                                ${adminNoteHTML}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                requestList.innerHTML = html;
+                
+                // 重新初始化分页
+                requestCurrentPage = 1;
+                initRequestPagination();
+                
+                // 重新初始化下载进度监控
+                initDownloadProgressWatcher();
+                
             } catch (error) {
                 console.error('刷新失败:', error);
                 showMessage('刷新失败', 'error');

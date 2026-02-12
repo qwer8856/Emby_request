@@ -108,6 +108,10 @@ select {
     border-left: 4px solid #3b82f6;
 }
 
+.toast.warning {
+    border-left: 4px solid #f39c12;
+}
+
 /* Toast 移动端适配 */
 @media (max-width: 768px) {
     .toast {

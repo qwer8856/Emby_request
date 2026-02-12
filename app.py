@@ -3799,7 +3799,10 @@ class EmbyClient:
         兼容不同 Emby 版本和反向代理配置：
         - 方式1: 管理员 API key + POST /Users/{UserId}/Password
         - 方式2: 用户凭证认证获取 token，再用用户 token 修改
-        - 方式3 (fallback): 管理员 API key 重置密码后设新密码
+        - 方式3 (fallback): 管理员先重置密码为空，再设置新密码
+        
+        当反向代理拦截 /Users/{id}/Password 路径导致 404 时，
+        会标记为反代问题，避免将后续认证失败(401)误判为"密码不正确"。
         
         Args:
             user_id: Emby 用户 ID
@@ -3815,29 +3818,34 @@ class EmbyClient:
         
         try:
             params = {'api_key': self.api_key}
+            is_proxy_issue = False  # 标记是否是反向代理 404 问题
             
             # 尝试获取 Emby 用户信息（用于获取用户名，方式2/3需要用户名认证）
-            # 某些 Emby 版本或反向代理配置下 GET /Users/{id} 可能返回 404
-            # 此时不放弃，使用传入的 emby_username 继续
             check_url = f"{self.base_url}/Users/{user_id}"
-            check_resp = self.session.get(check_url, params=params, timeout=10)
-            if check_resp.status_code == 200:
-                emby_user = check_resp.json()
-                emby_username = emby_user.get('Name', '') or emby_username or ''
-            else:
-                app.logger.warning(f'获取 Emby 用户信息失败（将继续尝试修改密码）: user_id={user_id}, status={check_resp.status_code}')
-                # 使用传入的 emby_username 作为 fallback
+            try:
+                check_resp = self.session.get(check_url, params=params, timeout=10)
+                if check_resp.status_code == 200:
+                    emby_user = check_resp.json()
+                    emby_username = emby_user.get('Name', '') or emby_username or ''
+                else:
+                    app.logger.warning(f'获取 Emby 用户信息失败（将继续尝试修改密码）: user_id={user_id}, status={check_resp.status_code}')
+                    if check_resp.status_code == 404:
+                        is_proxy_issue = True
+                    if not emby_username:
+                        app.logger.error(f'无法获取用户信息且无 fallback 用户名: user_id={user_id}')
+                        return False, 'Emby 服务器暂时无法访问，请稍后重试'
+            except Exception as e:
+                app.logger.warning(f'获取 Emby 用户信息异常: {e}')
                 if not emby_username:
-                    app.logger.error(f'无法获取用户信息且无 fallback 用户名: user_id={user_id}')
                     return False, 'Emby 服务器暂时无法访问，请稍后重试'
             
             # === 方式1: 管理员 API key 直接修改密码 ===
             url = f"{self.base_url}/Users/{user_id}/Password"
-            data = {
+            pwd_data = {
                 'CurrentPw': current_password,
                 'NewPw': new_password
             }
-            response = self.session.post(url, params=params, json=data, timeout=10)
+            response = self.session.post(url, params=params, json=pwd_data, timeout=10)
             
             if response.status_code in [200, 204]:
                 app.logger.info(f'Emby 密码修改成功 (方式1-API key): user_id={user_id}')
@@ -3845,49 +3853,58 @@ class EmbyClient:
             elif response.status_code == 403:
                 return False, '当前 Emby 密码不正确'
             
-            # 方式1 失败（可能是反向代理拦截 POST 或 Emby 版本不支持 API key 改密码）
             resp_text = response.text[:200] if response.text else ''
             app.logger.warning(f'方式1修改密码失败: status={response.status_code}, body={resp_text}')
             
-            # === 方式2: 用用户凭证认证获取 AccessToken，再用 token 修改密码 ===
-            try:
-                auth_url = f"{self.base_url}/Users/AuthenticateByName"
-                auth_headers = {
-                    'Content-Type': 'application/json',
-                    'X-Emby-Authorization': 'Emby Client="Emby Request Panel", Device="Server", DeviceId="emby-request-panel", Version="1.0.0"'
-                }
-                auth_data = {
-                    'Username': emby_username,
-                    'Pw': current_password
-                }
-                auth_resp = requests.post(auth_url, json=auth_data, headers=auth_headers, timeout=10)
-                
-                if auth_resp.status_code in [401, 403]:
-                    return False, '当前 Emby 密码不正确'
-                
-                if auth_resp.status_code == 200:
-                    user_token = auth_resp.json().get('AccessToken')
-                    if user_token:
-                        pwd_headers = {
-                            'Content-Type': 'application/json',
-                            'X-Emby-Token': user_token
-                        }
-                        pwd_resp = requests.post(url, json=data, headers=pwd_headers, timeout=10)
-                        
-                        if pwd_resp.status_code in [200, 204]:
-                            app.logger.info(f'Emby 密码修改成功 (方式2-用户token): user_id={user_id}')
-                            return True, '密码修改成功'
-                        elif pwd_resp.status_code == 403:
-                            return False, '当前 Emby 密码不正确'
-                        app.logger.warning(f'方式2修改密码失败: status={pwd_resp.status_code}')
-                else:
-                    app.logger.warning(f'用户认证失败: status={auth_resp.status_code}')
-            except Exception as e2:
-                app.logger.warning(f'方式2异常: {e2}')
+            # 检查方式1是否因反代 404 失败
+            if response.status_code == 404:
+                is_proxy_issue = True
             
-            # === 方式3 (fallback): 管理员重置密码 ===
+            # === 方式2: 用用户凭证认证获取 AccessToken，再用 token 修改密码 ===
+            # 如果已确认是反代问题（/Users/{id}/Password 被拦截），方式2也会失败在同一路径，跳过
+            if not is_proxy_issue:
+                try:
+                    auth_url = f"{self.base_url}/Users/AuthenticateByName"
+                    auth_headers = {
+                        'Content-Type': 'application/json',
+                        'X-Emby-Authorization': 'Emby Client="Emby Request Panel", Device="Server", DeviceId="emby-request-panel", Version="1.0.0"'
+                    }
+                    auth_data = {
+                        'Username': emby_username,
+                        'Pw': current_password
+                    }
+                    auth_resp = requests.post(auth_url, json=auth_data, headers=auth_headers, timeout=10)
+                    
+                    if auth_resp.status_code in [401, 403]:
+                        return False, '当前 Emby 密码不正确'
+                    
+                    if auth_resp.status_code == 200:
+                        user_token = auth_resp.json().get('AccessToken')
+                        if user_token:
+                            pwd_headers = {
+                                'Content-Type': 'application/json',
+                                'X-Emby-Token': user_token
+                            }
+                            pwd_resp = requests.post(url, json=pwd_data, headers=pwd_headers, timeout=10)
+                            
+                            if pwd_resp.status_code in [200, 204]:
+                                app.logger.info(f'Emby 密码修改成功 (方式2-用户token): user_id={user_id}')
+                                return True, '密码修改成功'
+                            elif pwd_resp.status_code == 403:
+                                return False, '当前 Emby 密码不正确'
+                            app.logger.warning(f'方式2修改密码失败: status={pwd_resp.status_code}')
+                    else:
+                        app.logger.warning(f'用户认证失败: status={auth_resp.status_code}')
+                except Exception as e2:
+                    app.logger.warning(f'方式2异常: {e2}')
+            else:
+                app.logger.info(f'跳过方式2（已确认反代拦截 /Users/{{id}}/Password）')
+            
+            # === 方式3 (fallback): 管理员先认证验证旧密码，再重置后设新密码 ===
             try:
                 # 先验证当前密码（通过认证接口），防止任意密码重置
+                # 注意：如果 Emby 账号被禁用，AuthenticateByName 会返回 401
+                # 此时不能直接判定为"密码不正确"
                 verify_url = f"{self.base_url}/Users/AuthenticateByName"
                 verify_headers = {
                     'Content-Type': 'application/json',
@@ -3895,24 +3912,94 @@ class EmbyClient:
                 }
                 verify_resp = requests.post(verify_url, json={'Username': emby_username, 'Pw': current_password}, 
                                           headers=verify_headers, timeout=10)
-                if verify_resp.status_code not in [200]:
-                    return False, '当前 Emby 密码不正确'
                 
-                # 管理员重置密码为空
-                reset_resp = self.session.post(url, params=params, 
-                                              json={'CurrentPw': '', 'NewPw': '', 'ResetPassword': True}, timeout=10)
-                if reset_resp.status_code not in [200, 204]:
-                    app.logger.error(f'管理员重置密码失败: status={reset_resp.status_code}')
-                    return False, '密码修改失败，请联系管理员'
+                password_verified = (verify_resp.status_code == 200)
                 
-                # 设置新密码（重置后当前密码为空）
-                set_resp = self.session.post(url, params=params, 
-                                            json={'CurrentPw': '', 'NewPw': new_password}, timeout=10)
-                if set_resp.status_code in [200, 204]:
-                    app.logger.info(f'Emby 密码修改成功 (方式3-管理员重置): user_id={user_id}')
-                    return True, '密码修改成功'
+                was_temporarily_enabled = False  # 标记是否临时启用了用户
                 
-                app.logger.error(f'设置新密码失败: status={set_resp.status_code}')
+                if not password_verified:
+                    # 认证失败，可能是密码错误，也可能是账号被禁用
+                    # 如果是反代问题环境，用户账号可能被禁用导致认证失败
+                    # 尝试临时启用后再验证
+                    if is_proxy_issue:
+                        app.logger.info(f'反代环境下认证失败(status={verify_resp.status_code})，尝试临时启用用户后重试')
+                        enabled_ok = self.enable_user(user_id)
+                        if enabled_ok:
+                            was_temporarily_enabled = True
+                            import time
+                            time.sleep(0.5)  # 等待 Emby 更新状态
+                            retry_verify = requests.post(verify_url, json={'Username': emby_username, 'Pw': current_password},
+                                                       headers=verify_headers, timeout=10)
+                            if retry_verify.status_code == 200:
+                                password_verified = True
+                                app.logger.info(f'临时启用后密码验证成功: {emby_username}')
+                            else:
+                                # 启用后仍然 401，密码确实错误
+                                self.disable_user(user_id)
+                                return False, '当前 Emby 密码不正确'
+                        else:
+                            # enable_user 也失败了（反代也拦截了 /Users/{id}），
+                            # 此时无法验证密码真伪，不能断言"密码不正确"
+                            app.logger.warning(f'临时启用用户失败（反代可能也拦截了 /Users/{{id}}），无法验证密码')
+                            # 直接返回 PROXY_UNVERIFIED，让调用方知道密码未验证
+                            return False, 'PROXY_UNVERIFIED:无法验证密码（Emby 服务器反向代理阻止了访问），请联系管理员检查反向代理配置后重试。'
+                    
+                    if not password_verified:
+                        return False, '当前 Emby 密码不正确'
+                
+                # 密码验证通过，使用管理员 API 重置密码
+                # 方式3a: 直接用 /Users/{id}/Password 重置（如果反代没拦截的话）
+                if not is_proxy_issue:
+                    reset_resp = self.session.post(url, params=params, 
+                                                  json={'CurrentPw': '', 'NewPw': '', 'ResetPassword': True}, timeout=10)
+                    if reset_resp.status_code in [200, 204]:
+                        set_resp = self.session.post(url, params=params, 
+                                                    json={'CurrentPw': '', 'NewPw': new_password}, timeout=10)
+                        if set_resp.status_code in [200, 204]:
+                            app.logger.info(f'Emby 密码修改成功 (方式3a-管理员重置): user_id={user_id}')
+                            if was_temporarily_enabled:
+                                self.disable_user(user_id)
+                            return True, '密码修改成功'
+                    app.logger.warning(f'方式3a重置失败: status={reset_resp.status_code}')
+                
+                # 方式3b: 用认证获取的 token 修改密码
+                # 密码验证通过说明用户当前可认证，用 token 尝试修改
+                if password_verified:
+                    try:
+                        token_resp = requests.post(verify_url, json={'Username': emby_username, 'Pw': current_password},
+                                                 headers=verify_headers, timeout=10)
+                        if token_resp.status_code == 200:
+                            user_token = token_resp.json().get('AccessToken')
+                            user_info = token_resp.json().get('User', {})
+                            actual_user_id = user_info.get('Id', user_id)
+                            
+                            if user_token:
+                                token_pwd_url = f"{self.base_url}/Users/{actual_user_id}/Password"
+                                token_headers = {
+                                    'Content-Type': 'application/json',
+                                    'X-Emby-Token': user_token
+                                }
+                                token_pwd_resp = requests.post(token_pwd_url, json=pwd_data, headers=token_headers, timeout=10)
+                                
+                                if token_pwd_resp.status_code in [200, 204]:
+                                    app.logger.info(f'Emby 密码修改成功 (方式3b-用户token): user_id={user_id}')
+                                    if was_temporarily_enabled:
+                                        self.disable_user(user_id)
+                                    return True, '密码修改成功'
+                                app.logger.warning(f'方式3b修改密码失败: status={token_pwd_resp.status_code}')
+                    except Exception as e3b:
+                        app.logger.warning(f'方式3b异常: {e3b}')
+                
+                # 恢复临时启用的用户
+                if was_temporarily_enabled:
+                    self.disable_user(user_id)
+                
+                # 所有 Emby API 方式都失败
+                if is_proxy_issue:
+                    app.logger.error(f'反向代理拦截了 Emby 密码修改路径，所有方式均失败: user_id={user_id}')
+                    # 密码已验证正确，返回特殊标记让调用方可以更新本地 pwd2
+                    return False, 'PROXY_BLOCKED:密码验证通过，但 Emby 服务器反向代理阻止了密码修改。已更新本地记录，Emby 端密码需联系管理员修改。'
+                
                 return False, '密码修改失败，请联系管理员'
             except Exception as e3:
                 app.logger.error(f'方式3异常: {e3}')
@@ -8008,6 +8095,21 @@ def change_emby_password():
             app.logger.info(f'Emby 密码已修改: {user.name} (embyid={user.embyid})')
             log_user_activity(UserActivityLog.ACTION_PASSWORD_CHANGE, user=user, detail='修改Emby密码')
             return jsonify({'success': True, 'message': 'Emby 密码修改成功'}), 200
+        elif message.startswith('PROXY_BLOCKED:'):
+            # 反代环境下密码验证通过但 Emby API 无法修改
+            # 更新本地 pwd2 记录（密码已验证正确，本地保持同步）
+            user.pwd2 = new_password
+            db.session.commit()
+            
+            user_msg = message.replace('PROXY_BLOCKED:', '')
+            app.logger.warning(f'Emby 密码因反代无法修改，已更新本地记录: {user.name} (embyid={user.embyid})')
+            log_user_activity(UserActivityLog.ACTION_PASSWORD_CHANGE, user=user, detail='修改Emby密码(反代受限,仅更新本地)')
+            return jsonify({'success': True, 'message': user_msg, 'partial': True}), 200
+        elif message.startswith('PROXY_UNVERIFIED:'):
+            # 反代环境下连密码都无法验证，不更新本地 pwd2
+            user_msg = message.replace('PROXY_UNVERIFIED:', '')
+            app.logger.warning(f'Emby 密码因反代无法验证: {user.name} (embyid={user.embyid})')
+            return jsonify({'success': False, 'error': user_msg}), 400
         else:
             return jsonify({'success': False, 'error': message}), 400
         
@@ -17360,7 +17462,10 @@ def api_my_requests():
             item['download_task'] = {
                 'progress': req.download_task.progress,
                 'download_speed': req.download_task.download_speed,
-                'eta': req.download_task.eta
+                'eta': req.download_task.eta,
+                'error_message': req.download_task.error_message if hasattr(req.download_task, 'error_message') else None,
+                'retry_count': req.download_task.retry_count if hasattr(req.download_task, 'retry_count') else 0,
+                'max_retries': req.download_task.max_retries if hasattr(req.download_task, 'max_retries') else 3
             }
         
         results.append(item)
