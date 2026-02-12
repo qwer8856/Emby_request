@@ -2744,7 +2744,8 @@ function renderUsers(users) {
                     <option value="subscribed" ${currentType === 'subscribed' ? 'disabled style="color:#999;"' : ''}>⭐ 订阅用户${currentType === 'subscribed' ? ' ✓' : ''}</option>
                     <option value="normal" ${currentType === 'normal' ? 'disabled style="color:#999;"' : ''}>👤 非订阅用户${currentType === 'normal' ? ' ✓' : ''}</option>
                 </select>
-                ${user.level === 'c' ? `<button class="btn-action success" onclick="unbanUser(${user.id}, '${escapeHtml(user.name || '')}')">解除禁用</button>` : isEmbyBanned ? `<button class="btn-action success" style="background:#ff9800;border-color:#ff9800;" onclick="unbanUser(${user.id}, '${escapeHtml(user.name || '')}')">解除Emby封禁</button>` : `<button class="btn-action danger" onclick="banUser(${user.id}, '${escapeHtml(user.name || '')}')">禁用</button>`}
+                ${user.level === 'c' ? `<button class="btn-action success" onclick="unbanWebsite(${user.id}, '${escapeHtml(user.name || '')}')">解除网站封禁</button>` : `<button class="btn-action danger" onclick="banWebsite(${user.id}, '${escapeHtml(user.name || '')}')">禁用网站</button>`}
+                ${isEmbyBanned ? `<button class="btn-action success" style="background:#ff9800;border-color:#ff9800;" onclick="unbanEmby(${user.id}, '${escapeHtml(user.name || '')}')">解除Emby封禁</button>` : `<button class="btn-action danger" style="background:#e65100;border-color:#e65100;" onclick="banEmby(${user.id}, '${escapeHtml(user.name || '')}')">禁用Emby</button>`}
             </td>
         </tr>
     `}).join('');
@@ -2927,10 +2928,11 @@ async function setUserType(userId, userType, currentType) {
     }
 }
 
-async function banUser(userId, userName) {
+// ========== 网站封禁（lv='c'，无法登录） ==========
+async function banWebsite(userId, userName) {
     const confirmed = await showConfirm({
-        title: '禁用用户',
-        message: `确定要禁用用户「${userName}」吗？\n\n禁用后：\n• 用户无法使用 Emby 播放\n• Emby 账号将被停用`,
+        title: '禁用网站（无法登录）',
+        message: `确定要禁用用户「${userName}」的网站访问权限吗？\n\n禁用后：\n• 用户无法登录网站\n• Emby 账号将被停用\n• 所有会话将被踢出`,
         confirmText: '确定禁用',
         type: 'danger'
     });
@@ -2945,7 +2947,7 @@ async function banUser(userId, userName) {
         const data = await response.json();
         
         if (data.success) {
-            showToast('成功', '用户已禁用', 'success');
+            showToast('成功', '已禁用网站访问', 'success');
             loadUsers();
         } else {
             showToast('失败', data.error || '操作失败', 'error');
@@ -2955,10 +2957,10 @@ async function banUser(userId, userName) {
     }
 }
 
-async function unbanUser(userId, userName) {
+async function unbanWebsite(userId, userName) {
     const confirmed = await showConfirm({
-        title: '解除用户禁用',
-        message: `确定要解除用户 "${userName}" 的禁用状态吗？\n\n将执行以下操作：\n• 恢复封禁前的等级和到期时间\n• 恢复 Emby 账号\n• 解除该用户所有设备的黑名单`,
+        title: '解除网站封禁',
+        message: `确定要解除用户「${userName}」的网站封禁吗？\n\n将执行以下操作：\n• 恢复封禁前的等级和到期时间\n• 恢复 Emby 账号\n• 恢复暂停的订阅\n• 解除设备黑名单`,
         confirmText: '确定解除',
         type: 'warning'
     });
@@ -2968,21 +2970,74 @@ async function unbanUser(userId, userName) {
         const response = await fetch(`/api/admin/users/${userId}/unban`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ restore_original: true })  // 恢复原先状态
+            body: JSON.stringify({ restore_original: true })
         });
         const data = await response.json();
         
         if (data.success) {
-            let message = data.message || '用户已解除禁用';
-            if (data.emby_restored) {
-                message += '\n✅ Emby 账号已恢复';
-            } else if (data.emby_error) {
-                message += `\n⚠️ ${data.emby_error}`;
-            }
-            if (data.devices_unblocked > 0) {
-                message += `\n已解除 ${data.devices_unblocked} 个设备的黑名单`;
-            }
+            let message = data.message || '已解除网站封禁';
+            if (data.emby_restored) message += '\n✅ Emby 账号已恢复';
+            else if (data.emby_error) message += `\n⚠️ ${data.emby_error}`;
+            if (data.devices_unblocked > 0) message += `\n已解除 ${data.devices_unblocked} 个设备的黑名单`;
             showToast('成功', message, data.emby_error ? 'warning' : 'success');
+            loadUsers();
+        } else {
+            showToast('失败', data.error || '操作失败', 'error');
+        }
+    } catch (error) {
+        showToast('网络错误', error.message, 'error');
+    }
+}
+
+// ========== Emby封禁（仅禁用Emby，不影响网站登录） ==========
+async function banEmby(userId, userName) {
+    const confirmed = await showConfirm({
+        title: '禁用Emby（仅Emby）',
+        message: `确定要禁用用户「${userName}」的Emby账号吗？\n\n禁用后：\n• Emby 播放功能不可用\n• 用户仍可正常登录网站面板`,
+        confirmText: '确定禁用',
+        type: 'warning'
+    });
+    if (!confirmed) return;
+    
+    try {
+        const response = await fetch(`/api/admin/users/${userId}/ban-emby`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: '管理员手动封禁Emby' })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('成功', data.message || '已禁用Emby', 'success');
+            loadUsers();
+        } else {
+            showToast('失败', data.error || '操作失败', 'error');
+        }
+    } catch (error) {
+        showToast('网络错误', error.message, 'error');
+    }
+}
+
+async function unbanEmby(userId, userName) {
+    const confirmed = await showConfirm({
+        title: '解除Emby封禁',
+        message: `确定要解除用户「${userName}」的Emby封禁吗？\n\n将执行以下操作：\n• 恢复 Emby 账号\n• 恢复暂停的订阅\n• 解除设备黑名单`,
+        confirmText: '确定解除',
+        type: 'warning'
+    });
+    if (!confirmed) return;
+    
+    try {
+        const response = await fetch(`/api/admin/users/${userId}/unban-emby`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            let message = data.message || '已解除Emby封禁';
+            if (data.devices_unblocked > 0) message += `\n已解除 ${data.devices_unblocked} 个设备的黑名单`;
+            showToast('成功', message, 'success');
             loadUsers();
         } else {
             showToast('失败', data.error || '操作失败', 'error');

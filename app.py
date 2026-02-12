@@ -22794,6 +22794,109 @@ def admin_toggle_user_role(user_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/admin/users/<int:user_id>/ban-emby', methods=['POST'])
+@admin_required
+def admin_ban_emby(user_id):
+    """手动封禁用户的 Emby 账号（不影响网站登录）
+    
+    仅禁用 Emby，不改 lv，用户仍可登录面板
+    """
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        if user.ban_reason:
+            return jsonify({'success': False, 'error': 'Emby 已处于封禁状态'}), 400
+        
+        data = request.get_json() or {}
+        reason = data.get('reason', '管理员手动封禁Emby')
+        
+        # 保存封禁前状态
+        user.ban_prev_lv = user.lv
+        user.ban_prev_ex = user.ex
+        user.ban_time = datetime.now()
+        user.ban_reason = reason
+        
+        # 暂停活跃订阅
+        active_subs = Subscription.query.filter_by(user_tg=user.tg, status='active').all()
+        for sub in active_subs:
+            sub.status = 'suspended'
+        
+        # 禁用 Emby 账号并踢出会话
+        emby_disabled = False
+        if user.embyid and emby_client.is_enabled():
+            emby_disabled = emby_client.disable_user(user.embyid)
+            emby_client.kill_user_sessions(user.embyid)
+        
+        db.session.commit()
+        
+        app.logger.info(f'管理员手动封禁Emby: 用户={user.name}, 原因={reason}')
+        log_admin_audit('user_ban_emby', detail=f'封禁用户 {user.name} 的Emby账号，原因: {reason}', target_type='user', target_id=user.tg)
+        
+        return jsonify({
+            'success': True,
+            'message': f'已封禁用户 {user.name} 的 Emby 账号',
+            'emby_disabled': emby_disabled
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'封禁Emby失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/unban-emby', methods=['POST'])
+@admin_required
+def admin_unban_emby(user_id):
+    """解除用户的 Emby 封禁（仅清除 ban_reason 并恢复 Emby，不改 lv）"""
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'error': '用户不存在'}), 404
+        
+        if not user.ban_reason:
+            return jsonify({'success': False, 'error': 'Emby 未处于封禁状态'}), 400
+        
+        # 清除封禁信息
+        user.ban_reason = None
+        user.ban_time = None
+        user.ban_prev_lv = None
+        user.ban_prev_ex = None
+        
+        # 恢复 Emby 账号
+        emby_restored = False
+        if user.embyid and emby_client.is_enabled():
+            emby_restored = emby_client.enable_user(user.embyid)
+        
+        # 恢复暂停的订阅
+        suspended_subs = Subscription.query.filter_by(user_tg=user.tg, status='suspended').all()
+        for sub in suspended_subs:
+            sub.status = 'active'
+        
+        # 解除设备黑名单
+        blocked_devices = UserDevice.query.filter_by(user_tg=user.tg, is_blocked=True).all()
+        unblocked_count = 0
+        for device in blocked_devices:
+            device.is_blocked = False
+            unblocked_count += 1
+        
+        db.session.commit()
+        
+        app.logger.info(f'管理员解除Emby封禁: 用户={user.name}')
+        log_admin_audit('user_unban_emby', detail=f'解除用户 {user.name} 的Emby封禁', target_type='user', target_id=user.tg)
+        
+        return jsonify({
+            'success': True,
+            'message': f'已解除用户 {user.name} 的 Emby 封禁',
+            'emby_restored': emby_restored,
+            'devices_unblocked': unblocked_count
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'解除Emby封禁失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/admin/users/<int:user_id>/set-type', methods=['POST'])
 @admin_required
 def admin_set_user_type(user_id):
