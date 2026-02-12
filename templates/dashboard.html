@@ -190,6 +190,15 @@
                     <p>您的账号因违反使用规则已被禁用，无法使用 Emby 播放功能。如有疑问，请联系管理员。</p>
                 </div>
             </div>
+            {% elif emby_disabled_by_blacklist %}
+            <!-- Emby被黑名单规则禁用提示 -->
+            <div class="banned-alert" style="background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%); border-left: 4px solid #ff9800;">
+                <div class="banned-alert-icon">⚠️</div>
+                <div class="banned-alert-content">
+                    <h3 style="color: #e65100;">您的 Emby 账号已被禁用</h3>
+                    <p style="color: #bf360c;">原因：{{ user.ban_reason }}。您仍可登录面板，但 Emby 播放功能暂不可用。如有疑问，请联系管理员。</p>
+                </div>
+            </div>
             {% endif %}
             
             <!-- 系统公告区域 - 置顶显示 -->

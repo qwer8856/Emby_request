@@ -6979,8 +6979,8 @@ def login():
             except Exception:
                 pass  # 通知失败不影响登录
             
-            # 登录时检查：如果用户有有效订阅但 Emby 账号可能被禁用，自动恢复（封禁用户除外）
-            if user.lv != 'c' and user.embyid and emby_client.is_enabled():
+            # 登录时检查：如果用户有有效订阅但 Emby 账号可能被禁用，自动恢复（封禁用户和黑名单禁用用户除外）
+            if user.lv != 'c' and not user.ban_reason and user.embyid and emby_client.is_enabled():
                 is_whitelist = user.lv == 'a'
                 has_valid_sub = user.ex and user.ex > datetime.now()
                 if is_whitelist or has_valid_sub:
@@ -7970,10 +7970,10 @@ def bind_emby_account():
         
         # 如果用户有有效订阅或白名单，确保Emby账号在服务器上是启用状态
         # （用户可能从embyboss迁移过来，Emby服务器上账号可能仍处于禁用状态）
-        # 封禁用户除外，不自动恢复
+        # 封禁用户和黑名单禁用用户除外，不自动恢复
         is_whitelist = user.lv == 'a'
         has_valid_sub = user.ex and user.ex > datetime.now()
-        if user.lv != 'c' and (is_whitelist or has_valid_sub) and user.embyid and emby_client.is_enabled():
+        if user.lv != 'c' and not user.ban_reason and (is_whitelist or has_valid_sub) and user.embyid and emby_client.is_enabled():
             try:
                 if emby_client.enable_user(user.embyid):
                     app.logger.info(f'用户 {user.tg} 绑定时自动启用Emby账号: {emby_name}')
@@ -8276,8 +8276,10 @@ def dashboard():
             session.clear()
             return redirect(url_for('login'))
         
-        # 检查用户是否被封禁
+        # 检查用户是否被封禁（lv='c' 为全面封禁）
         is_banned = user.lv == 'c'
+        # 检查 Emby 账号是否被黑名单规则禁用（lv 未变但 ban_reason 有值）
+        emby_disabled_by_blacklist = bool(user.ban_reason and user.lv != 'c')
         
         today_count = user.get_today_request_count()
         
@@ -8353,6 +8355,7 @@ def dashboard():
                              bot_username=bot_username,
                              library_counts=library_counts,
                              is_banned=is_banned,
+                             emby_disabled_by_blacklist=emby_disabled_by_blacklist,
                              now=datetime.now(),
                              site_config=site_config,
                              invite_reward_enabled=invite_reward_enabled,
@@ -12228,7 +12231,10 @@ def emby_playback_webhook():
                             emby_user.ban_time = datetime.now()
                             emby_user.ban_reason = f'黑名单规则触发: {matched_rule.rule_name}'
                         
-                        # 暂停用户订阅（不禁用网站账号）
+                        # 注意：黑名单封禁只禁用 Emby 账号，不改 lv
+                        # 用户仍可登录面板，面板通过 ban_reason 显示 Emby 被禁用提示
+                        
+                        # 暂停用户订阅
                         for sub in active_subs:
                             sub.status = 'suspended'
                         
@@ -14645,7 +14651,8 @@ def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
             else:
                 # 非禁用用户领取赠送后，也需要恢复Emby账号
                 # （用户可能之前因过期被自动禁用了Emby，但账号等级仍是'b'）
-                if existing_user.embyid and emby_client.is_enabled():
+                # 黑名单禁用的用户不自动恢复
+                if not existing_user.ban_reason and existing_user.embyid and emby_client.is_enabled():
                     if emby_client.enable_user(existing_user.embyid):
                         app.logger.info(f'[Gift] 用户 {existing_user.emby_name or existing_user.name} 领取赠送后恢复Emby账号')
             
@@ -16234,13 +16241,18 @@ def batch_users():
                     source='gift'
                 )
                 db.session.add(sub)
-                # 恢复Emby账号（封禁用户不自动恢复，需管理员手动解封）
-                if user.lv != 'c' and user.embyid and emby_client.is_enabled():
+                # 恢复Emby账号（封禁用户和黑名单禁用用户不自动恢复）
+                if user.lv != 'c' and not user.ban_reason and user.embyid and emby_client.is_enabled():
                     emby_client.enable_user(user.embyid)
                 success_count += 1
             elif action == 'whitelist':
                 # 批量设为白名单
                 user.lv = 'a'
+                # 清除黑名单封禁信息
+                user.ban_reason = None
+                user.ban_time = None
+                user.ban_prev_lv = None
+                user.ban_prev_ex = None
                 # 恢复Emby账号
                 if user.embyid and emby_client.is_enabled():
                     emby_client.enable_user(user.embyid)
@@ -16395,8 +16407,8 @@ def batch_subscriptions():
                         source='gift'
                     )
                     db.session.add(sub)
-                    # 恢复Emby账号（封禁用户不自动恢复，需管理员手动解封）
-                    if user.lv != 'c' and user.embyid and emby_client.is_enabled():
+                    # 恢复Emby账号（封禁用户和黑名单禁用用户不自动恢复）
+                    if user.lv != 'c' and not user.ban_reason and user.embyid and emby_client.is_enabled():
                         emby_client.enable_user(user.embyid)
                     success_count += 1
                 else:
@@ -17754,6 +17766,7 @@ def use_redeem_code():
         _user_name = user.name
         _user_tg = user.tg
         _user_lv = user.lv
+        _user_ban_reason = user.ban_reason
         _display_name = user.emby_name or user.name or str(user.tg)
         _code_type = redeem.code_type
         _plan_type = redeem.plan_type
@@ -17762,8 +17775,8 @@ def use_redeem_code():
         # —— 耗时 IO 操作放入后台线程，主线程立即返回给用户 ——
         def _post_redeem_tasks():
             with app.app_context():
-                # 恢复 Emby 账号（封禁用户不自动恢复）
-                if _user_lv != 'c' and _emby_id and emby_client.is_enabled():
+                # 恢复 Emby 账号（封禁用户和黑名单禁用用户不自动恢复）
+                if _user_lv != 'c' and not _user_ban_reason and _emby_id and emby_client.is_enabled():
                     if emby_client.enable_user(_emby_id):
                         app.logger.info(f'用户 {_user_name} 兑换成功，已恢复Emby账号 {_emby_name}')
                 
@@ -18013,8 +18026,8 @@ def payment_notify():
             if user.lv not in ['a', 'b', 'c']:  # 白名单/普通用户不变，封禁用户保持封禁状态
                 user.lv = 'b'
             
-            # 恢复Emby账号（封禁用户不自动恢复，需管理员手动解封）
-            if user.lv != 'c' and user.embyid and emby_client.is_enabled():
+            # 恢复Emby账号（封禁用户和黑名单禁用用户不自动恢复）
+            if user.lv != 'c' and not user.ban_reason and user.embyid and emby_client.is_enabled():
                 if emby_client.enable_user(user.embyid):
                     app.logger.info(f'用户 {user.name} 续费成功，已恢复Emby账号')
             
@@ -18111,8 +18124,8 @@ def payment_callback():
                 # 邀请返利：检查是否有邀请人，给邀请人返利
                 process_invite_reward(user, purchased_days, source='支付回调')
                 
-                # 恢复Emby账号（如果之前因过期被禁用，封禁用户不自动恢复）
-                if user.lv != 'c' and user.embyid and emby_client.is_enabled():
+                # 恢复Emby账号（封禁用户和黑名单禁用用户不自动恢复）
+                if user.lv != 'c' and not user.ban_reason and user.embyid and emby_client.is_enabled():
                     if emby_client.enable_user(user.embyid):
                         app.logger.info(f'用户 {user.name} 支付成功，已恢复Emby账号')
             
@@ -18218,8 +18231,8 @@ def query_payment():
                         if user.lv not in ['a', 'b', 'c']:  # 白名单/普通用户不变，封禁用户保持封禁状态
                             user.lv = 'b'
                         
-                        # 恢复Emby账号（如果之前因过期被禁用，封禁用户不自动恢复）
-                        if user.lv != 'c' and user.embyid and emby_client.is_enabled():
+                        # 恢复Emby账号（封禁用户和黑名单禁用用户不自动恢复）
+                        if user.lv != 'c' and not user.ban_reason and user.embyid and emby_client.is_enabled():
                             if emby_client.enable_user(user.embyid):
                                 app.logger.info(f'用户 {user.name} 轮询确认支付成功，已恢复Emby账号')
                         
@@ -21179,11 +21192,12 @@ def exchange_plan():
         _emby_id = user.embyid
         _user_name = user.name
         _user_lv = user.lv
+        _user_ban_reason = user.ban_reason
         
         app.logger.info(f'用户兑换套餐成功: {_user_name}, 套餐: {plan_name}, 花费: {coins_cost}积分')
         
-        # —— Emby API 调用放入后台线程，不阻塞主请求（封禁用户不自动恢复） ——
-        if _user_lv != 'c' and _emby_id and emby_client.is_enabled():
+        # —— Emby API 调用放入后台线程，不阻塞主请求（封禁用户和黑名单禁用用户不自动恢复） ——
+        if _user_lv != 'c' and not _user_ban_reason and _emby_id and emby_client.is_enabled():
             def _restore_emby():
                 with app.app_context():
                     if emby_client.enable_user(_emby_id):
@@ -22425,7 +22439,9 @@ def admin_get_users():
         elif status_filter == 'normal':
             all_filtered_users = [u for u in all_filtered_users if u.lv != 'a' and u.lv != 'c' and (not u.ex or u.ex <= now)]
         elif status_filter == 'banned':
-            all_filtered_users = [u for u in all_filtered_users if u.lv == 'c']
+            all_filtered_users = [u for u in all_filtered_users if u.lv == 'c' or u.ban_reason]
+        elif status_filter == 'emby_banned':
+            all_filtered_users = [u for u in all_filtered_users if u.ban_reason and u.lv != 'c']
         
         # 手动分页
         total_filtered = len(all_filtered_users)
@@ -22468,7 +22484,9 @@ def admin_get_users():
                 'subscription_status': subscription_status,
                 'subscription_end': subscription_end,
                 'coins': user.coins or 0,
-                'created_at': user.cr.isoformat() if user.cr else None
+                'created_at': user.cr.isoformat() if user.cr else None,
+                'ban_reason': user.ban_reason,  # 黑名单封禁原因（lv未改但Emby被禁用）
+                'ban_time': user.ban_time.isoformat() if user.ban_time else None
             })
         
         return jsonify({
@@ -22817,6 +22835,11 @@ def admin_set_user_type(user_id):
         elif user_type == 'subscribed':
             # 设为订阅用户：只切换等级，不自动延长时间
             user.lv = 'b'
+            # 清除黑名单封禁信息（管理员明确操作）
+            user.ban_reason = None
+            user.ban_time = None
+            user.ban_prev_lv = None
+            user.ban_prev_ex = None
             message = '已设为订阅用户'
             
             # 启用 Emby 账号（如果之前被禁用）
@@ -22892,6 +22915,11 @@ def admin_unban_user(user_id):
                 new_level = 'b'
             user.lv = new_level
             restored_info['level'] = new_level
+            # 清空封禁信息
+            user.ban_prev_lv = None
+            user.ban_prev_ex = None
+            user.ban_time = None
+            user.ban_reason = None
         
         # 恢复 Emby 账号
         emby_restored = False
@@ -23549,8 +23577,8 @@ def admin_mark_order_paid(order_no):
         
         db.session.commit()
         
-        # 恢复Emby账号（如果之前因过期被禁用，封禁用户不自动恢复）
-        if user.lv != 'c' and user.embyid and emby_client.is_enabled():
+        # 恢复Emby账号（封禁用户和黑名单禁用用户不自动恢复）
+        if user.lv != 'c' and not user.ban_reason and user.embyid and emby_client.is_enabled():
             if emby_client.enable_user(user.embyid):
                 app.logger.info(f'管理员手动标记付款，已恢复用户 {user.name} 的Emby账号')
         
@@ -23672,8 +23700,8 @@ def admin_gift_subscription(user_id):
         
         db.session.commit()
         
-        # 恢复Emby账号（如果之前因过期被禁用，封禁用户不自动恢复）
-        if user.lv != 'c' and user.embyid and emby_client.is_enabled():
+        # 恢复Emby账号（封禁用户和黑名单禁用用户不自动恢复）
+        if user.lv != 'c' and not user.ban_reason and user.embyid and emby_client.is_enabled():
             if emby_client.enable_user(user.embyid):
                 app.logger.info(f'用户 {user.name} 获赠订阅，已恢复Emby账号')
         

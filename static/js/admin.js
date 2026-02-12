@@ -2692,10 +2692,11 @@ function renderUsers(users) {
         // 判断用户实际状态：白名单 / 订阅用户 / 非订阅用户
         const isWhitelist = user.level === 'a';
         const isBanned = user.level === 'c';
+        const isEmbyBanned = !isBanned && !!user.ban_reason;  // Emby被黑名单封禁（lv未改）
         const hasSubscription = user.subscription_status === 'active';
         const currentType = isWhitelist ? 'whitelist' : (hasSubscription ? 'subscribed' : 'normal');
         
-        // 角色显示：白名单 > 订阅用户 > 普通用户 > 已禁用
+        // 角色显示：已禁用 > 白名单 > 订阅用户 > 普通用户
         let roleDisplay, roleClass;
         if (isBanned) {
             roleDisplay = '已禁用';
@@ -2710,6 +2711,8 @@ function renderUsers(users) {
             roleDisplay = '普通用户';
             roleClass = '';
         }
+        // Emby封禁标记（附加在角色后面）
+        const embyBanBadge = isEmbyBanned ? ' <span class="status-badge" style="background:#fff3e0;color:#e65100;border:1px solid #ff9800;font-size:11px;padding:1px 6px;margin-left:4px;">Emby封禁</span>' : '';
         
         // 订阅状态显示
         let subscriptionDisplay;
@@ -2728,7 +2731,7 @@ function renderUsers(users) {
             <td data-label="用户名">${user.name || '-'}${user.emby_name && user.emby_name !== user.name ? ' <small style="color:#999;">(' + escapeHtml(user.emby_name) + ')</small>' : ''}</td>
             <td class="hide-mobile" data-label="Telegram">${user.telegram_id ? user.telegram_id : '<span style="color:#999;">未绑定</span>'}</td>
             <td data-label="角色">
-                <span class="status-badge ${roleClass}">${roleDisplay}</span>
+                <span class="status-badge ${roleClass}">${roleDisplay}</span>${embyBanBadge}
             </td>
             <td data-label="订阅">${subscriptionDisplay}</td>
             <td class="hide-mobile" data-label="${window._coinName || '积分'}">${user.coins || 0}</td>
@@ -2741,7 +2744,7 @@ function renderUsers(users) {
                     <option value="subscribed" ${currentType === 'subscribed' ? 'disabled style="color:#999;"' : ''}>⭐ 订阅用户${currentType === 'subscribed' ? ' ✓' : ''}</option>
                     <option value="normal" ${currentType === 'normal' ? 'disabled style="color:#999;"' : ''}>👤 非订阅用户${currentType === 'normal' ? ' ✓' : ''}</option>
                 </select>
-                ${user.level !== 'c' ? `<button class="btn-action danger" onclick="banUser(${user.id}, '${escapeHtml(user.name || '')}')">禁用</button>` : `<button class="btn-action success" onclick="unbanUser(${user.id}, '${escapeHtml(user.name || '')}')">解除禁用</button>`}
+                ${user.level === 'c' ? `<button class="btn-action success" onclick="unbanUser(${user.id}, '${escapeHtml(user.name || '')}')">解除禁用</button>` : isEmbyBanned ? `<button class="btn-action success" style="background:#ff9800;border-color:#ff9800;" onclick="unbanUser(${user.id}, '${escapeHtml(user.name || '')}')">解除Emby封禁</button>` : `<button class="btn-action danger" onclick="banUser(${user.id}, '${escapeHtml(user.name || '')}')">禁用</button>`}
             </td>
         </tr>
     `}).join('');
