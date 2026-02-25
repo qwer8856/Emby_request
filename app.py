@@ -25203,6 +25203,14 @@ def _check_user_retention(user, now, mode, checkin_days, checkin_cost,
         new_ex = (user.ex or now) + timedelta(days=renew_days)
         user.ex = new_ex
         
+        # 同步更新 Subscription 表中的 end_date（修复网页显示负数天数的问题）
+        active_sub = Subscription.query.filter_by(
+            user_tg=user.tg, status='active'
+        ).order_by(Subscription.end_date.desc()).first()
+        if active_sub:
+            active_sub.end_date = new_ex
+            active_sub.updated_at = now
+        
         # 签到保号需要扣积分
         if mode in ('checkin', 'both') and checkin_cost > 0:
             user.coins = (user.coins or 0) - checkin_cost
