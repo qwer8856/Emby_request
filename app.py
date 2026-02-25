@@ -22684,8 +22684,11 @@ def get_user_lines():
             if active_sub:
                 user_plan_type = active_sub.plan_type
         
+        app.logger.info(f'[线路过滤] 用户={user.name}(tg={user.tg}), lv={user.lv}, ex={user.ex}, is_whitelist={is_whitelist}, is_subscriber={is_subscriber}, user_plan_type={user_plan_type}, 线路数={len(lines)}')
+        
         for line in lines:
             allowed = [t.strip() for t in (line.allowed_plan_types or '').split(',') if t.strip()]
+            app.logger.info(f'[线路过滤] 线路={line.name}, allowed_plan_types={allowed}, access_level={line.access_level}')
             
             if not allowed:
                 # 没有设置套餐限制 → 兼容旧数据，用 access_level 判断
