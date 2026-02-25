@@ -22677,14 +22677,17 @@ def get_user_lines():
         
         # 获取用户的套餐类型
         user_plan_type = None
+        # 有效的套餐类型（与管理后台套餐配置中的 type 一致）
+        valid_plan_types = {'whitelist', 'basic', 'standard', 'premium', 'ultimate'}
         if is_whitelist:
             user_plan_type = 'whitelist'
         elif is_subscriber:
             active_sub = Subscription.query.filter_by(
                 user_tg=user.tg, status='active'
             ).order_by(Subscription.end_date.desc()).first()
-            if active_sub:
+            if active_sub and active_sub.plan_type in valid_plan_types:
                 user_plan_type = active_sub.plan_type
+            # 否则 user_plan_type 保持 None（migrated 等无效类型视为未分类）
         
         app.logger.info(f'[线路过滤] 用户={user.name}(tg={user.tg}), lv={user.lv}, ex={user.ex}, is_whitelist={is_whitelist}, is_subscriber={is_subscriber}, user_plan_type={user_plan_type}, 线路数={len(lines)}')
         
@@ -22754,13 +22757,14 @@ def log_view_lines():
         
         visible_line_names = []
         user_plan_type = None
+        valid_plan_types = {'whitelist', 'basic', 'standard', 'premium', 'ultimate'}
         if is_whitelist:
             user_plan_type = 'whitelist'
         elif is_subscriber:
             active_sub = Subscription.query.filter_by(
                 user_tg=user.tg, status='active'
             ).order_by(Subscription.end_date.desc()).first()
-            if active_sub:
+            if active_sub and active_sub.plan_type in valid_plan_types:
                 user_plan_type = active_sub.plan_type
         
         for line in lines:
