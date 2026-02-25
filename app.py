@@ -22699,6 +22699,11 @@ def get_user_lines():
                 # 用户套餐类型在允许列表中
                 accessible_lines.append(line.to_dict(include_sensitive=True))
                 line_names.append(f"{line.name}({user_plan_type})")
+            elif is_subscriber and not user_plan_type and any(t != 'whitelist' for t in allowed):
+                # 兼容：老订阅用户没有 Subscription 记录（plan_type 为空），
+                # 只要线路允许任意非白名单的套餐类型，就让该用户看到
+                accessible_lines.append(line.to_dict(include_sensitive=True))
+                line_names.append(f"{line.name}(订阅兼容)")
         
         return jsonify({
             'success': True,
@@ -22757,6 +22762,8 @@ def log_view_lines():
                 if is_whitelist or (is_subscriber and line.access_level in ['subscriber', 'all']):
                     visible_line_names.append(line.name)
             elif user_plan_type and user_plan_type in allowed:
+                visible_line_names.append(line.name)
+            elif is_subscriber and not user_plan_type and any(t != 'whitelist' for t in allowed):
                 visible_line_names.append(line.name)
         
         log_user_activity(UserActivityLog.ACTION_VIEW_LINES, user=user,
