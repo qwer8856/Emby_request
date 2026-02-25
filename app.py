@@ -22641,6 +22641,7 @@ def get_user_lines():
     """用户获取可访问的线路信息（根据用户等级返回不同内容）"""
     try:
         user = db.session.get(User, session.get('user_id'))
+        app.logger.info(f'[线路API] 进入 /api/lines, user_id={session.get("user_id")}, user={user.name if user else "None"}, lv={user.lv if user else "None"}, ex={user.ex if user else "None"}')
         if not user:
             return jsonify({'error': '用户不存在'}), 404
         
@@ -22656,6 +22657,7 @@ def get_user_lines():
         
         # 无权限用户（未订阅或已过期）
         if not is_whitelist and not is_subscriber:
+            app.logger.info(f'[线路API] 用户无权限: {user.name}, lv={user.lv}, ex={user.ex}, now={now}, is_whitelist={is_whitelist}, is_subscriber={is_subscriber}')
             return jsonify({
                 'success': True,
                 'has_access': False,
@@ -22698,15 +22700,17 @@ def get_user_lines():
                 elif is_subscriber and line.access_level in ['subscriber', 'all']:
                     accessible_lines.append(line.to_dict(include_sensitive=True))
                     line_names.append(line.name)
-            elif user_plan_type and user_plan_type in allowed:
-                # 用户套餐类型在允许列表中
-                accessible_lines.append(line.to_dict(include_sensitive=True))
-                line_names.append(f"{line.name}({user_plan_type})")
-            elif is_subscriber and not user_plan_type and any(t != 'whitelist' for t in allowed):
-                # 兼容：老订阅用户没有 Subscription 记录（plan_type 为空），
-                # 只要线路允许任意非白名单的套餐类型，就让该用户看到
-                accessible_lines.append(line.to_dict(include_sensitive=True))
-                line_names.append(f"{line.name}(订阅兼容)")
+            else:
+                # 有 allowed_plan_types 限制
+                if user_plan_type and user_plan_type in allowed:
+                    # 精确匹配：用户套餐类型在允许列表中
+                    accessible_lines.append(line.to_dict(include_sensitive=True))
+                    line_names.append(f"{line.name}({user_plan_type})")
+                elif is_subscriber and not user_plan_type and any(t != 'whitelist' for t in allowed):
+                    # 兼容：订阅用户没有套餐类型（老用户/无Subscription记录），
+                    # 只要线路允许任意非白名单的套餐类型，就让该用户看到
+                    accessible_lines.append(line.to_dict(include_sensitive=True))
+                    line_names.append(f"{line.name}(订阅兼容)")
         
         return jsonify({
             'success': True,
