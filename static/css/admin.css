@@ -4870,6 +4870,12 @@ body.page-admin {
     color: #94a3b8;
 }
 
+.line-badge-mini.plan-type-tag {
+    background: rgba(99, 102, 241, 0.15);
+    color: #6366f1;
+    border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
 .line-item-actions {
     display: flex;
     gap: 8px;

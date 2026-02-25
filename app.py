@@ -4885,7 +4885,8 @@ class ServerLine(db.Model):
     port = db.Column(db.Integer, default=8096)  # 端口
     is_https = db.Column(db.Boolean, default=False)  # 是否HTTPS
     description = db.Column(db.String(500))  # 线路描述
-    access_level = db.Column(db.String(20), default='whitelist')  # 访问级别: whitelist(白名单), subscriber(订阅用户), all(所有人-暂不使用)
+    access_level = db.Column(db.String(20), default='whitelist')  # 访问级别(兼容旧数据)
+    allowed_plan_types = db.Column(db.String(500), default='')  # 允许查看的套餐类型（逗号分隔，如 whitelist,basic,standard）
     sort_order = db.Column(db.Integer, default=0)  # 排序顺序
     is_active = db.Column(db.Boolean, default=True)  # 是否启用
     created_at = db.Column(db.DateTime, default=lambda: datetime.now())
@@ -4896,11 +4897,13 @@ class ServerLine(db.Model):
         Args:
             include_sensitive: 是否包含敏感信息（完整URL）
         """
+        plan_types_list = [t.strip() for t in (self.allowed_plan_types or '').split(',') if t.strip()]
         base_dict = {
             'id': self.id,
             'name': self.name,
             'description': self.description,
             'access_level': self.access_level,
+            'allowed_plan_types': plan_types_list,
             'sort_order': self.sort_order,
             'is_active': self.is_active,
         }
@@ -22513,17 +22516,22 @@ def admin_add_line():
         port = data.get('port', 8096)
         is_https = data.get('is_https', False)
         description = data.get('description', '').strip()
-        access_level = data.get('access_level', 'whitelist')
         sort_order = data.get('sort_order', 0)
+        
+        # 处理允许的套餐类型（多选）
+        allowed_plan_types_raw = data.get('allowed_plan_types', [])
+        if isinstance(allowed_plan_types_raw, list):
+            allowed_plan_types = ','.join([t.strip() for t in allowed_plan_types_raw if t.strip()])
+        else:
+            allowed_plan_types = str(allowed_plan_types_raw).strip()
+        
+        # 兼容旧的 access_level 参数
+        access_level = data.get('access_level', 'subscriber')
         
         if not name:
             return jsonify({'success': False, 'error': '线路名称不能为空'}), 400
         if not server_url:
             return jsonify({'success': False, 'error': '服务器地址不能为空'}), 400
-        
-        # 验证访问级别
-        if access_level not in ['whitelist', 'subscriber', 'all']:
-            access_level = 'whitelist'
         
         line = ServerLine(
             name=name,
@@ -22532,6 +22540,7 @@ def admin_add_line():
             is_https=is_https,
             description=description,
             access_level=access_level,
+            allowed_plan_types=allowed_plan_types,
             sort_order=sort_order,
             is_active=True
         )
@@ -22574,8 +22583,13 @@ def admin_update_line(line_id):
         if 'description' in data:
             line.description = data['description'].strip()
         if 'access_level' in data:
-            if data['access_level'] in ['whitelist', 'subscriber', 'all']:
-                line.access_level = data['access_level']
+            line.access_level = data.get('access_level', 'subscriber')
+        if 'allowed_plan_types' in data:
+            apt = data['allowed_plan_types']
+            if isinstance(apt, list):
+                line.allowed_plan_types = ','.join([t.strip() for t in apt if t.strip()])
+            else:
+                line.allowed_plan_types = str(apt).strip()
         if 'sort_order' in data:
             line.sort_order = data['sort_order']
         if 'is_active' in data:
@@ -22658,15 +22672,33 @@ def get_user_lines():
         
         accessible_lines = []
         line_names = []  # 记录线路名称用于日志
+        
+        # 获取用户的套餐类型
+        user_plan_type = None
+        if is_whitelist:
+            user_plan_type = 'whitelist'
+        elif is_subscriber:
+            active_sub = Subscription.query.filter_by(
+                user_tg=user.tg, status='active'
+            ).order_by(Subscription.end_date.desc()).first()
+            if active_sub:
+                user_plan_type = active_sub.plan_type
+        
         for line in lines:
-            # 白名单用户可以看所有线路
-            if is_whitelist:
+            allowed = [t.strip() for t in (line.allowed_plan_types or '').split(',') if t.strip()]
+            
+            if not allowed:
+                # 没有设置套餐限制 → 兼容旧数据，用 access_level 判断
+                if is_whitelist:
+                    accessible_lines.append(line.to_dict(include_sensitive=True))
+                    line_names.append(line.name)
+                elif is_subscriber and line.access_level in ['subscriber', 'all']:
+                    accessible_lines.append(line.to_dict(include_sensitive=True))
+                    line_names.append(line.name)
+            elif user_plan_type and user_plan_type in allowed:
+                # 用户套餐类型在允许列表中
                 accessible_lines.append(line.to_dict(include_sensitive=True))
-                line_names.append(f"{line.name}({'白名单' if line.access_level == 'whitelist' else '普通'})")
-            # 订阅用户只能看subscriber级别及以下的线路
-            elif is_subscriber and line.access_level in ['subscriber', 'all']:
-                accessible_lines.append(line.to_dict(include_sensitive=True))
-                line_names.append(f"{line.name}(普通)")
+                line_names.append(f"{line.name}({user_plan_type})")
         
         return jsonify({
             'success': True,
@@ -22709,10 +22741,22 @@ def log_view_lines():
         ).all()
         
         visible_line_names = []
+        user_plan_type = None
+        if is_whitelist:
+            user_plan_type = 'whitelist'
+        elif is_subscriber:
+            active_sub = Subscription.query.filter_by(
+                user_tg=user.tg, status='active'
+            ).order_by(Subscription.end_date.desc()).first()
+            if active_sub:
+                user_plan_type = active_sub.plan_type
+        
         for line in lines:
-            if is_whitelist:
-                visible_line_names.append(line.name)
-            elif is_subscriber and line.access_level in ['subscriber', 'all']:
+            allowed = [t.strip() for t in (line.allowed_plan_types or '').split(',') if t.strip()]
+            if not allowed:
+                if is_whitelist or (is_subscriber and line.access_level in ['subscriber', 'all']):
+                    visible_line_names.append(line.name)
+            elif user_plan_type and user_plan_type in allowed:
                 visible_line_names.append(line.name)
         
         log_user_activity(UserActivityLog.ACTION_VIEW_LINES, user=user,
@@ -22886,6 +22930,7 @@ def admin_get_users():
             # 3. 其他用户为未订阅
             subscription_status = 'inactive'
             subscription_end = None
+            subscription_plan_type = None
             
             if user.lv == 'a':
                 subscription_status = 'active'
@@ -22893,6 +22938,12 @@ def admin_get_users():
             elif user.ex and user.ex > now:
                 subscription_status = 'active'
                 subscription_end = user.ex.isoformat()
+                # 查找当前活跃订阅的套餐类型
+                active_sub = Subscription.query.filter_by(
+                    user_tg=user.tg, status='active'
+                ).order_by(Subscription.end_date.desc()).first()
+                if active_sub:
+                    subscription_plan_type = active_sub.plan_type
             elif user.ex:
                 subscription_end = user.ex.isoformat()  # 已过期也返回到期时间
 
@@ -22906,6 +22957,7 @@ def admin_get_users():
                 'level': user.lv,
                 'subscription_status': subscription_status,
                 'subscription_end': subscription_end,
+                'subscription_plan_type': subscription_plan_type,
                 'coins': user.coins or 0,
                 'created_at': user.cr.isoformat() if user.cr else None,
                 'ban_reason': user.ban_reason,  # 黑名单封禁原因（lv未改但Emby被禁用）
@@ -23338,6 +23390,12 @@ def admin_set_user_type(user_id):
         user_type = data.get('user_type')
         subscription_days = data.get('subscription_days', 30)  # 默认30天
         
+        # 支持 sub_basic, sub_standard 等格式
+        plan_type_value = None
+        if user_type and user_type.startswith('sub_'):
+            plan_type_value = user_type[4:]  # 提取 basic, standard 等
+            user_type = 'subscribed'  # 统一按订阅用户处理
+        
         if user_type not in ['whitelist', 'subscribed', 'normal']:
             return jsonify({'success': False, 'error': '无效的用户类型'}), 400
         
@@ -23366,7 +23424,38 @@ def admin_set_user_type(user_id):
             user.ban_time = None
             user.ban_prev_lv = None
             user.ban_prev_ex = None
-            message = '已设为订阅用户'
+            
+            # 如果指定了套餐类型，更新或创建 Subscription 记录
+            if plan_type_value:
+                type_labels = {'basic': '基础', 'standard': '标准', 'premium': '高级', 'ultimate': '至尊'}
+                plan_name = type_labels.get(plan_type_value, plan_type_value) + '套餐'
+                
+                existing_sub = Subscription.query.filter_by(
+                    user_tg=user.tg, status='active'
+                ).order_by(Subscription.end_date.desc()).first()
+                
+                if existing_sub:
+                    existing_sub.plan_type = plan_type_value
+                    existing_sub.plan_name = plan_name
+                    existing_sub.updated_at = datetime.now()
+                else:
+                    # 创建新的订阅记录（时长由管理员后续在详情页赠送）
+                    new_sub = Subscription(
+                        user_tg=user.tg,
+                        plan_type=plan_type_value,
+                        plan_name=plan_name,
+                        duration_months=1,
+                        price=0,
+                        start_date=datetime.now(),
+                        end_date=user.ex if user.ex and user.ex > datetime.now() else datetime.now(),
+                        status='active',
+                        source='manual'
+                    )
+                    db.session.add(new_sub)
+                
+                message = f'已设为{plan_name}用户'
+            else:
+                message = '已设为订阅用户'
             
             # 启用 Emby 账号（如果之前被禁用）
             if user.embyid and emby_client.is_enabled():
@@ -24492,6 +24581,8 @@ def migrate_database():
         ('emby', 'invite_reward_percent', 'FLOAT NULL'),
         # User表邮箱字段
         ('emby', 'email', 'VARCHAR(255) NULL'),
+        # 线路表套餐可见性字段
+        ('server_lines', 'allowed_plan_types', "VARCHAR(500) DEFAULT ''"),
         # 订单表天数字段（支持自定义天数套餐）
         ('orders', 'duration_days', 'INTEGER NULL'),
         # 管理员表明文密码字段（子管理员密码供超级管理员查看）

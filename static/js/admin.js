@@ -1534,7 +1534,7 @@ function switchAdminSection(section, event, updateHash = true) {
             loadInviteStats();
             break;
         case 'users':
-            loadUsers();
+            loadGlobalPlanTypeOptions().then(() => loadUsers());
             break;
         case 'plans':
             loadPlansConfig();
@@ -2721,7 +2721,7 @@ function renderUsers(users) {
         const isBanned = user.level === 'c';
         const isEmbyBanned = !isBanned && !!user.ban_reason;  // Emby被黑名单封禁（lv未改）
         const hasSubscription = user.subscription_status === 'active';
-        const currentType = isWhitelist ? 'whitelist' : (hasSubscription ? 'subscribed' : 'normal');
+        const currentType = isWhitelist ? 'whitelist' : (hasSubscription ? (user.subscription_plan_type ? 'sub_' + user.subscription_plan_type : 'subscribed') : 'normal');
         
         // 角色显示：已禁用 > 白名单 > 订阅用户 > 普通用户
         let roleDisplay, roleClass;
@@ -2768,7 +2768,8 @@ function renderUsers(users) {
                 <select class="level-select" onchange="setUserType(${user.id}, this.value, '${currentType}')">
                     <option value="" disabled selected>设置类型</option>
                     <option value="whitelist" ${currentType === 'whitelist' ? 'disabled style="color:#999;"' : ''}>👑 白名单用户${currentType === 'whitelist' ? ' ✓' : ''}</option>
-                    <option value="subscribed" ${currentType === 'subscribed' ? 'disabled style="color:#999;"' : ''}>⭐ 订阅用户${currentType === 'subscribed' ? ' ✓' : ''}</option>
+                    ${(window._planTypeOptions || []).map(opt => `<option value="sub_${opt.value}" ${currentType === 'sub_' + opt.value ? 'disabled style="color:#999;"' : ''}>⭐ ${opt.label}${currentType === 'sub_' + opt.value ? ' ✓' : ''}</option>`).join('')}
+                    ${currentType === 'subscribed' ? '<option value="" disabled style="color:#999;">⭐ 订阅用户(未分类) ✓</option>' : ''}
                     <option value="normal" ${currentType === 'normal' ? 'disabled style="color:#999;"' : ''}>👤 非订阅用户${currentType === 'normal' ? ' ✓' : ''}</option>
                 </select>
                 ${user.level === 'c' ? `<button class="btn-action success" onclick="unbanWebsite(${user.id}, '${escapeHtml(user.name || '')}')">解除网站封禁</button>` : `<button class="btn-action danger" onclick="banWebsite(${user.id}, '${escapeHtml(user.name || '')}')">禁用网站</button>`}
@@ -2899,26 +2900,32 @@ async function setUserLevel(userId, level) {
     }
 }
 
-// 设置用户类型：白名单 / 订阅用户 / 非订阅用户
+// 设置用户类型：白名单 / 各套餐类型 / 非订阅用户
 async function setUserType(userId, userType, currentType) {
     if (!userType || userType === currentType) {
         loadUsers();  // 重置下拉框
         return;
     }
     
-    const typeNames = {
-        'whitelist': '白名单用户',
-        'subscribed': '订阅用户',
-        'normal': '非订阅用户'
-    };
+    let displayName = '';
+    let confirmMessage = '';
+    let requestType = userType;
     
-    let confirmMessage = `确定要将此用户设置为「${typeNames[userType]}」吗？`;
-    if (userType === 'subscribed') {
-        confirmMessage += '\n\n注意：设置为订阅用户后，请在详情页赠送订阅天数。';
+    if (userType === 'whitelist') {
+        displayName = '白名单用户';
+        confirmMessage = '确定要将此用户设置为「白名单用户」吗？\n\n白名单用户永久有效，无需订阅。';
     } else if (userType === 'normal') {
-        confirmMessage += '\n\n将清除订阅时间并取消白名单。';
-    } else if (userType === 'whitelist') {
-        confirmMessage += '\n\n白名单用户永久有效，无需订阅。';
+        displayName = '非订阅用户';
+        confirmMessage = '确定要将此用户设置为「非订阅用户」吗？\n\n将清除订阅时间并取消白名单。';
+    } else if (userType.startsWith('sub_')) {
+        const planType = userType.substring(4);
+        const typeLabels = {basic: '基础', standard: '标准', premium: '高级', ultimate: '至尊'};
+        displayName = (typeLabels[planType] || planType) + '订阅用户';
+        confirmMessage = `确定要将此用户设置为「${displayName}」吗？\n\n注意：设置后请在详情页赠送订阅天数。`;
+        requestType = userType; // 发送完整类型给后端
+    } else {
+        displayName = userType;
+        confirmMessage = `确定要将此用户设置为「${displayName}」吗？`;
     }
     
     const confirmed = await showConfirm({
@@ -2933,7 +2940,7 @@ async function setUserType(userId, userType, currentType) {
     }
     
     try {
-        const requestBody = { user_type: userType };
+        const requestBody = { user_type: requestType };
         
         const response = await fetch(`/api/admin/users/${userId}/set-type`, {
             method: 'POST',
@@ -5961,25 +5968,32 @@ function renderLines(lines) {
         return;
     }
     
-    const accessLevelNames = {
-        'whitelist': '白名单',
-        'subscriber': '订阅用户',
-        'all': '所有用户'
+    const planTypeNames = {
+        'whitelist': '👑白名单',
+        'basic': '基础',
+        'standard': '标准',
+        'premium': '高级',
+        'ultimate': '至尊'
     };
     
     linesList.innerHTML = lines.map(line => {
         const fullUrl = line.full_url || (line.is_https ? 'https' : 'http') + '://' + line.server_url + ':' + line.port;
+        const planTypes = line.allowed_plan_types || [];
+        const planBadges = planTypes.length > 0
+            ? planTypes.map(t => `<span class="line-badge-mini plan-type-tag">${planTypeNames[t] || t}</span>`).join('')
+            : `<span class="line-badge-mini ${line.access_level}">${line.access_level === 'whitelist' ? '👑白名单' : '订阅用户'}</span>`;
+        const hasWhitelist = planTypes.includes('whitelist');
         return `
             <div class="line-item-compact ${!line.is_active ? 'disabled' : ''}">
                 <div class="line-item-info">
-                    <span class="line-item-icon">${line.access_level === 'whitelist' ? '👑' : '🔗'}</span>
+                    <span class="line-item-icon">${hasWhitelist ? '👑' : '🔗'}</span>
                     <div class="line-item-details">
                         <div class="line-item-name">${line.name}</div>
                         <div class="line-item-url">${fullUrl}</div>
                     </div>
                 </div>
                 <div class="line-item-badges">
-                    <span class="line-badge-mini ${line.access_level}">${accessLevelNames[line.access_level] || line.access_level}</span>
+                    ${planBadges}
                     <span class="line-badge-mini ${line.is_active ? 'enabled' : 'disabled'}">${line.is_active ? '启用' : '禁用'}</span>
                 </div>
                 <div class="line-item-actions">
@@ -6000,8 +6014,71 @@ function updateLinesStats() {
     
     if (totalEl) totalEl.textContent = allLines.length;
     if (activeEl) activeEl.textContent = allLines.filter(l => l.is_active).length;
-    if (whitelistEl) whitelistEl.textContent = allLines.filter(l => l.access_level === 'whitelist').length;
+    if (whitelistEl) {
+        // 统计包含白名单类型的线路数
+        const count = allLines.filter(l => {
+            const types = l.allowed_plan_types || [];
+            return types.includes('whitelist') || (types.length === 0 && l.access_level === 'whitelist');
+        }).length;
+        whitelistEl.textContent = count;
+    }
     if (statusEl) statusEl.textContent = `${allLines.length} 条线路`;
+}
+
+// 全局加载套餐类型选项（用于用户管理下拉框）
+async function loadGlobalPlanTypeOptions() {
+    if (window._planTypeOptions && window._planTypeOptions.length > 0) return;
+    try {
+        const response = await fetch('/api/admin/plans-config');
+        const data = await response.json();
+        if (data.success && data.plans) {
+            const typeLabels = {basic: '基础', standard: '标准', premium: '高级', ultimate: '至尊'};
+            const seenTypes = new Set();
+            window._planTypeOptions = [];
+            data.plans.forEach(plan => {
+                if (plan.type && !seenTypes.has(plan.type)) {
+                    seenTypes.add(plan.type);
+                    window._planTypeOptions.push({value: plan.type, label: typeLabels[plan.type] || plan.type});
+                }
+            });
+        }
+    } catch (e) {
+        console.error('加载套餐类型失败:', e);
+        window._planTypeOptions = [];
+    }
+}
+
+async function loadLinePlanTypeOptions(selectedTypes = []) {
+    const container = document.getElementById('linePlanTypes');
+    if (!container) return;
+    
+    // 固定的白名单选项 + 从套餐配置中获取的动态类型
+    let typeOptions = [{value: 'whitelist', label: '👑 白名单'}];
+    
+    try {
+        const response = await fetch('/api/admin/plans-config');
+        const data = await response.json();
+        if (data.success && data.plans) {
+            const typeLabels = {basic: '基础', standard: '标准', premium: '高级', ultimate: '至尊'};
+            const seenTypes = new Set();
+            data.plans.forEach(plan => {
+                if (plan.type && !seenTypes.has(plan.type)) {
+                    seenTypes.add(plan.type);
+                    typeOptions.push({value: plan.type, label: typeLabels[plan.type] || plan.type});
+                }
+            });
+        }
+    } catch (e) {
+        console.error('加载套餐类型失败:', e);
+    }
+    
+    container.innerHTML = typeOptions.map(opt => {
+        const checked = selectedTypes.includes(opt.value) ? 'checked' : '';
+        return `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:4px 10px;border-radius:6px;background:${checked ? 'var(--accent-light, #e3f2fd)' : 'var(--bg-secondary, #f5f5f5)'};border:1px solid ${checked ? 'var(--accent-color, #2196f3)' : 'transparent'};transition:all .2s;">
+            <input type="checkbox" name="linePlanType" value="${opt.value}" ${checked} onchange="this.parentElement.style.background=this.checked?'var(--accent-light, #e3f2fd)':'var(--bg-secondary, #f5f5f5)';this.parentElement.style.borderColor=this.checked?'var(--accent-color, #2196f3)':'transparent';">
+            <span style="font-size:13px;white-space:nowrap;">${opt.label}</span>
+        </label>`;
+    }).join('');
 }
 
 function showAddLineModal() {
@@ -6011,9 +6088,9 @@ function showAddLineModal() {
     document.getElementById('lineServerUrl').value = '';
     document.getElementById('linePort').value = '8096';
     document.getElementById('lineHttps').value = 'false';
-    document.getElementById('lineAccessLevel').value = 'whitelist';
     document.getElementById('lineDescription').value = '';
     document.getElementById('lineSortOrder').value = '0';
+    loadLinePlanTypeOptions([]);
     document.getElementById('lineModal').classList.add('show');
 }
 
@@ -6027,9 +6104,9 @@ function editLine(lineId) {
     document.getElementById('lineServerUrl').value = line.server_url || '';
     document.getElementById('linePort').value = line.port || 8096;
     document.getElementById('lineHttps').value = line.is_https ? 'true' : 'false';
-    document.getElementById('lineAccessLevel').value = line.access_level || 'whitelist';
     document.getElementById('lineDescription').value = line.description || '';
     document.getElementById('lineSortOrder').value = line.sort_order || 0;
+    loadLinePlanTypeOptions(line.allowed_plan_types || []);
     document.getElementById('lineModal').classList.add('show');
 }
 
@@ -6043,9 +6120,12 @@ async function saveLine() {
     const serverUrl = document.getElementById('lineServerUrl').value.trim();
     const port = parseInt(document.getElementById('linePort').value) || 8096;
     const isHttps = document.getElementById('lineHttps').value === 'true';
-    const accessLevel = document.getElementById('lineAccessLevel').value;
     const description = document.getElementById('lineDescription').value.trim();
     const sortOrder = parseInt(document.getElementById('lineSortOrder').value) || 0;
+    
+    // 收集选中的套餐类型
+    const checkedBoxes = document.querySelectorAll('input[name="linePlanType"]:checked');
+    const allowedPlanTypes = Array.from(checkedBoxes).map(cb => cb.value);
     
     if (!name) {
         showToast('错误', '请输入线路名称', 'error');
@@ -6055,6 +6135,13 @@ async function saveLine() {
         showToast('错误', '请输入服务器地址', 'error');
         return;
     }
+    if (allowedPlanTypes.length === 0) {
+        showToast('错误', '请至少选择一个可见套餐类型', 'error');
+        return;
+    }
+    
+    // 根据选中的类型自动推断 access_level（兼容旧逻辑）
+    const accessLevel = allowedPlanTypes.includes('whitelist') && allowedPlanTypes.length === 1 ? 'whitelist' : 'subscriber';
     
     const payload = {
         name,
@@ -6062,6 +6149,7 @@ async function saveLine() {
         port,
         is_https: isHttps,
         access_level: accessLevel,
+        allowed_plan_types: allowedPlanTypes,
         description,
         sort_order: sortOrder
     };
