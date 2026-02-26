@@ -16681,7 +16681,7 @@ def batch_users():
                     emby_client.enable_user(user.embyid)
                 success_count += 1
             elif action == 'set_plan_type':
-                # 批量设置套餐类型
+                # 批量设置套餐类型（按套餐ID匹配）
                 plan_type_value = data.get('plan_type', '')
                 if not plan_type_value:
                     fail_count += 1
@@ -16690,8 +16690,13 @@ def batch_users():
                 try:
                     _plans = load_plans_config()
                     for _p in _plans:
-                        if _p.get('type') and _p.get('type') not in type_labels:
-                            type_labels[_p['type']] = _p.get('name', _p['type'])
+                        pid = _p.get('id')
+                        if pid and pid not in type_labels:
+                            type_labels[pid] = _p.get('name', pid)
+                        # 兼容旧type
+                        pt = _p.get('type')
+                        if pt and pt not in type_labels:
+                            type_labels[pt] = _p.get('name', pt)
                 except:
                     pass
                 plan_name = type_labels.get(plan_type_value, plan_type_value) + '套餐'
@@ -17930,15 +17935,21 @@ def create_order():
         # 从配置文件加载套餐
         plans_config = load_plans_config()
         
-        # 查找对应类型的套餐
+        # 查找对应ID的套餐（优先按ID匹配，兼容旧数据按type匹配）
         plan_config = None
         for plan in plans_config:
-            if plan.get('type') == plan_type:
+            if plan.get('id') == plan_type:
                 plan_config = plan
                 break
+        if not plan_config:
+            # 兼容旧数据：按 type 字段回退匹配
+            for plan in plans_config:
+                if plan.get('type') == plan_type:
+                    plan_config = plan
+                    break
         
         if not plan_config:
-            return jsonify({'error': '无效的套餐类型'}), 400
+            return jsonify({'error': '无效的套餐'}), 400
         
         # 从套餐配置获取基础天数（duration_days 字段）
         base_duration_days = int(plan_config.get('duration_days', 30))
@@ -20303,7 +20314,6 @@ def save_plans_config_api():
             
             validated_plan = {
                 'id': str(plan.get('id', '')).strip(),
-                'type': str(plan.get('type', 'basic')).strip(),
                 'name': str(plan.get('name', '')).strip(),
                 'icon': str(plan.get('icon', '')).strip() if plan.get('icon') else None,
                 'description': str(plan.get('description', '')).strip() if plan.get('description') else None,
@@ -22723,11 +22733,11 @@ def get_user_lines():
         accessible_lines = []
         line_names = []  # 记录线路名称用于日志
         
-        # 获取用户的套餐类型
+        # 获取用户的套餐类型（现在使用套餐ID作为标识）
         user_plan_type = None
-        # 动态从套餐配置中读取有效套餐类型（不再硬编码）
+        # 动态从套餐配置中读取有效套餐ID（同时兼容旧的type值）
         plans = load_plans_config()
-        valid_plan_types = {'whitelist'} | {p.get('type') for p in plans if p.get('type')}
+        valid_plan_types = {'whitelist'} | {p.get('id') for p in plans if p.get('id')} | {p.get('type') for p in plans if p.get('type')}
         if is_whitelist:
             user_plan_type = 'whitelist'
         elif is_subscriber:
@@ -22807,7 +22817,7 @@ def log_view_lines():
         visible_line_names = []
         user_plan_type = None
         plans = load_plans_config()
-        valid_plan_types = {'whitelist'} | {p.get('type') for p in plans if p.get('type')}
+        valid_plan_types = {'whitelist'} | {p.get('id') for p in plans if p.get('id')} | {p.get('type') for p in plans if p.get('type')}
         if is_whitelist:
             user_plan_type = 'whitelist'
         elif is_subscriber:
@@ -23493,18 +23503,22 @@ def admin_set_user_type(user_id):
             user.ban_prev_lv = None
             user.ban_prev_ex = None
             
-            # 如果指定了套餐类型，更新或创建 Subscription 记录
+            # 如果指定了套餐ID，更新或创建 Subscription 记录
             if plan_type_value:
-                # 动态从套餐配置获取名称，不再硬编码
+                # 动态从套餐配置获取名称（按ID匹配，兼容旧type匹配）
                 plans = load_plans_config()
                 plan_name = None
                 for p in plans:
-                    if p.get('type') == plan_type_value:
+                    if p.get('id') == plan_type_value:
                         plan_name = p.get('name')
                         break
                 if not plan_name:
-                    type_labels = {'basic': '基础', 'standard': '标准', 'premium': '高级', 'ultimate': '至尊'}
-                    plan_name = type_labels.get(plan_type_value, plan_type_value)
+                    for p in plans:
+                        if p.get('type') == plan_type_value:
+                            plan_name = p.get('name')
+                            break
+                if not plan_name:
+                    plan_name = plan_type_value
                 plan_name = plan_name + '套餐'
                 
                 existing_sub = Subscription.query.filter_by(

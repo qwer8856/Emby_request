@@ -4273,93 +4273,25 @@ async function unbindTelegramId() {
             const plansGrid = document.getElementById('plansGrid');
             if (!plansGrid || !plans.length) return;
             
-            // 按类型分组，优先取 duration=1 的月付套餐，如果没有就取该类型任意一个
-            const typeOrder = ['basic', 'standard', 'premium', 'ultimate'];
-            const plansByType = {};
-            
-            // 按类型分组所有套餐
-            plans.forEach(plan => {
-                if (!plansByType[plan.type]) {
-                    plansByType[plan.type] = [];
-                }
-                plansByType[plan.type].push(plan);
-            });
-            
-            // 选取每个类型的代表套餐（优先月付）
-            const displayPlans = [];
-            typeOrder.forEach(type => {
-                const typePlans = plansByType[type];
-                if (typePlans && typePlans.length > 0) {
-                    // 优先找月付套餐
-                    const monthlyPlan = typePlans.find(p => p.duration === 1);
-                    if (monthlyPlan) {
-                        displayPlans.push(monthlyPlan);
-                    } else {
-                        // 没有月付套餐，取第一个并计算月付价格
-                        const plan = typePlans[0];
-                        // 反推月付价格
-                        const monthlyPrice = plan.duration > 0 ? Math.round(plan.price / plan.duration * 10) / 10 : plan.price;
-                        displayPlans.push({
-                            ...plan,
-                            price: monthlyPrice,  // 使用计算出的月付价格
-                            _originalPlan: plan   // 保留原始套餐信息
-                        });
-                    }
-                }
-            });
-            
-            // 如果按类型没找到，直接使用所有套餐
-            const finalPlans = displayPlans.length > 0 ? displayPlans : plans.slice(0, 4);
-            
-            // 默认配置（如果后台未设置则使用）
-            const defaultBadgeNames = {
-                'basic': '入门版',
-                'standard': '标准版',
-                'premium': '高级版',
-                'ultimate': '尊享版'
-            };
-            
-            const defaultBadgeIcons = {
-                'basic': '🌱',
-                'standard': '⭐',
-                'premium': '💎',
-                'ultimate': '👑'
-            };
-            
-            const defaultPlanDescriptions = {
-                'basic': '适合轻度观影用户，满足基本观影需求',
-                'standard': '适合日常观影用户，享受更多资源',
-                'premium': '适合影视爱好者，优先获取热门资源',
-                'ultimate': '极致体验，尊享全部特权服务'
-            };
-            
-            // 从套餐配置构建名称和描述映射（优先使用后台设置的值）
-            const badgeNames = {};
-            const badgeIcons = {};
-            const planDescriptions = {};
-            finalPlans.forEach(plan => {
-                badgeNames[plan.type] = plan.name || defaultBadgeNames[plan.type] || plan.type;
-                badgeIcons[plan.type] = plan.icon || defaultBadgeIcons[plan.type] || '📦';
-                planDescriptions[plan.type] = plan.description || defaultPlanDescriptions[plan.type] || '';
-            });
+            // 直接使用所有套餐（每个套餐有唯一ID，不再按type分组去重）
+            const finalPlans = plans;
             
             plansGrid.innerHTML = finalPlans.map(plan => {
+                const planId = plan.id || plan.type || '';
                 const isPopular = plan.popular;
-                const isUltimate = plan.type === 'ultimate';
-                const cardClass = isPopular ? 'popular' : (isUltimate ? 'ultimate' : '');
+                const cardClass = isPopular ? 'popular' : '';
                 const monthlyPrice = plan.price_1m || plan.price || 0;
                 const durationDays = plan.duration_days || 30;
                 const isShortTerm = durationDays < 30;
                 const pricePeriod = isShortTerm ? `/${durationDays}天` : '/月起';
                 
                 return `
-                    <div class="plan-card-new ${cardClass}" data-plan-type="${plan.type}">
+                    <div class="plan-card-new ${cardClass}" data-plan-type="${planId}">
                         ${isPopular ? '<div class="popular-badge">🔥 最受欢迎</div>' : ''}
-                        ${isUltimate ? '<div class="ultimate-badge">👑 尊享特权</div>' : ''}
                         
                         <div class="plan-header-new">
-                            <span class="plan-icon">${plan.icon || badgeIcons[plan.type] || '📦'}</span>
-                            <h3 class="plan-name-new">${plan.name || badgeNames[plan.type] || '套餐'}</h3>
+                            <span class="plan-icon">${plan.icon || '📦'}</span>
+                            <h3 class="plan-name-new">${plan.name || '套餐'}</h3>
                         </div>
                         
                         <div class="plan-price-display">
@@ -4368,13 +4300,13 @@ async function unbindTelegramId() {
                             <span class="price-period">${pricePeriod}</span>
                         </div>
                         
-                        <p class="plan-description">${planDescriptions[plan.type] || plan.description || ''}</p>
+                        <p class="plan-description">${plan.description || ''}</p>
                         
                         <ul class="plan-features-new">
                             ${(plan.features || []).map(f => `<li><span class="check-icon">✓</span> ${f}</li>`).join('')}
                         </ul>
                         
-                        <button class="plan-buy-btn ${cardClass}" onclick="openPurchaseDialog('${plan.type}')">
+                        <button class="plan-buy-btn ${cardClass}" onclick="openPurchaseDialog('${planId}')">
                             立即购买
                         </button>
                     </div>
@@ -4397,31 +4329,12 @@ async function unbindTelegramId() {
             selectedPayment = 'alipay';
             currentVerifyCode = generateVerifyCode();
             
-            // 默认名称和图标
-            const defaultPlanNames = {
-                'basic': '入门版',
-                'standard': '标准版', 
-                'premium': '高级版',
-                'ultimate': '尊享版'
-            };
+            // 获取套餐价格（按ID匹配，兼容旧type匹配）
+            const plan = plansData.find(p => p.id === planType) || plansData.find(p => p.type === planType);
             
-            const defaultPlanIcons = {
-                'basic': '🌱',
-                'standard': '⭐',
-                'premium': '💎',
-                'ultimate': '👑'
-            };
-            
-            // 获取套餐价格
-            const plan = plansData.find(p => p.type === planType);
-            
-            // 使用后台配置的名称和图标（优先）
-            const planNames = {};
-            const planIcons = {};
-            plansData.forEach(p => {
-                planNames[p.type] = p.name || defaultPlanNames[p.type] || p.type;
-                planIcons[p.type] = p.icon || defaultPlanIcons[p.type] || '📦';
-            });
+            // 使用后台配置的名称和图标
+            const planName = plan ? (plan.name || '套餐') : '套餐';
+            const planIcon = plan ? (plan.icon || '📦') : '📦';
             const prices = plan ? getPlanPrices(plan) : { 1: 0, 3: 0, 6: 0, 12: 0 };
             const durationDays = plan ? (plan.duration_days || 30) : 30;
             const isShortTerm = durationDays < 30;
@@ -4474,9 +4387,9 @@ async function unbindTelegramId() {
                     <!-- 左侧: 套餐信息 -->
                     <div class="dialog-left-panel">
                         <div class="selected-plan-info">
-                            <span class="plan-icon-lg">${planIcons[planType] || '📦'}</span>
+                            <span class="plan-icon-lg">${planIcon}</span>
                             <div class="plan-text">
-                                <h3>${planNames[planType] || '套餐'}</h3>
+                                <h3>${planName}</h3>
                                 <p>${isShortTerm ? durationDays + '天体验' : '订阅服务'}</p>
                             </div>
                         </div>
@@ -4548,7 +4461,7 @@ async function unbindTelegramId() {
                 card.classList.toggle('active', card.dataset.duration == duration);
             });
             // 更新价格显示
-            const plan = plansData.find(p => p.type === selectedPlan);
+            const plan = plansData.find(p => p.id === selectedPlan) || plansData.find(p => p.type === selectedPlan);
             const prices = plan ? getPlanPrices(plan) : { 1: 0, 3: 0, 6: 0, 12: 0 };
             const priceAmount = document.getElementById('dialogPriceAmount');
             if (priceAmount) {
@@ -4592,7 +4505,7 @@ async function unbindTelegramId() {
             closePurchaseDialog();
             
             // 获取价格
-            const plan = plansData.find(p => p.type === selectedPlan);
+            const plan = plansData.find(p => p.id === selectedPlan) || plansData.find(p => p.type === selectedPlan);
             const prices = plan ? getPlanPrices(plan) : { 1: 0, 3: 0, 6: 0, 12: 0 };
             const price = prices[selectedDuration];
             

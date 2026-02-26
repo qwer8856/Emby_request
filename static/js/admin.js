@@ -5169,26 +5169,10 @@ function renderPlansConfig() {
             <div class="plan-config-body collapsible-body">
                 <div class="plan-config-grid">
                     <div class="plan-config-field">
-                        <label>套餐ID</label>
+                        <label>套餐ID <span style="font-weight:normal;color:#999;font-size:11px;">（用于线路权限绑定，不可重复）</span></label>
                         <input type="text" value="${plan.id || ''}" 
                                onchange="updatePlanField(${index}, 'id', this.value)"
-                               placeholder="如: basic">
-                    </div>
-                    <div class="plan-config-field">
-                        <label>套餐类型 <span style="font-weight:normal;color:#999;font-size:11px;">（同类型共享线路权限）</span></label>
-                        <div style="display:flex;gap:6px;">
-                            <select class="custom-select" style="flex:1;" id="planTypeSelect_${index}" onchange="handlePlanTypeSelect(${index}, this.value)">
-                                <option value="basic" ${plan.type === 'basic' ? 'selected' : ''}>基础 (basic)</option>
-                                <option value="standard" ${plan.type === 'standard' ? 'selected' : ''}>标准 (standard)</option>
-                                <option value="premium" ${plan.type === 'premium' ? 'selected' : ''}>高级 (premium)</option>
-                                <option value="ultimate" ${plan.type === 'ultimate' ? 'selected' : ''}>至尊 (ultimate)</option>
-                                <option value="__custom__" ${!['basic','standard','premium','ultimate'].includes(plan.type) ? 'selected' : ''}>自定义...</option>
-                            </select>
-                            <input type="text" id="planTypeCustom_${index}" value="${!['basic','standard','premium','ultimate'].includes(plan.type) ? (plan.type || '') : ''}"
-                                   onchange="updatePlanField(${index}, 'type', this.value.trim())"
-                                   placeholder="输入自定义类型"
-                                   style="flex:1;display:${!['basic','standard','premium','ultimate'].includes(plan.type) ? 'block' : 'none'};">
-                        </div>
+                               placeholder="如: basic_1m, standard_3m">
                     </div>
                     <div class="plan-config-field">
                         <label>套餐名称</label>
@@ -5394,7 +5378,6 @@ function formatDurationHint(days) {
 function addNewPlan() {
     const newPlan = {
         id: `plan_${Date.now()}`,
-        type: 'basic',
         name: '新套餐',
         duration: 1,
         duration_days: 30,
@@ -5447,13 +5430,6 @@ async function savePlansConfig() {
         return;
     }
     
-    // 验证套餐类型
-    const noTypePlans = plansConfigData.filter(p => !p.type || !p.type.trim());
-    if (noTypePlans.length > 0) {
-        showToast('警告', '请确保所有套餐都填写了套餐类型', 'warning');
-        return;
-    }
-    
     // 验证价格
     const noPricePlans = plansConfigData.filter(p => !p.price_1m && !p.price);
     if (noPricePlans.length > 0) {
@@ -5483,22 +5459,7 @@ async function savePlansConfig() {
     }
 }
 
-// 套餐类型下拉切换（预设/自定义）
-function handlePlanTypeSelect(index, value) {
-    const customInput = document.getElementById('planTypeCustom_' + index);
-    if (value === '__custom__') {
-        // 显示自定义输入框
-        if (customInput) {
-            customInput.style.display = 'block';
-            customInput.value = '';
-            customInput.focus();
-        }
-    } else {
-        // 选择预设类型
-        if (customInput) customInput.style.display = 'none';
-        updatePlanField(index, 'type', value);
-    }
-}
+// handlePlanTypeSelect 已移除（套餐类型字段已取消，使用套餐ID代替）
 
 // ==================== 兑换码管理 ====================
 let redeemCodesData = [];
@@ -6059,25 +6020,22 @@ function updateLinesStats() {
     if (statusEl) statusEl.textContent = `${allLines.length} 条线路`;
 }
 
-// 全局加载套餐类型选项（用于用户管理下拉框）
+// 全局加载套餐选项（用于用户管理下拉框，使用套餐ID作为值）
 async function loadGlobalPlanTypeOptions() {
     if (window._planTypeOptions && window._planTypeOptions.length > 0) return;
     try {
         const response = await fetch('/api/admin/plans-config');
         const data = await response.json();
         if (data.success && data.plans) {
-            const seenTypes = new Set();
             window._planTypeOptions = [];
             data.plans.forEach(plan => {
-                if (plan.type && !seenTypes.has(plan.type)) {
-                    seenTypes.add(plan.type);
-                    // 使用套餐的 name 作为标签（如"入门版"、"标准版"），不再硬编码
-                    window._planTypeOptions.push({value: plan.type, label: plan.name || plan.type});
+                if (plan.id) {
+                    window._planTypeOptions.push({value: plan.id, label: plan.name || plan.id});
                 }
             });
         }
     } catch (e) {
-        console.error('加载套餐类型失败:', e);
+        console.error('加载套餐选项失败:', e);
         window._planTypeOptions = [];
     }
 }
@@ -6086,24 +6044,21 @@ async function loadLinePlanTypeOptions(selectedTypes = []) {
     const container = document.getElementById('linePlanTypes');
     if (!container) return;
     
-    // 固定的白名单选项 + 从套餐配置中获取的动态类型
+    // 固定的白名单选项 + 从套餐配置中获取的动态选项（使用套餐ID）
     let typeOptions = [{value: 'whitelist', label: '👑 白名单'}];
     
     try {
         const response = await fetch('/api/admin/plans-config');
         const data = await response.json();
         if (data.success && data.plans) {
-            const seenTypes = new Set();
             data.plans.forEach(plan => {
-                if (plan.type && !seenTypes.has(plan.type)) {
-                    seenTypes.add(plan.type);
-                    // 使用套餐的 name 作为标签，不再硬编码
-                    typeOptions.push({value: plan.type, label: plan.name || plan.type});
+                if (plan.id) {
+                    typeOptions.push({value: plan.id, label: plan.name || plan.id});
                 }
             });
         }
     } catch (e) {
-        console.error('加载套餐类型失败:', e);
+        console.error('加载套餐选项失败:', e);
     }
     
     container.innerHTML = typeOptions.map(opt => {
