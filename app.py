@@ -17927,7 +17927,7 @@ def create_order():
             app.logger.info('orders 表已创建')
         
         plan_type = data.get('plan_type')  # 套餐类型
-        duration = int(data.get('duration', 1))  # 订阅时长（月数，用于价格周期选择）
+        duration = int(data.get('duration', 1))  # 订阅时长（0=一次性，1=月付，3=季付等）
         payment_method = data.get('payment_method', 'alipay')
         
         app.logger.info(f'创建订单参数: plan_type={plan_type}, duration={duration}, payment_method={payment_method}, user={user.name}')
@@ -17953,42 +17953,71 @@ def create_order():
         
         # 从套餐配置获取基础天数（duration_days 字段）
         base_duration_days = int(plan_config.get('duration_days', 30))
+        # 永久套餐：999天及以上视为永久
+        is_permanent = base_duration_days >= 999
         
-        # 根据购买周期计算实际天数
-        # duration=1 → 基础天数, duration=3 → 基础天数*3, 以此类推
-        actual_duration_days = base_duration_days * duration
+        # 互斥校验：一次性价格和月付价格只能用一种模式
+        has_once_price = float(plan_config.get('price_once', 0) or 0) > 0
+        has_monthly_price = float(plan_config.get('price_1m', 0) or plan_config.get('price', 0) or 0) > 0
         
-        # 获取对应周期的价格
-        duration_price_map = {
-            1: plan_config.get('price_1m') or plan_config.get('price', 0),
-            3: plan_config.get('price_3m', 0),
-            6: plan_config.get('price_6m', 0),
-            12: plan_config.get('price_12m', 0)
-        }
+        if duration == 0 and not has_once_price:
+            return jsonify({'error': '该套餐未配置一次性价格'}), 400
+        if duration > 0 and has_once_price:
+            return jsonify({'error': '该套餐为一次性购买模式，不支持周期订阅'}), 400
+        if duration > 0 and not has_monthly_price:
+            return jsonify({'error': '该套餐未配置周期价格'}), 400
         
-        if duration not in duration_price_map:
-            return jsonify({'error': '无效的订阅时长'}), 400
-        
-        final_price = float(duration_price_map[duration])
-        if final_price <= 0:
-            # 如果该周期没有设置价格，使用月付价格计算
-            monthly_price = float(plan_config.get('price_1m') or plan_config.get('price', 0))
-            if monthly_price <= 0:
-                return jsonify({'error': '套餐价格未配置'}), 400
-            # 使用默认折扣计算
-            multipliers = {1: 1.0, 3: 2.8, 6: 5.0, 12: 9.0}
-            final_price = round(monthly_price * multipliers.get(duration, duration), 2)
-        
-        # 计算原价和折扣
-        monthly_price = float(plan_config.get('price_1m') or plan_config.get('price', 0))
-        original_price = round(monthly_price * duration, 2)
-        discount = round(original_price - final_price, 2)
-        if discount < 0:
+        # 一次性购买（duration=0）：使用套餐的基础天数，价格用 price_once
+        if duration == 0:
+            actual_duration_days = base_duration_days
+            final_price = float(plan_config.get('price_once', 0))
+            if final_price <= 0:
+                return jsonify({'error': '该套餐未配置一次性价格'}), 400
+            original_price = final_price
             discount = 0
+        else:
+            # 根据购买周期计算实际天数
+            # duration=1 → 基础天数, duration=3 → 基础天数*3, 以此类推
+            actual_duration_days = base_duration_days * duration
+            
+            # 获取对应周期的价格
+            duration_price_map = {
+                1: plan_config.get('price_1m') or plan_config.get('price', 0),
+                3: plan_config.get('price_3m', 0),
+                6: plan_config.get('price_6m', 0),
+                12: plan_config.get('price_12m', 0)
+            }
+            
+            if duration not in duration_price_map:
+                return jsonify({'error': '无效的订阅时长'}), 400
+            
+            final_price = float(duration_price_map[duration])
+            if final_price <= 0:
+                # 如果该周期没有设置价格，使用月付价格计算
+                monthly_price = float(plan_config.get('price_1m') or plan_config.get('price', 0))
+                if monthly_price <= 0:
+                    return jsonify({'error': '套餐价格未配置'}), 400
+                # 使用默认折扣计算
+                multipliers = {1: 1.0, 3: 2.8, 6: 5.0, 12: 9.0}
+                final_price = round(monthly_price * multipliers.get(duration, duration), 2)
+        
+        # 计算原价和折扣（一次性购买已在上面处理）
+        if duration != 0:
+            monthly_price = float(plan_config.get('price_1m') or plan_config.get('price', 0))
+            original_price = round(monthly_price * duration, 2)
+            discount = round(original_price - final_price, 2)
+            if discount < 0:
+                discount = 0
         
         # 构建套餐名称
         plan_name = plan_config.get('name', '套餐')
-        if base_duration_days < 30:
+        if duration == 0:
+            # 一次性购买
+            if is_permanent:
+                plan_name = f"{plan_name}(永久)"
+            else:
+                plan_name = f"{plan_name}({actual_duration_days}天)"
+        elif base_duration_days < 30:
             # 短期套餐（试用等），直接显示天数
             if duration > 1:
                 plan_name = f"{plan_name}({actual_duration_days}天)"
@@ -20323,7 +20352,8 @@ def save_plans_config_api():
                 'original_price': float(plan.get('original_price')) if plan.get('original_price') else None,
                 'features': plan.get('features', []) if isinstance(plan.get('features'), list) else [],
                 'popular': bool(plan.get('popular', False)),
-                # 多周期价格
+                # 多周期价格（互斥：一次性和月付/季付/年付只能设一种）
+                'price_once': float(plan.get('price_once', 0)) if plan.get('price_once') else None,
                 'price_1m': float(plan.get('price_1m', 0)) if plan.get('price_1m') else None,
                 'price_3m': float(plan.get('price_3m', 0)) if plan.get('price_3m') else None,
                 'price_6m': float(plan.get('price_6m', 0)) if plan.get('price_6m') else None,
@@ -20331,6 +20361,19 @@ def save_plans_config_api():
                 # 订阅权益
                 'benefits': plan.get('benefits', []) if isinstance(plan.get('benefits'), list) else [],
             }
+            
+            # 互斥校验：一次性价格和周期价格不能同时存在
+            once_price = validated_plan.get('price_once') or 0
+            monthly_price = validated_plan.get('price_1m') or 0
+            if once_price > 0 and monthly_price > 0:
+                # 一次性价格优先，清空周期价格
+                validated_plan['price_1m'] = None
+                validated_plan['price_3m'] = None
+                validated_plan['price_6m'] = None
+                validated_plan['price_12m'] = None
+                validated_plan['price'] = 0
+                app.logger.warning(f'套餐 {validated_plan["name"]} 同时设置了一次性和周期价格，已自动清空周期价格')
+            
             validated_plans.append(validated_plan)
         
         if not validated_plans:

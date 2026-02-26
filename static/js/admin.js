@@ -5159,7 +5159,7 @@ function renderPlansConfig() {
                     <span class="plan-config-title">${plan.name || '新套餐'}</span>
                 </div>
                 <div class="plan-config-actions">
-                    <span class="plan-badge duration">${plan.duration_days || (plan.duration || 1) * 30}天</span>
+                    <span class="plan-badge duration">${(plan.duration_days || (plan.duration || 1) * 30) >= 999 ? '永久' : (plan.duration_days || (plan.duration || 1) * 30) + '天'}</span>
                     ${plan.popular ? '<span class="plan-badge popular">推荐</span>' : ''}
                     <button class="btn-icon btn-danger" onclick="deletePlan(${index}); event.stopPropagation();" title="删除套餐">
                         <span>🗑️</span>
@@ -5188,7 +5188,7 @@ function renderPlansConfig() {
                     </div>
                     <div class="plan-config-field">
                         <label>套餐时长（天）</label>
-                        <input type="number" value="${plan.duration_days || (plan.duration || 1) * 30}" min="1" max="3650"
+                        <input type="number" value="${plan.duration_days || (plan.duration || 1) * 30}" min="1" max="99999"
                                onchange="updatePlanDuration(${index}, parseInt(this.value) || 30)"
                                placeholder="30">
                         <span class="field-hint" id="durationHint_${index}">${formatDurationHint(plan.duration_days || (plan.duration || 1) * 30)}</span>
@@ -5208,17 +5208,28 @@ function renderPlansConfig() {
                     </div>
                 </div>
                 
-                <!-- 四个周期价格 -->
+                <!-- 价格设置 -->
                 <div class="plan-prices-section">
-                    <div class="prices-title">💰 价格设置（元）</div>
+                    <div class="prices-title">💰 价格设置（元）<span style="font-weight:normal;color:#e67e22;font-size:11px;margin-left:8px;">⚠️ 一次性价格与月付/季付/年付互斥，只能配置一种模式</span></div>
                     <div class="plan-prices-grid">
+                        <div class="price-field">
+                            <label>一次性价格</label>
+                            <div class="price-input-wrapper">
+                                <span class="price-prefix">¥</span>
+                                <input type="number" value="${plan.price_once || ''}" min="0" step="0.01"
+                                       onchange="updatePlanField(${index}, 'price_once', parseFloat(this.value) || 0)"
+                                       placeholder="不填则不显示">
+                                <span class="price-suffix">/次</span>
+                            </div>
+                            <span class="price-hint" style="color:#e67e22;">按套餐时长一次性购买</span>
+                        </div>
                         <div class="price-field">
                             <label>月付价格</label>
                             <div class="price-input-wrapper">
                                 <span class="price-prefix">¥</span>
                                 <input type="number" value="${plan.price_1m || plan.price || ''}" min="0" step="0.01"
                                        onchange="updatePlanField(${index}, 'price_1m', parseFloat(this.value) || 0)"
-                                       placeholder="0.00">
+                                       placeholder="不填则不显示">
                                 <span class="price-suffix">/月</span>
                             </div>
                         </div>
@@ -5337,6 +5348,28 @@ function updatePlanField(index, field, value) {
             plansConfigData[index].duration = 1;
         }
         
+        // 互斥逻辑：一次性价格与月付/季付/年付不能同时存在
+        if (field === 'price_once' && value > 0) {
+            // 设置了一次性价格，清空月付/季付/半年/年付
+            plansConfigData[index].price_1m = 0;
+            plansConfigData[index].price_3m = 0;
+            plansConfigData[index].price_6m = 0;
+            plansConfigData[index].price_12m = 0;
+            plansConfigData[index].price = 0;
+            renderPlansConfig();
+            showMessage && showMessage('已自动清空月付/季付/年付价格（与一次性价格互斥）', 'info');
+            return;
+        }
+        if ((field === 'price_1m' || field === 'price_3m' || field === 'price_6m' || field === 'price_12m') && value > 0) {
+            // 设置了周期价格，清空一次性价格
+            if (plansConfigData[index].price_once > 0) {
+                plansConfigData[index].price_once = 0;
+                renderPlansConfig();
+                showMessage && showMessage('已自动清空一次性价格（与月付/季付/年付互斥）', 'info');
+                return;
+            }
+        }
+        
         // 如果修改的是名称，更新标题显示
         if (field === 'name') {
             const item = document.querySelector(`.plan-config-item[data-index="${index}"] .plan-config-title`);
@@ -5362,7 +5395,9 @@ function updatePlanDuration(index, days) {
 
 // 格式化天数提示
 function formatDurationHint(days) {
-    if (days % 365 === 0 && days >= 365) {
+    if (days >= 999) {
+        return '= 永久';
+    } else if (days % 365 === 0 && days >= 365) {
         return `= ${days / 365}年`;
     } else if (days % 30 === 0 && days >= 30) {
         return `= ${days / 30}个月`;
@@ -5382,6 +5417,7 @@ function addNewPlan() {
         duration: 1,
         duration_days: 30,
         price: 0,
+        price_once: 0,
         price_1m: 0,
         price_3m: 0,
         price_6m: 0,
@@ -5430,12 +5466,7 @@ async function savePlansConfig() {
         return;
     }
     
-    // 验证价格
-    const noPricePlans = plansConfigData.filter(p => !p.price_1m && !p.price);
-    if (noPricePlans.length > 0) {
-        showToast('警告', '请确保所有套餐都填写了月付价格', 'warning');
-        return;
-    }
+    // 价格验证已移除：价格全部为0的套餐不会显示购买按钮，可用于纯展示套餐
     
     try {
         const response = await fetch('/api/admin/plans-config', {

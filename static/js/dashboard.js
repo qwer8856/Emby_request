@@ -4234,6 +4234,7 @@ async function unbindTelegramId() {
         function getPlanPrices(plan) {
             const monthlyPrice = plan.price_1m || plan.price || 0;
             return {
+                0: plan.price_once || 0,  // 一次性价格
                 1: monthlyPrice,
                 3: plan.price_3m || Math.round(monthlyPrice * 2.8 * 100) / 100,
                 6: plan.price_6m || Math.round(monthlyPrice * 5 * 100) / 100,
@@ -4280,25 +4281,49 @@ async function unbindTelegramId() {
                 const planId = plan.id || plan.type || '';
                 const isPopular = plan.popular;
                 const cardClass = isPopular ? 'popular' : '';
-                const monthlyPrice = plan.price_1m || plan.price || 0;
                 const durationDays = plan.duration_days || 30;
-                const isShortTerm = durationDays < 30;
-                const pricePeriod = isShortTerm ? `/${durationDays}天` : '/月起';
+                const isPermanent = durationDays >= 999;
+                const isShortTerm = !isPermanent && durationDays < 30;
+                
+                // 判断是否有任何可购买的价格
+                const priceOnce = plan.price_once || 0;
+                const monthlyPrice = plan.price_1m || plan.price || 0;
+                // 互斥：有一次性价格就只看一次性，否则看月付
+                const useOnceMode = priceOnce > 0;
+                const hasAnyPrice = useOnceMode ? true : (monthlyPrice > 0);
+                
+                // 显示价格：互斥，一次性优先
+                let displayPrice = 0;
+                let pricePeriod = '';
+                if (useOnceMode) {
+                    displayPrice = priceOnce;
+                    pricePeriod = isPermanent ? '' : `/${durationDays}天`;
+                } else if (monthlyPrice > 0) {
+                    displayPrice = monthlyPrice;
+                    pricePeriod = isShortTerm ? `/${durationDays}天` : '/月起';
+                }
                 
                 return `
                     <div class="plan-card-new ${cardClass}" data-plan-type="${planId}">
                         ${isPopular ? '<div class="popular-badge">🔥 最受欢迎</div>' : ''}
+                        ${isPermanent ? '<div class="ultimate-badge">♾️ 永久</div>' : ''}
                         
                         <div class="plan-header-new">
                             <span class="plan-icon">${plan.icon || '📦'}</span>
                             <h3 class="plan-name-new">${plan.name || '套餐'}</h3>
                         </div>
                         
+                        ${hasAnyPrice ? `
                         <div class="plan-price-display">
                             <span class="price-currency">¥</span>
-                            <span class="price-amount">${monthlyPrice}</span>
+                            <span class="price-amount">${displayPrice}</span>
                             <span class="price-period">${pricePeriod}</span>
                         </div>
+                        ` : `
+                        <div class="plan-price-display">
+                            <span class="price-amount" style="font-size:18px;color:#999;">仅限管理员分配</span>
+                        </div>
+                        `}
                         
                         <p class="plan-description">${plan.description || ''}</p>
                         
@@ -4306,9 +4331,11 @@ async function unbindTelegramId() {
                             ${(plan.features || []).map(f => `<li><span class="check-icon">✓</span> ${f}</li>`).join('')}
                         </ul>
                         
+                        ${hasAnyPrice ? `
                         <button class="plan-buy-btn ${cardClass}" onclick="openPurchaseDialog('${planId}')">
                             立即购买
                         </button>
+                        ` : ''}
                     </div>
                 `;
             }).join('');
@@ -4335,46 +4362,60 @@ async function unbindTelegramId() {
             // 使用后台配置的名称和图标
             const planName = plan ? (plan.name || '套餐') : '套餐';
             const planIcon = plan ? (plan.icon || '📦') : '📦';
-            const prices = plan ? getPlanPrices(plan) : { 1: 0, 3: 0, 6: 0, 12: 0 };
+            const prices = plan ? getPlanPrices(plan) : { 0: 0, 1: 0, 3: 0, 6: 0, 12: 0 };
             const durationDays = plan ? (plan.duration_days || 30) : 30;
-            const isShortTerm = durationDays < 30;
+            const isPermanent = durationDays >= 999;
+            const isShortTerm = !isPermanent && durationDays < 30;
+            const hasOncePrice = prices[0] > 0;
+            const hasMonthlyPrice = prices[1] > 0;
             
-            // 短期套餐生成简化的时长选项
-            let durationGridHTML = '';
-            if (isShortTerm) {
-                durationGridHTML = `
-                    <label class="dur-card active" data-duration="1">
-                        <input type="radio" name="dur" value="1" checked onchange="updateDuration(1)">
-                        <span class="dur-name">${durationDays}天</span>
-                        <span class="dur-price">¥${prices[1]}</span>
-                    </label>
-                `;
+            // 互斥逻辑：有一次性价格就只显示一次性，否则显示月付/季付等
+            const useOnceMode = hasOncePrice;
+            
+            // 默认选中
+            if (useOnceMode) {
+                selectedDuration = 0;
             } else {
-                durationGridHTML = `
-                    <label class="dur-card active" data-duration="1">
-                        <input type="radio" name="dur" value="1" checked onchange="updateDuration(1)">
-                        <span class="dur-name">月付</span>
-                        <span class="dur-price">¥${prices[1]}</span>
-                    </label>
-                    <label class="dur-card" data-duration="3">
-                        <input type="radio" name="dur" value="3" onchange="updateDuration(3)">
-                        <span class="dur-name">季付</span>
-                        <span class="dur-price">¥${prices[3]}</span>
-                        <span class="dur-tag">推荐</span>
-                    </label>
-                    <label class="dur-card" data-duration="6">
-                        <input type="radio" name="dur" value="6" onchange="updateDuration(6)">
-                        <span class="dur-name">半年付</span>
-                        <span class="dur-price">¥${prices[6]}</span>
-                    </label>
-                    <label class="dur-card" data-duration="12">
-                        <input type="radio" name="dur" value="12" onchange="updateDuration(12)">
-                        <span class="dur-name">年付</span>
-                        <span class="dur-price">¥${prices[12]}</span>
-                        <span class="dur-tag hot">最划算</span>
-                    </label>
-                `;
+                selectedDuration = 1;
             }
+            
+            // 构建时长选项
+            let durationGridHTML = '';
+            const durationOptions = [];
+            
+            if (useOnceMode) {
+                // 一次性模式：只显示一次性价格选项
+                const onceName = isPermanent ? '永久' : `${durationDays}天`;
+                durationOptions.push({
+                    duration: 0, name: onceName, price: prices[0],
+                    tag: isPermanent ? '永久' : '', active: true
+                });
+            } else if (hasMonthlyPrice) {
+                // 周期模式：显示月付/季付/半年付/年付
+                if (isShortTerm) {
+                    durationOptions.push({
+                        duration: 1, name: `${durationDays}天`, price: prices[1],
+                        tag: '', active: selectedDuration === 1
+                    });
+                } else {
+                    durationOptions.push({ duration: 1, name: '月付', price: prices[1], tag: '', active: selectedDuration === 1 });
+                    if (prices[3] > 0) durationOptions.push({ duration: 3, name: '季付', price: prices[3], tag: '推荐', active: false });
+                    if (prices[6] > 0) durationOptions.push({ duration: 6, name: '半年付', price: prices[6], tag: '', active: false });
+                    if (prices[12] > 0) durationOptions.push({ duration: 12, name: '年付', price: prices[12], tag: '最划算', active: false });
+                }
+            }
+            
+            durationGridHTML = durationOptions.map(opt => `
+                <label class="dur-card ${opt.active ? 'active' : ''}" data-duration="${opt.duration}">
+                    <input type="radio" name="dur" value="${opt.duration}" ${opt.active ? 'checked' : ''} onchange="updateDuration(${opt.duration})">
+                    <span class="dur-name">${opt.name}</span>
+                    <span class="dur-price">¥${opt.price}</span>
+                    ${opt.tag ? `<span class="dur-tag ${opt.tag === '最划算' ? 'hot' : ''}">${opt.tag}</span>` : ''}
+                </label>
+            `).join('');
+            
+            const initialPrice = prices[selectedDuration] || 0;
+            const planSubtitle = isPermanent ? '永久服务' : (isShortTerm ? durationDays + '天体验' : '订阅服务');
             
             const overlay = document.createElement('div');
             overlay.className = 'confirm-overlay';
@@ -4390,12 +4431,12 @@ async function unbindTelegramId() {
                             <span class="plan-icon-lg">${planIcon}</span>
                             <div class="plan-text">
                                 <h3>${planName}</h3>
-                                <p>${isShortTerm ? durationDays + '天体验' : '订阅服务'}</p>
+                                <p>${planSubtitle}</p>
                             </div>
                         </div>
                         <div class="price-display-lg">
                             <span class="currency">¥</span>
-                            <span class="amount" id="dialogPriceAmount">${prices[1]}</span>
+                            <span class="amount" id="dialogPriceAmount">${initialPrice}</span>
                         </div>
                         <div class="verify-section">
                             <div class="verify-row">
@@ -4462,10 +4503,10 @@ async function unbindTelegramId() {
             });
             // 更新价格显示
             const plan = plansData.find(p => p.id === selectedPlan) || plansData.find(p => p.type === selectedPlan);
-            const prices = plan ? getPlanPrices(plan) : { 1: 0, 3: 0, 6: 0, 12: 0 };
+            const prices = plan ? getPlanPrices(plan) : { 0: 0, 1: 0, 3: 0, 6: 0, 12: 0 };
             const priceAmount = document.getElementById('dialogPriceAmount');
             if (priceAmount) {
-                priceAmount.textContent = prices[duration];
+                priceAmount.textContent = prices[duration] || 0;
             }
         }
         
@@ -4506,8 +4547,8 @@ async function unbindTelegramId() {
             
             // 获取价格
             const plan = plansData.find(p => p.id === selectedPlan) || plansData.find(p => p.type === selectedPlan);
-            const prices = plan ? getPlanPrices(plan) : { 1: 0, 3: 0, 6: 0, 12: 0 };
-            const price = prices[selectedDuration];
+            const prices = plan ? getPlanPrices(plan) : { 0: 0, 1: 0, 3: 0, 6: 0, 12: 0 };
+            const price = prices[selectedDuration] || 0;
             
             await createOrderDirect(selectedPlan, selectedDuration, selectedPayment);
         }
