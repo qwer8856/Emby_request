@@ -16680,6 +16680,54 @@ def batch_users():
                 if user.embyid and emby_client.is_enabled():
                     emby_client.enable_user(user.embyid)
                 success_count += 1
+            elif action == 'set_plan_type':
+                # 批量设置套餐类型
+                plan_type_value = data.get('plan_type', '')
+                if not plan_type_value:
+                    fail_count += 1
+                    continue
+                type_labels = {}
+                try:
+                    _plans = load_plans_config()
+                    for _p in _plans:
+                        if _p.get('type') and _p.get('type') not in type_labels:
+                            type_labels[_p['type']] = _p.get('name', _p['type'])
+                except:
+                    pass
+                plan_name = type_labels.get(plan_type_value, plan_type_value) + '套餐'
+                # 确保用户是订阅用户
+                if user.lv not in ['a', 'c']:
+                    user.lv = 'b'
+                # 更新或创建 Subscription 记录
+                existing_sub = Subscription.query.filter_by(
+                    user_tg=user.tg, status='active'
+                ).order_by(Subscription.end_date.desc()).first()
+                if existing_sub:
+                    existing_sub.plan_type = plan_type_value
+                    existing_sub.plan_name = plan_name
+                    existing_sub.updated_at = now
+                else:
+                    new_sub = Subscription(
+                        user_tg=user.tg,
+                        plan_type=plan_type_value,
+                        plan_name=plan_name,
+                        duration_months=1,
+                        price=0,
+                        start_date=now,
+                        end_date=user.ex if user.ex and user.ex > now else now,
+                        status='active',
+                        source='manual'
+                    )
+                    db.session.add(new_sub)
+                # 清除黑名单封禁信息
+                user.ban_reason = None
+                user.ban_time = None
+                user.ban_prev_lv = None
+                user.ban_prev_ex = None
+                # 恢复Emby账号
+                if user.embyid and emby_client.is_enabled():
+                    emby_client.enable_user(user.embyid)
+                success_count += 1
             else:
                 fail_count += 1
         except Exception as e:
@@ -22677,8 +22725,9 @@ def get_user_lines():
         
         # 获取用户的套餐类型
         user_plan_type = None
-        # 有效的套餐类型（与管理后台套餐配置中的 type 一致）
-        valid_plan_types = {'whitelist', 'basic', 'standard', 'premium', 'ultimate'}
+        # 动态从套餐配置中读取有效套餐类型（不再硬编码）
+        plans = load_plans_config()
+        valid_plan_types = {'whitelist'} | {p.get('type') for p in plans if p.get('type')}
         if is_whitelist:
             user_plan_type = 'whitelist'
         elif is_subscriber:
@@ -22757,7 +22806,8 @@ def log_view_lines():
         
         visible_line_names = []
         user_plan_type = None
-        valid_plan_types = {'whitelist', 'basic', 'standard', 'premium', 'ultimate'}
+        plans = load_plans_config()
+        valid_plan_types = {'whitelist'} | {p.get('type') for p in plans if p.get('type')}
         if is_whitelist:
             user_plan_type = 'whitelist'
         elif is_subscriber:
@@ -23445,8 +23495,17 @@ def admin_set_user_type(user_id):
             
             # 如果指定了套餐类型，更新或创建 Subscription 记录
             if plan_type_value:
-                type_labels = {'basic': '基础', 'standard': '标准', 'premium': '高级', 'ultimate': '至尊'}
-                plan_name = type_labels.get(plan_type_value, plan_type_value) + '套餐'
+                # 动态从套餐配置获取名称，不再硬编码
+                plans = load_plans_config()
+                plan_name = None
+                for p in plans:
+                    if p.get('type') == plan_type_value:
+                        plan_name = p.get('name')
+                        break
+                if not plan_name:
+                    type_labels = {'basic': '基础', 'standard': '标准', 'premium': '高级', 'ultimate': '至尊'}
+                    plan_name = type_labels.get(plan_type_value, plan_type_value)
+                plan_name = plan_name + '套餐'
                 
                 existing_sub = Subscription.query.filter_by(
                     user_tg=user.tg, status='active'

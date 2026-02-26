@@ -2919,8 +2919,9 @@ async function setUserType(userId, userType, currentType) {
         confirmMessage = '确定要将此用户设置为「非订阅用户」吗？\n\n将清除订阅时间并取消白名单。';
     } else if (userType.startsWith('sub_')) {
         const planType = userType.substring(4);
-        const typeLabels = {basic: '基础', standard: '标准', premium: '高级', ultimate: '至尊'};
-        displayName = (typeLabels[planType] || planType) + '订阅用户';
+        const planOpt = (window._planTypeOptions || []).find(o => o.value === planType);
+        const planLabel = planOpt ? planOpt.label : planType;
+        displayName = planLabel + '订阅用户';
         confirmMessage = `确定要将此用户设置为「${displayName}」吗？\n\n注意：设置后请在详情页赠送订阅天数。`;
         requestType = userType; // 发送完整类型给后端
     } else {
@@ -5174,13 +5175,20 @@ function renderPlansConfig() {
                                placeholder="如: basic">
                     </div>
                     <div class="plan-config-field">
-                        <label>套餐类型</label>
-                        <select class="custom-select" onchange="updatePlanField(${index}, 'type', this.value)">
-                            <option value="basic" ${plan.type === 'basic' ? 'selected' : ''}>基础</option>
-                            <option value="standard" ${plan.type === 'standard' ? 'selected' : ''}>标准</option>
-                            <option value="premium" ${plan.type === 'premium' ? 'selected' : ''}>高级</option>
-                            <option value="ultimate" ${plan.type === 'ultimate' ? 'selected' : ''}>至尊</option>
-                        </select>
+                        <label>套餐类型 <span style="font-weight:normal;color:#999;font-size:11px;">（同类型共享线路权限）</span></label>
+                        <div style="display:flex;gap:6px;">
+                            <select class="custom-select" style="flex:1;" id="planTypeSelect_${index}" onchange="handlePlanTypeSelect(${index}, this.value)">
+                                <option value="basic" ${plan.type === 'basic' ? 'selected' : ''}>基础 (basic)</option>
+                                <option value="standard" ${plan.type === 'standard' ? 'selected' : ''}>标准 (standard)</option>
+                                <option value="premium" ${plan.type === 'premium' ? 'selected' : ''}>高级 (premium)</option>
+                                <option value="ultimate" ${plan.type === 'ultimate' ? 'selected' : ''}>至尊 (ultimate)</option>
+                                <option value="__custom__" ${!['basic','standard','premium','ultimate'].includes(plan.type) ? 'selected' : ''}>自定义...</option>
+                            </select>
+                            <input type="text" id="planTypeCustom_${index}" value="${!['basic','standard','premium','ultimate'].includes(plan.type) ? (plan.type || '') : ''}"
+                                   onchange="updatePlanField(${index}, 'type', this.value.trim())"
+                                   placeholder="输入自定义类型"
+                                   style="flex:1;display:${!['basic','standard','premium','ultimate'].includes(plan.type) ? 'block' : 'none'};">
+                        </div>
                     </div>
                     <div class="plan-config-field">
                         <label>套餐名称</label>
@@ -5439,6 +5447,13 @@ async function savePlansConfig() {
         return;
     }
     
+    // 验证套餐类型
+    const noTypePlans = plansConfigData.filter(p => !p.type || !p.type.trim());
+    if (noTypePlans.length > 0) {
+        showToast('警告', '请确保所有套餐都填写了套餐类型', 'warning');
+        return;
+    }
+    
     // 验证价格
     const noPricePlans = plansConfigData.filter(p => !p.price_1m && !p.price);
     if (noPricePlans.length > 0) {
@@ -5457,12 +5472,31 @@ async function savePlansConfig() {
         
         if (data.success) {
             showToast('成功', data.message || '套餐配置已保存', 'success');
+            // 清除套餐类型缓存，让用户管理/线路管理重新加载最新类型
+            window._planTypeOptions = null;
         } else {
             showToast('失败', data.error || '保存失败', 'error');
         }
     } catch (error) {
         console.error('保存套餐配置失败:', error);
         showToast('错误', '保存失败: ' + error.message, 'error');
+    }
+}
+
+// 套餐类型下拉切换（预设/自定义）
+function handlePlanTypeSelect(index, value) {
+    const customInput = document.getElementById('planTypeCustom_' + index);
+    if (value === '__custom__') {
+        // 显示自定义输入框
+        if (customInput) {
+            customInput.style.display = 'block';
+            customInput.value = '';
+            customInput.focus();
+        }
+    } else {
+        // 选择预设类型
+        if (customInput) customInput.style.display = 'none';
+        updatePlanField(index, 'type', value);
     }
 }
 
@@ -5968,13 +6002,13 @@ function renderLines(lines) {
         return;
     }
     
-    const planTypeNames = {
-        'whitelist': '👑白名单',
-        'basic': '基础',
-        'standard': '标准',
-        'premium': '高级',
-        'ultimate': '至尊'
-    };
+    // 动态构建套餐类型名称映射（从套餐配置中获取）
+    const planTypeNames = {'whitelist': '👑白名单'};
+    if (window._planTypeOptions) {
+        window._planTypeOptions.forEach(opt => {
+            planTypeNames[opt.value] = opt.label;
+        });
+    }
     
     linesList.innerHTML = lines.map(line => {
         const fullUrl = line.full_url || (line.is_https ? 'https' : 'http') + '://' + line.server_url + ':' + line.port;
@@ -6032,13 +6066,13 @@ async function loadGlobalPlanTypeOptions() {
         const response = await fetch('/api/admin/plans-config');
         const data = await response.json();
         if (data.success && data.plans) {
-            const typeLabels = {basic: '基础', standard: '标准', premium: '高级', ultimate: '至尊'};
             const seenTypes = new Set();
             window._planTypeOptions = [];
             data.plans.forEach(plan => {
                 if (plan.type && !seenTypes.has(plan.type)) {
                     seenTypes.add(plan.type);
-                    window._planTypeOptions.push({value: plan.type, label: typeLabels[plan.type] || plan.type});
+                    // 使用套餐的 name 作为标签（如"入门版"、"标准版"），不再硬编码
+                    window._planTypeOptions.push({value: plan.type, label: plan.name || plan.type});
                 }
             });
         }
@@ -6059,12 +6093,12 @@ async function loadLinePlanTypeOptions(selectedTypes = []) {
         const response = await fetch('/api/admin/plans-config');
         const data = await response.json();
         if (data.success && data.plans) {
-            const typeLabels = {basic: '基础', standard: '标准', premium: '高级', ultimate: '至尊'};
             const seenTypes = new Set();
             data.plans.forEach(plan => {
                 if (plan.type && !seenTypes.has(plan.type)) {
                     seenTypes.add(plan.type);
-                    typeOptions.push({value: plan.type, label: typeLabels[plan.type] || plan.type});
+                    // 使用套餐的 name 作为标签，不再硬编码
+                    typeOptions.push({value: plan.type, label: plan.name || plan.type});
                 }
             });
         }
@@ -7178,6 +7212,75 @@ async function batchSetWhitelist() {
     await doBatchAction('/api/admin/users/batch', 'POST',
         { ids, action: 'whitelist' },
         `已将 ${ids.length} 个用户设为白名单`, '批量设置失败',
+        () => loadUsers(userCurrentPage)
+    );
+}
+
+// ===== 用户管理 - 批量设置套餐类型 =====
+async function batchSetPlanType() {
+    const ids = getSelectedValues('user').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择用户', 'info');
+    
+    const options = (window._planTypeOptions || []);
+    if (options.length === 0) {
+        showToast('提示', '请先在「套餐配置」中添加套餐', 'info');
+        return;
+    }
+    
+    // 创建自定义选择弹窗
+    const planType = await new Promise((resolve) => {
+        const existing = document.getElementById('planTypeSelectModal');
+        if (existing) existing.remove();
+        
+        const modal = document.createElement('div');
+        modal.id = 'planTypeSelectModal';
+        modal.className = 'global-confirm-overlay';
+        const btnsHtml = options.map(opt => 
+            `<button class="plan-select-btn" data-value="${opt.value}" style="display:block;width:100%;padding:10px 16px;margin:6px 0;border:1px solid var(--border-color,#ddd);border-radius:8px;background:var(--bg-secondary,#f5f5f5);cursor:pointer;font-size:14px;text-align:left;transition:all .2s;">⭐ ${opt.label}</button>`
+        ).join('');
+        modal.innerHTML = `
+            <div class="global-confirm-dialog info" style="max-width:380px;">
+                <div class="global-confirm-icon">📦</div>
+                <h3 class="global-confirm-title">选择套餐类型</h3>
+                <p class="global-confirm-message">将为 ${ids.length} 个用户设置套餐类型：</p>
+                <div style="max-height:300px;overflow-y:auto;margin:10px 0;">${btnsHtml}</div>
+                <div class="global-confirm-buttons">
+                    <button class="global-confirm-btn cancel">取消</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        requestAnimationFrame(() => modal.classList.add('show'));
+        
+        function close(result) {
+            modal.classList.remove('show');
+            setTimeout(() => { modal.remove(); resolve(result); }, 200);
+        }
+        
+        modal.querySelectorAll('.plan-select-btn').forEach(btn => {
+            btn.addEventListener('mouseenter', () => { btn.style.background = 'var(--accent-light, #e3f2fd)'; btn.style.borderColor = 'var(--accent-color, #2196f3)'; });
+            btn.addEventListener('mouseleave', () => { btn.style.background = 'var(--bg-secondary, #f5f5f5)'; btn.style.borderColor = 'var(--border-color, #ddd)'; });
+            btn.addEventListener('click', () => close(btn.dataset.value));
+        });
+        modal.querySelector('.global-confirm-btn.cancel').addEventListener('click', () => close(null));
+        modal.addEventListener('click', (e) => { if (e.target === modal) close(null); });
+    });
+    
+    if (!planType) return;
+    
+    const planLabel = options.find(o => o.value === planType)?.label || planType;
+    
+    const confirmed = await showConfirm({
+        title: '确认批量设置',
+        message: `确定要将 ${ids.length} 个用户设为「${planLabel}」套餐吗？\n\n注意：仅修改套餐类型，不影响到期时间。`,
+        confirmText: '确定设置',
+        type: 'info'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/users/batch', 'POST',
+        { ids, action: 'set_plan_type', plan_type: planType },
+        `已将 ${ids.length} 个用户设为「${planLabel}」套餐`, '批量设置失败',
         () => loadUsers(userCurrentPage)
     );
 }
