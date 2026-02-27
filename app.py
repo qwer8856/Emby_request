@@ -18108,8 +18108,9 @@ def create_order():
             stale.payment_status = 'cancelled'
             app.logger.info(f'自动取消旧待支付订单: {stale.order_no}')
         
-        # 生成订单号
-        order_no = f'ORD{int(time.time())}{user.tg % 10000}'
+        # 生成订单号（时间戳 + 用户ID后4位 + 4位随机数，防止可预测）
+        import random
+        order_no = f'ORD{int(time.time())}{user.tg % 10000:04d}{random.randint(1000, 9999)}'
         
         # 创建订单
         order = Order(
@@ -18300,21 +18301,39 @@ def use_redeem_code():
         # 计算月数（向上取整，保证 Subscription.duration_months 不为 0）
         duration_months = max(1, -(-redeem.duration_days // 30))  # ceil division
         
+        # 检查该套餐是否标记为白名单套餐
+        _redeem_plan_type = redeem.plan_type
+        _redeem_plan_name = plan_name
+        _redeem_is_wl = False
+        try:
+            for _rp in load_plans_config():
+                if _rp.get('id') == redeem.plan_type and _rp.get('is_whitelist'):
+                    _redeem_is_wl = True
+                    break
+        except Exception:
+            pass
+        
         # 计算订阅时间 - 所有类型都立即生效，在现有到期时间基础上叠加
         now = datetime.now()
         start_date = now
         
-        # 如果用户已有未过期的到期时间，在此基础上叠加
-        if user.ex and user.ex > now:
-            end_date = user.ex + timedelta(days=redeem.duration_days)
+        if _redeem_is_wl:
+            # 白名单套餐：永久有效
+            end_date = datetime(9999, 12, 31)
+            _redeem_plan_type = 'whitelist'
+            _redeem_plan_name = '白名单用户'
         else:
-            end_date = now + timedelta(days=redeem.duration_days)
+            # 普通套餐：如果用户已有未过期的到期时间，在此基础上叠加
+            if user.ex and user.ex > now:
+                end_date = user.ex + timedelta(days=redeem.duration_days)
+            else:
+                end_date = now + timedelta(days=redeem.duration_days)
         
         # 创建订阅记录
         subscription = Subscription(
             user_tg=user.tg,
-            plan_type=redeem.plan_type,
-            plan_name=plan_name,
+            plan_type=_redeem_plan_type,
+            plan_name=_redeem_plan_name,
             duration_months=duration_months,
             price=0,  # 兑换码免费
             start_date=start_date,
@@ -18330,8 +18349,10 @@ def use_redeem_code():
         redeem.used_at = datetime.now()
         
         # 同步更新用户表的订阅状态
-        # 白名单不变，封禁用户保持封禁状态（需管理员手动解封）
-        if user.lv not in ['a', 'c']:
+        if _redeem_is_wl:
+            user.lv = 'a'  # 白名单套餐设为白名单等级
+        elif user.lv not in ['a', 'c']:
+            # 普通套餐：白名单不变，封禁用户保持封禁状态
             user.lv = 'b'
         
         # 更新过期时间 - 直接使用上面已经正确计算（含叠加）的 end_date
@@ -18588,16 +18609,34 @@ def payment_notify():
             start_date = now
             purchased_days = order.duration_days if order.duration_days else (order.duration_months * 30)
             
-            # 如果用户已有未过期的订阅，在此基础上叠加
-            if user.ex and user.ex > now:
-                end_date = user.ex + timedelta(days=purchased_days)
+            # 检查该套餐是否标记为白名单套餐
+            _purchase_plan_type = order.plan_type
+            _purchase_plan_name = order.plan_name
+            _is_wl_purchase = False
+            try:
+                for _pp in load_plans_config():
+                    if _pp.get('id') == order.plan_type and _pp.get('is_whitelist'):
+                        _is_wl_purchase = True
+                        break
+            except Exception:
+                pass
+            
+            if _is_wl_purchase:
+                # 白名单套餐：永久有效
+                end_date = datetime(9999, 12, 31)
+                _purchase_plan_type = 'whitelist'
+                _purchase_plan_name = '白名单用户'
             else:
-                end_date = now + timedelta(days=purchased_days)
+                # 普通套餐：在现有订阅基础上叠加
+                if user.ex and user.ex > now:
+                    end_date = user.ex + timedelta(days=purchased_days)
+                else:
+                    end_date = now + timedelta(days=purchased_days)
             
             subscription = Subscription(
                 user_tg=user.tg,
-                plan_type=order.plan_type,
-                plan_name=order.plan_name,
+                plan_type=_purchase_plan_type,
+                plan_name=_purchase_plan_name,
                 duration_months=order.duration_months,
                 price=order.final_price,
                 start_date=start_date,
@@ -18610,7 +18649,9 @@ def payment_notify():
             
             # 更新用户信息
             user.ex = end_date
-            if user.lv not in ['a', 'b', 'c']:  # 白名单/普通用户不变，封禁用户保持封禁状态
+            if _is_wl_purchase:
+                user.lv = 'a'  # 白名单套餐设为白名单等级
+            elif user.lv not in ['a', 'b', 'c']:  # 普通用户不变，封禁用户保持封禁状态
                 user.lv = 'b'
             
             # 恢复Emby账号（封禁用户和黑名单禁用用户不自动恢复）
@@ -18683,16 +18724,34 @@ def payment_callback():
                 start_date = now
                 purchased_days = order.duration_days if order.duration_days else (order.duration_months * 30)
                 
-                # 如果用户已有未过期的订阅，在此基础上叠加
-                if user.ex and user.ex > now:
-                    end_date = user.ex + timedelta(days=purchased_days)
+                # 检查该套餐是否标记为白名单套餐
+                _cb_plan_type = order.plan_type
+                _cb_plan_name = order.plan_name
+                _cb_is_wl = False
+                try:
+                    for _pp in load_plans_config():
+                        if _pp.get('id') == order.plan_type and _pp.get('is_whitelist'):
+                            _cb_is_wl = True
+                            break
+                except Exception:
+                    pass
+                
+                if _cb_is_wl:
+                    # 白名单套餐：永久有效
+                    end_date = datetime(9999, 12, 31)
+                    _cb_plan_type = 'whitelist'
+                    _cb_plan_name = '白名单用户'
                 else:
-                    end_date = now + timedelta(days=purchased_days)
+                    # 普通套餐：在现有订阅基础上叠加
+                    if user.ex and user.ex > now:
+                        end_date = user.ex + timedelta(days=purchased_days)
+                    else:
+                        end_date = now + timedelta(days=purchased_days)
                 
                 subscription = Subscription(
                     user_tg=user.tg,
-                    plan_type=order.plan_type,
-                    plan_name=order.plan_name,
+                    plan_type=_cb_plan_type,
+                    plan_name=_cb_plan_name,
                     duration_months=order.duration_months,
                     price=order.final_price,
                     start_date=start_date,
@@ -18705,7 +18764,9 @@ def payment_callback():
                 
                 # 更新用户信息
                 user.ex = end_date
-                if user.lv not in ['a', 'b', 'c']:  # 白名单/普通用户不变，封禁用户保持封禁状态
+                if _cb_is_wl:
+                    user.lv = 'a'  # 白名单套餐设为白名单等级
+                elif user.lv not in ['a', 'b', 'c']:  # 普通用户不变，封禁用户保持封禁状态
                     user.lv = 'b'
                 
                 # 邀请返利：检查是否有邀请人，给邀请人返利
