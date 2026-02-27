@@ -16710,6 +16710,25 @@ def batch_users():
                 if user.embyid and emby_client.is_enabled():
                     emby_client.enable_user(user.embyid)
                 success_count += 1
+            elif action == 'clear_coins':
+                # 批量清除积分
+                old_coins = user.coins or 0
+                if old_coins > 0:
+                    user.coins = 0
+                    # 记录积分交易
+                    try:
+                        coin_tx = CoinTransaction(
+                            user_tg=user.tg,
+                            amount=-old_coins,
+                            balance_after=0,
+                            trans_type='admin_deduct',
+                            description='管理员批量清除积分',
+                            created_at=now
+                        )
+                        db.session.add(coin_tx)
+                    except Exception:
+                        pass
+                success_count += 1
             elif action == 'set_plan_type':
                 # 批量设置套餐类型（按套餐ID匹配）
                 plan_type_value = data.get('plan_type', '')
@@ -25569,6 +25588,14 @@ def _check_user_retention(user, now, mode, checkin_days, checkin_cost,
                 pass  # 积分记录失败不影响续期
         
         db.session.commit()
+        
+        # 保号续期成功后，重新启用 Emby 账号（可能在之前的检查周期中被禁用）
+        if user.embyid and emby_client.is_enabled():
+            try:
+                if emby_client.enable_user(user.embyid):
+                    app.logger.info(f'[保号] {user_name}: 已重新启用Emby账号')
+            except Exception as e:
+                app.logger.warning(f'[保号] {user_name}: 重新启用Emby账号失败: {e}')
         
         cost_info = f'，扣除{checkin_cost}{coin_name}' if mode in ('checkin', 'both') and checkin_cost > 0 else ''
         app.logger.info(f'[保号] ✅ {user_name}: 保号成功，续期{renew_days}天至{new_ex.strftime("%Y-%m-%d")}{cost_info}')

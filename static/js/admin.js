@@ -7202,6 +7202,27 @@ async function batchSetWhitelist() {
     );
 }
 
+// ===== 用户管理 - 批量清除积分 =====
+async function batchClearCoins() {
+    const ids = getSelectedValues('user').map(Number);
+    if (ids.length === 0) return showToast('提示', '请先选择用户', 'info');
+    
+    const coinName = window._coinName || '积分';
+    const confirmed = await showConfirm({
+        title: `🪙 批量清除${coinName}`,
+        message: `确定要将 ${ids.length} 个用户的${coinName}全部清零吗？\n\n此操作不可恢复！`,
+        confirmText: '确定清除',
+        type: 'warning'
+    });
+    if (!confirmed) return;
+    
+    await doBatchAction('/api/admin/users/batch', 'POST',
+        { ids, action: 'clear_coins' },
+        `已清除 ${ids.length} 个用户的${coinName}`, '批量清除失败',
+        () => loadUsers(userCurrentPage)
+    );
+}
+
 // ===== 用户管理 - 批量设置套餐类型 =====
 async function batchSetPlanType() {
     const ids = getSelectedValues('user').map(Number);
