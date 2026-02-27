@@ -4328,7 +4328,7 @@ class User(db.Model):
     emby_name = db.Column(db.String(255), nullable=True)  # Emby用户名（独立于网站用户名）
     pwd = db.Column(db.String(255), nullable=True)  # 密码
     pwd2 = db.Column(db.String(255), nullable=True)  # 备用密码
-    lv = db.Column(db.String(1), default='d')  # 用户等级: a=白名单, b=普通, c=禁用, d=无账号
+    lv = db.Column(db.String(1), default='d')  # 用户等级: a=旧白名单(已废弃,等同b), b=普通, c=禁用, d=无账号
     cr = db.Column(db.DateTime, nullable=True)  # 创建时间
     ex = db.Column(db.DateTime, nullable=True)  # 过期时间
     us = db.Column(db.Integer, default=1)  # 使用状态
@@ -4367,14 +4367,11 @@ class User(db.Model):
         if self.lv not in ['a', 'b']:
             return False
         
-        # A级白名单用户：不检查过期时间（只要等级是A就能用）
-        if self.lv == 'a':
-            return True
-        
-        # B级注册用户：必须有有效的过期时间才算活跃
+        # 白名单现在通过套餐系统管理(plan_type='whitelist')，lv='a'等同于lv='b'
+        # 统一检查过期时间
         if self.ex:
             return datetime.now() < self.ex
-        return False  # 没有过期时间的B级用户视为非活跃
+        return False  # 没有过期时间视为非活跃
     
     @property
     def username(self):
@@ -4389,10 +4386,10 @@ class User(db.Model):
     def get_daily_limit(self):
         """根据用户类型返回每日求片限制
         - 管理员: 无限制（在 can_request 中单独处理）
-        - A级用户 (lv='a'): 从配置读取 (默认3次/天)
-        - B级用户 (有有效订阅): 从配置读取 (默认1次/天)
+        - 白名单用户 (套餐plan_type='whitelist'): 从配置读取 (默认3次/天)
+        - 订阅用户 (有有效订阅): 从配置读取 (默认1次/天)
         - C级用户 (已禁用): 从配置读取 (默认0次/天)
-        - D级用户 (未订阅): 从配置读取 (默认0次/天)
+        - 未订阅用户: 从配置读取 (默认0次/天)
         """
         # 读取配置
         config = load_system_config()
@@ -4402,15 +4399,17 @@ class User(db.Model):
         if self.lv == 'c':
             return limit_config.get('level_c', 0)
         
-        # A级: 白名单用户
-        if self.lv == 'a':
-            return limit_config.get('level_a', 3)
-        
-        # B级: 有有效订阅的用户
-        if self.ex and self.ex > datetime.now():
+        # 检查是否白名单套餐用户（通过 Subscription.plan_type='whitelist'）
+        if self.lv in ['a', 'b'] and self.ex and self.ex > datetime.now():
+            active_sub = Subscription.query.filter_by(
+                user_tg=self.tg, status='active'
+            ).order_by(Subscription.end_date.desc()).first()
+            if active_sub and active_sub.plan_type == 'whitelist':
+                return limit_config.get('level_a', 3)
+            # 普通订阅用户
             return limit_config.get('level_b', 1)
         
-        # D级: 未订阅用户
+        # 未订阅用户
         return limit_config.get('level_d', 0)
 
     def get_today_request_count(self):
@@ -7363,9 +7362,8 @@ def login():
             
             # 登录时检查：如果用户有有效订阅但 Emby 账号可能被禁用，自动恢复（封禁用户和黑名单禁用用户除外）
             if user.lv != 'c' and not user.ban_reason and user.embyid and emby_client.is_enabled():
-                is_whitelist = user.lv == 'a'
-                has_valid_sub = user.ex and user.ex > datetime.now()
-                if is_whitelist or has_valid_sub:
+                has_valid_sub = user.lv in ['a', 'b'] and user.ex and user.ex > datetime.now()
+                if has_valid_sub:
                     try:
                         emby_client.enable_user(user.embyid)
                     except Exception:
@@ -8163,12 +8161,17 @@ def check_emby_bindable():
         # 检查是否已有 Emby 账号
         has_emby = bool(user.embyid and user.emby_name)
         
-        # 检查是否有有效订阅（白名单或订阅未过期）
-        is_whitelist = user.lv == 'a'
-        has_valid_subscription = user.ex and user.ex > datetime.now()
+        # 检查是否有有效订阅（包含白名单套餐用户）
+        has_valid_subscription = user.lv in ['a', 'b'] and user.ex and user.ex > datetime.now()
+        
+        # 判断是否白名单套餐
+        is_whitelist = False
+        if has_valid_subscription:
+            ws = Subscription.query.filter_by(user_tg=user.tg, status='active', plan_type='whitelist').first()
+            is_whitelist = bool(ws)
         
         # 新建账号需要有效订阅，绑定已有账号不需要
-        can_create = is_whitelist or has_valid_subscription  # 是否可以新建账号
+        can_create = has_valid_subscription  # 是否可以新建账号
         can_bind = True  # 任何用户都可以绑定已有账号
         
         return jsonify({
@@ -8391,12 +8394,11 @@ def bind_emby_account():
         
         db.session.commit()
         
-        # 如果用户有有效订阅或白名单，确保Emby账号在服务器上是启用状态
+        # 如果用户有有效订阅，确保Emby账号在服务器上是启用状态
         # （用户可能从embyboss迁移过来，Emby服务器上账号可能仍处于禁用状态）
         # 封禁用户和黑名单禁用用户除外，不自动恢复
-        is_whitelist = user.lv == 'a'
-        has_valid_sub = user.ex and user.ex > datetime.now()
-        if user.lv != 'c' and not user.ban_reason and (is_whitelist or has_valid_sub) and user.embyid and emby_client.is_enabled():
+        has_valid_sub = user.lv in ['a', 'b'] and user.ex and user.ex > datetime.now()
+        if user.lv != 'c' and not user.ban_reason and has_valid_sub and user.embyid and emby_client.is_enabled():
             try:
                 if emby_client.enable_user(user.embyid):
                     app.logger.info(f'用户 {user.tg} 绑定时自动启用Emby账号: {emby_name}')
@@ -8407,10 +8409,12 @@ def bind_emby_account():
         session['emby_username'] = emby_name
         
         # 返回等级信息
-        level_names = {'a': '白名单用户', 'b': '普通用户', 'c': '已禁用', 'd': '无账号'}
+        level_names = {'a': '订阅用户', 'b': '普通用户', 'c': '已禁用', 'd': '无账号'}
         level_name = level_names.get(user.lv, '未知')
-        if user.lv == 'b' and user.ex and user.ex > datetime.now():
-            level_name = '订阅用户'
+        if user.lv in ['a', 'b'] and user.ex and user.ex > datetime.now():
+            # 检查是否白名单套餐
+            ws = Subscription.query.filter_by(user_tg=user.tg, status='active', plan_type='whitelist').first()
+            level_name = '白名单用户' if ws else '订阅用户'
         
         app.logger.info(f'用户 {user.tg} 绑定 Emby 账号成功: {emby_name} (ID: {emby_id}), 等级: {level_name}')
         
@@ -8507,11 +8511,10 @@ def create_emby_account():
         if not user:
             return jsonify({'success': False, 'error': '用户不存在'}), 404
         
-        # 检查用户是否有有效订阅（白名单用户或订阅未过期）
-        is_whitelist = user.lv == 'a'
-        has_valid_subscription = user.ex and user.ex > datetime.now()
+        # 检查用户是否有有效订阅（包含白名单套餐）
+        has_valid_subscription = user.lv in ['a', 'b'] and user.ex and user.ex > datetime.now()
         
-        if not is_whitelist and not has_valid_subscription:
+        if not has_valid_subscription:
             return jsonify({'success': False, 'error': '需要有效订阅才能创建Emby账号，请先购买订阅'}), 403
         
         # 检查是否已绑定
@@ -8720,11 +8723,13 @@ def dashboard():
         total_requests = requests_query.count()
         
         # 用户等级显示名称 - 根据实际订阅状态判断
+        _dash_wl = Subscription.query.filter_by(user_tg=user.tg, status='active', plan_type='whitelist').first()
+        is_whitelist = bool(_dash_wl) or user.lv == 'a'
         if user.lv == 'c':
             level_name = '账号已封禁'
-        elif user.lv == 'a':
+        elif is_whitelist:
             level_name = '白名单用户'
-        elif user.ex and user.ex > datetime.now():
+        elif user.lv in ['a', 'b'] and user.ex and user.ex > datetime.now():
             level_name = '订阅用户'
         else:
             level_name = '未订阅用户'
@@ -8778,6 +8783,7 @@ def dashboard():
                              bot_username=bot_username,
                              library_counts=library_counts,
                              is_banned=is_banned,
+                             is_whitelist=is_whitelist,
                              emby_disabled_by_blacklist=emby_disabled_by_blacklist,
                              now=datetime.now(),
                              site_config=site_config,
@@ -9088,7 +9094,10 @@ def get_emby_sessions():
     playing_sessions = [s for s in active_sessions if s.get('is_playing')]
     playing_count = len(playing_sessions)
     
-    if playing_count > 0 and user.lv != 'a':  # 白名单用户不限制
+    # 检查是否白名单用户（通过订阅套餐）
+    _wl_sub = Subscription.query.filter_by(user_tg=user.tg, plan_type='whitelist', status='active').first()
+    _is_whitelist_user = _wl_sub is not None
+    if playing_count > 0 and not _is_whitelist_user:  # 白名单用户不限制
         try:
             config = load_system_config()
             max_streams = config.get('telegram', {}).get('max_streams', 0)
@@ -9485,10 +9494,12 @@ def admin_get_all_sessions():
                 if len(user_sessions) <= max_streams:
                     continue
                 
-                # 检查是否白名单用户
+                # 检查是否白名单用户（通过订阅套餐）
                 u = User.query.filter_by(embyid=uid).first()
-                if u and u.lv == 'a':
-                    continue
+                if u:
+                    _u_wl = Subscription.query.filter_by(user_tg=u.tg, plan_type='whitelist', status='active').first()
+                    if _u_wl:
+                        continue
                 
                 # 超限，停掉多余的
                 excess = len(user_sessions) - max_streams
@@ -12516,7 +12527,8 @@ def emby_playback_webhook():
         # ========== 订阅有效性检查 ==========
         # 播放开始时检查用户订阅是否有效，过期则立即停止播放并禁用账号
         is_playback_start = event_type in ['playback.start', 'PlaybackStart']
-        if is_playback_start and emby_user.lv != 'a':  # 白名单用户跳过检查
+        _emby_wl_sub = Subscription.query.filter_by(user_tg=emby_user.tg, plan_type='whitelist', status='active').first()
+        if is_playback_start and not _emby_wl_sub:  # 白名单用户跳过检查
             has_valid_sub = emby_user.ex and emby_user.ex > datetime.now()
             if not has_valid_sub:
                 app.logger.warning(f'[Webhook] 过期用户尝试播放: {emby_user.name}, 到期时间={emby_user.ex}')
@@ -13196,25 +13208,11 @@ def _do_process_telegram_update(data):
             
             # 获取订阅状态
             status_text = "未订阅"
-            if user.lv == 'a':
+            _bind_wl = Subscription.query.filter_by(user_tg=user.tg, plan_type='whitelist', status='active').first()
+            if _bind_wl or user.lv == 'a':
                 status_text = "✅ 白名单 (永久有效)"
             elif user.ex and user.ex > datetime.now():
                 status_text = f"✅ 已订阅 (到期: {user.ex.strftime('%Y-%m-%d')})"
-            
-            reply = f"""✅ <b>绑定成功！</b>
-
-👤 用户名: <b>{user.name}</b>
-📊 订阅状态: {status_text}
-
-您将收到：
-• 求片进度通知
-• 订阅到期提醒
-• 系统公告推送"""
-            send_telegram_reply(chat_id, reply)
-            
-            app.logger.info(f'用户 {user.name} 通过绑定码 {bind_input} 绑定 Telegram: {telegram_user_id}')
-        else:
-            # 尝试用户名绑定（保留旧方式兼容）
             username = bind_input
             
             # 查找用户
@@ -13250,7 +13248,8 @@ def _do_process_telegram_update(data):
             
             # 获取订阅状态
             status_text = "未订阅"
-            if user.lv == 'a':
+            _bind2_wl = Subscription.query.filter_by(user_tg=user.tg, plan_type='whitelist', status='active').first()
+            if _bind2_wl or user.lv == 'a':
                 status_text = "✅ 白名单 (永久有效)"
             elif user.ex and user.ex > datetime.now():
                 status_text = f"✅ 已订阅 (到期: {user.ex.strftime('%Y-%m-%d')})"
@@ -13291,7 +13290,8 @@ def _do_process_telegram_update(data):
         
         # 获取订阅状态
         status_text = "❌ 未订阅"
-        if user.lv == 'a':
+        _status_wl = Subscription.query.filter_by(user_tg=user.tg, plan_type='whitelist', status='active').first()
+        if _status_wl or user.lv == 'a':
             status_text = "✅ 白名单 (永久有效)"
         elif user.lv == 'c':
             status_text = "🚫 已禁用"
@@ -13358,7 +13358,8 @@ def _do_process_telegram_update(data):
         if user and user.lv in ['a', 'b', 'c']:
             # 已注册用户
             # 状态判断
-            if user.lv == 'a':
+            _me_wl = Subscription.query.filter_by(user_tg=user.tg, plan_type='whitelist', status='active').first()
+            if _me_wl or user.lv == 'a':
                 status = "白名单"
             elif user.lv == 'c':
                 status = "已封禁"
@@ -13368,7 +13369,7 @@ def _do_process_telegram_update(data):
                 status = "已过期"
             
             # 到期时间
-            if user.lv == 'a':
+            if _me_wl or user.lv == 'a':
                 expire_time = "+ ∞"
             elif user.ex:
                 expire_time = user.ex.strftime('%Y-%m-%d %H:%M:%S')
@@ -13697,7 +13698,8 @@ def _do_process_telegram_update(data):
         if existing_user:
             # 用户已有网站账号
             # 状态判断
-            if existing_user.lv == 'a':
+            _exist_wl = Subscription.query.filter_by(user_tg=existing_user.tg, plan_type='whitelist', status='active').first()
+            if _exist_wl or existing_user.lv == 'a':
                 status = "白名单"
             elif existing_user.lv == 'c':
                 status = "已封禁"
@@ -13707,7 +13709,7 @@ def _do_process_telegram_update(data):
                 status = "已过期"
             
             # 到期时间
-            if existing_user.lv == 'a':
+            if _exist_wl or existing_user.lv == 'a':
                 expire_time = "+ ∞"
             elif existing_user.ex:
                 expire_time = existing_user.ex.strftime('%Y-%m-%d %H:%M:%S')
@@ -13925,7 +13927,8 @@ def handle_start_panel_callback(callback_id, callback_data, chat_id, message_id,
                 now = datetime.now()
                 
                 # 订阅状态（含剩余天数）
-                if user.lv == 'a':
+                _cb_wl = Subscription.query.filter_by(user_tg=user.tg, plan_type='whitelist', status='active').first()
+                if _cb_wl or user.lv == 'a':
                     status_text = '✅ 白名单 (永久有效)'
                 elif user.lv == 'c':
                     status_text = '🚫 已禁用'
@@ -13935,7 +13938,7 @@ def handle_start_panel_callback(callback_id, callback_data, chat_id, message_id,
                 else:
                     status_text = '❌ 未订阅'
                 
-                ex_display = '永久' if user.lv == 'a' else (user.ex.strftime('%Y-%m-%d %H:%M') if user.ex else '未设置')
+                ex_display = '永久' if (_cb_wl or user.lv == 'a') else (user.ex.strftime('%Y-%m-%d %H:%M') if user.ex else '未设置')
                 emby_status = '✅ 已绑定' if user.embyid else '❌ 未绑定'
                 
                 # 今日求片
@@ -15015,7 +15018,8 @@ def handle_gift_claim(chat_id, telegram_user_id, telegram_username, gift_code):
         # 用户已有账号
         was_banned = (existing_user.lv == 'c')  # 记录是否是被禁用用户
         
-        if existing_user.lv == 'a':
+        _gift_wl = Subscription.query.filter_by(user_tg=existing_user.tg, plan_type='whitelist', status='active').first()
+        if _gift_wl or existing_user.lv == 'a':
             # 白名单用户
             send_telegram_reply(chat_id, f"""✅ <b>领取成功！</b>
 
@@ -15491,15 +15495,18 @@ def build_start_panel(telegram_user_id, telegram_first_name, telegram_username):
         now = datetime.now()
         
         # 获取用户等级显示
-        lv_display = {
-            'a': '👑 白名单',
-            'b': '⭐ 订阅用户' if user.ex and user.ex > now else '普通用户',
-            'c': '🚫 已禁用',
-            'd': '📭 无账号'
-        }.get(user.lv, '未知')
+        _start_wl = Subscription.query.filter_by(user_tg=user.tg, plan_type='whitelist', status='active').first()
+        if _start_wl or user.lv == 'a':
+            lv_display = '👑 白名单'
+        else:
+            lv_display = {
+                'b': '⭐ 订阅用户' if user.ex and user.ex > now else '普通用户',
+                'c': '🚫 已禁用',
+                'd': '📭 无账号'
+            }.get(user.lv, '未知')
         
         # 到期时间显示
-        if user.lv == 'a':
+        if _start_wl or user.lv == 'a':
             ex_display = '永久'
         elif user.ex:
             ex_display = user.ex.strftime('%Y-%m-%d %H:%M')
@@ -16669,13 +16676,36 @@ def batch_users():
                     emby_client.enable_user(user.embyid)
                 success_count += 1
             elif action == 'whitelist':
-                # 批量设为白名单
-                user.lv = 'a'
+                # 批量设为白名单（通过套餐系统：lv='b' + 永久订阅 + plan_type='whitelist'）
+                user.lv = 'b'
+                user.ex = datetime(9999, 12, 31)
                 # 清除黑名单封禁信息
                 user.ban_reason = None
                 user.ban_time = None
                 user.ban_prev_lv = None
                 user.ban_prev_ex = None
+                # 创建或更新白名单 Subscription
+                existing_sub = Subscription.query.filter_by(
+                    user_tg=user.tg, status='active'
+                ).order_by(Subscription.end_date.desc()).first()
+                if existing_sub:
+                    existing_sub.plan_type = 'whitelist'
+                    existing_sub.plan_name = '白名单用户'
+                    existing_sub.end_date = datetime(9999, 12, 31)
+                    existing_sub.updated_at = datetime.now()
+                else:
+                    new_sub = Subscription(
+                        user_tg=user.tg,
+                        plan_type='whitelist',
+                        plan_name='白名单用户',
+                        duration_months=-1,
+                        price=0,
+                        start_date=datetime.now(),
+                        end_date=datetime(9999, 12, 31),
+                        status='active',
+                        source='manual'
+                    )
+                    db.session.add(new_sub)
                 # 恢复Emby账号
                 if user.embyid and emby_client.is_enabled():
                     emby_client.enable_user(user.embyid)
@@ -17090,7 +17120,7 @@ def get_dashboard_stats():
         # 用户统计
         total_users = User.query.count()
         active_users = User.query.filter(User.lv.in_(['a', 'b']), User.ex > now).count()
-        whitelist_users = User.query.filter(User.lv == 'a').count()
+        whitelist_users = Subscription.query.filter_by(plan_type='whitelist', status='active').count()
         subscriber_users = User.query.filter(User.lv == 'b').count()
         expired_users = User.query.filter(User.lv.in_(['a', 'b']), User.ex <= now).count()
         banned_users = User.query.filter(User.lv == 'c').count()
@@ -17586,8 +17616,12 @@ def get_subscription_benefits():
         config = load_system_config()
         default_benefits = config.get('default_benefits', {})
         
-        # 白名单用户
-        if user.lv == 'a':
+        # 白名单用户：通过 Subscription plan_type='whitelist' 判断（兼容旧 lv='a'）
+        whitelist_sub = Subscription.query.filter_by(
+            user_tg=user.tg, status='active', plan_type='whitelist'
+        ).first()
+        
+        if whitelist_sub or user.lv == 'a':
             benefits = default_benefits.get('whitelist', [
                 {'icon': '🎬', 'text': '无限求片'},
                 {'icon': '⚡', 'text': '最高优先级'},
@@ -17735,19 +17769,24 @@ def get_current_subscription():
                 retention_info['watch_days'] = expire_config.get('retention_watch_days', 30)
                 retention_info['watch_minutes'] = expire_config.get('retention_watch_minutes', 30)
         
-        # 白名单用户特殊处理：lv='a' 的用户是白名单用户，不需要购买订阅
-        if user.lv == 'a':
+        # 白名单用户特殊处理：通过 Subscription plan_type='whitelist' 判断（兼容旧 lv='a'）
+        # 检查 Subscription 表是否有白名单记录
+        whitelist_sub = Subscription.query.filter_by(
+            user_tg=user.tg, status='active', plan_type='whitelist'
+        ).first()
+        
+        if whitelist_sub or user.lv == 'a':
             return jsonify({
                 'success': True,
                 'subscription': {
-                    'id': 0,
+                    'id': whitelist_sub.id if whitelist_sub else 0,
                     'user_tg_id': user.tg,
                     'user_name': user.name,
                     'plan_type': 'whitelist',
                     'plan_name': '白名单用户',
                     'duration_months': -1,  # -1 表示永久
                     'price': 0,
-                    'start_date': user.cr.isoformat() if user.cr else None,
+                    'start_date': (whitelist_sub.start_date.isoformat() if whitelist_sub else user.cr.isoformat()) if (whitelist_sub or user.cr) else None,
                     'end_date': None,  # 永不过期
                     'status': 'active',
                     'days_remaining': '永久',
@@ -19873,12 +19912,9 @@ def admin_broadcast_email():
         else:
             query = User.query.filter(User.email.isnot(None), User.email != '')
             if target == 'active':
-                # 活跃用户：有有效订阅或白名单
+                # 活跃用户：有有效订阅（白名单或未过期）
                 query = query.filter(
-                    db.or_(
-                        User.lv == 'a',
-                        db.and_(User.lv == 'b', User.ex > datetime.now())
-                    )
+                    db.and_(User.lv.in_(['a', 'b']), User.ex > datetime.now())
                 )
             users = query.all()
             recipients = [u.email for u in users if u.email]
@@ -19934,7 +19970,7 @@ def admin_email_stats():
         bound_users = User.query.filter(User.email.isnot(None), User.email != '').count()
         active_bound = User.query.filter(
             User.email.isnot(None), User.email != '',
-            db.or_(User.lv == 'a', db.and_(User.lv == 'b', User.ex > datetime.now()))
+            db.and_(User.lv.in_(['a', 'b']), User.ex > datetime.now())
         ).count()
         
         return jsonify({
@@ -22431,17 +22467,14 @@ def admin_get_subscriptions():
         
         # 查询所有用户，根据状态筛选
         if status == 'active':
-            # 生效中：白名单用户(lv='a') 或 有效期内的B级用户
+            # 生效中：有有效期内的订阅用户
             users = User.query.filter(
-                db.or_(
-                    User.lv == 'a',
-                    db.and_(User.lv == 'b', User.ex > now)
-                )
+                db.and_(User.lv.in_(['a', 'b']), User.ex > now)
             ).order_by(User.cr.desc()).limit(100).all()
         elif status == 'expired':
-            # 已过期：B级用户且过期时间已过
+            # 已过期：A/B级用户且过期时间已过
             users = User.query.filter(
-                User.lv == 'b',
+                User.lv.in_(['a', 'b']),
                 User.ex <= now
             ).order_by(User.ex.desc()).limit(100).all()
         elif status == 'cancelled':
@@ -22455,23 +22488,38 @@ def admin_get_subscriptions():
                 User.lv.in_(['a', 'b'])
             ).order_by(User.cr.desc()).limit(100).all()
         
+        # 预加载所有相关用户的订阅记录
+        user_tgs = [u.tg for u in users]
+        active_subs = Subscription.query.filter(
+            Subscription.user_tg.in_(user_tgs),
+            Subscription.status == 'active'
+        ).all() if user_tgs else []
+        # 构建 user_tg -> subscription 映射
+        sub_map = {}
+        for s in active_subs:
+            if s.user_tg not in sub_map:
+                sub_map[s.user_tg] = s
+        
         # 转换为订阅格式
         subscriptions = []
         for user in users:
-            # 判断状态
-            if user.lv == 'a':
+            # 判断状态：通过订阅记录判断白名单
+            user_sub = sub_map.get(user.tg)
+            is_wl = (user_sub and user_sub.plan_type == 'whitelist') or user.lv == 'a'
+            
+            if is_wl:
                 user_status = 'active'
                 plan_name = '白名单用户'
                 plan_type = 'whitelist'
-            elif user.lv == 'b':
+            elif user.lv in ['a', 'b']:
                 if user.ex and user.ex > now:
                     user_status = 'active'
-                    plan_name = '注册用户'
-                    plan_type = 'registered'
+                    plan_name = user_sub.plan_name if user_sub else '注册用户'
+                    plan_type = user_sub.plan_type if user_sub else 'registered'
                 else:
                     user_status = 'expired'
-                    plan_name = '注册用户'
-                    plan_type = 'registered'
+                    plan_name = user_sub.plan_name if user_sub else '注册用户'
+                    plan_type = user_sub.plan_type if user_sub else 'registered'
             else:
                 user_status = 'cancelled'
                 plan_name = '已禁用'
@@ -22487,19 +22535,16 @@ def admin_get_subscriptions():
                 'start_date': user.cr.isoformat() if user.cr else None,
                 'end_date': user.ex.isoformat() if user.ex else None,
                 'status': user_status,
-                'days_remaining': (user.ex - now).days if user.ex and user.ex > now else ('永久' if user.lv == 'a' else 0)
+                'days_remaining': (user.ex - now).days if user.ex and user.ex > now else ('永久' if is_wl else 0)
             })
         
         # 统计数据
         total_ab = User.query.filter(User.lv.in_(['a', 'b'])).count()
         active_count = User.query.filter(
-            db.or_(
-                User.lv == 'a',
-                db.and_(User.lv == 'b', User.ex > now)
-            )
+            db.and_(User.lv.in_(['a', 'b']), User.ex > now)
         ).count()
         expired_count = User.query.filter(
-            User.lv == 'b',
+            User.lv.in_(['a', 'b']),
             User.ex <= now
         ).count()
         
@@ -22753,11 +22798,19 @@ def get_user_lines():
         
         # 判断用户权限级别
         now = datetime.now()
-        is_whitelist = user.lv == 'a'  # 白名单用户
-        is_subscriber = user.lv == 'b' and user.ex and user.ex > now  # 有效订阅用户
+        is_subscriber = user.lv in ['a', 'b'] and user.ex and user.ex > now  # 有效订阅用户（包含旧白名单lv='a'）
+        
+        # 通过 Subscription 表判断是否是白名单用户（plan_type='whitelist'）
+        is_whitelist = False
+        if is_subscriber:
+            active_sub = Subscription.query.filter_by(
+                user_tg=user.tg, status='active'
+            ).order_by(Subscription.end_date.desc()).first()
+            if active_sub and active_sub.plan_type == 'whitelist':
+                is_whitelist = True
         
         # 无权限用户（未订阅或已过期）
-        if not is_whitelist and not is_subscriber:
+        if not is_subscriber:
             app.logger.info(f'[线路API] 用户无权限: {user.name}, lv={user.lv}, ex={user.ex}, now={now}, is_whitelist={is_whitelist}, is_subscriber={is_subscriber}')
             return jsonify({
                 'success': True,
@@ -22842,8 +22895,24 @@ def log_view_lines():
         
         # 判断用户类型
         now = datetime.now()
-        is_whitelist = user.lv == 'a'
-        is_subscriber = user.lv == 'b' and user.ex and user.ex > now
+        is_subscriber = user.lv in ['a', 'b'] and user.ex and user.ex > now
+        
+        # 通过 Subscription 判断白名单
+        is_whitelist = False
+        user_plan_type = None
+        if is_subscriber:
+            active_sub = Subscription.query.filter_by(
+                user_tg=user.tg, status='active'
+            ).order_by(Subscription.end_date.desc()).first()
+            if active_sub and active_sub.plan_type == 'whitelist':
+                is_whitelist = True
+                user_plan_type = 'whitelist'
+            elif active_sub:
+                plans = load_plans_config()
+                valid_plan_types = {'whitelist'} | {p.get('id') for p in plans if p.get('id')} | {p.get('type') for p in plans if p.get('type')}
+                if active_sub.plan_type in valid_plan_types:
+                    user_plan_type = active_sub.plan_type
+        
         user_type = '白名单用户' if is_whitelist else '订阅用户'
         
         # 查询用户可见的所有线路名称
@@ -22852,17 +22921,6 @@ def log_view_lines():
         ).all()
         
         visible_line_names = []
-        user_plan_type = None
-        plans = load_plans_config()
-        valid_plan_types = {'whitelist'} | {p.get('id') for p in plans if p.get('id')} | {p.get('type') for p in plans if p.get('type')}
-        if is_whitelist:
-            user_plan_type = 'whitelist'
-        elif is_subscriber:
-            active_sub = Subscription.query.filter_by(
-                user_tg=user.tg, status='active'
-            ).order_by(Subscription.end_date.desc()).first()
-            if active_sub and active_sub.plan_type in valid_plan_types:
-                user_plan_type = active_sub.plan_type
         
         for line in lines:
             allowed = [t.strip() for t in (line.allowed_plan_types or '').split(',') if t.strip()]
@@ -23009,15 +23067,19 @@ def admin_get_users():
         elif role == 'user':
             all_filtered_users = [u for u in all_filtered_users if not u.is_admin]
         
-        # 根据用户状态筛选
+        # 根据用户状态筛选（白名单通过订阅记录判断）
         now = datetime.now()  # 使用不带时区的时间，与数据库一致
         status_filter = request.args.get('status', '').strip()
         if status_filter == 'whitelist':
-            all_filtered_users = [u for u in all_filtered_users if u.lv == 'a']
+            # 查询所有白名单订阅的user_tg
+            _wl_tgs = set(s.user_tg for s in Subscription.query.filter_by(plan_type='whitelist', status='active').all())
+            all_filtered_users = [u for u in all_filtered_users if u.tg in _wl_tgs or u.lv == 'a']
         elif status_filter == 'subscribed':
-            all_filtered_users = [u for u in all_filtered_users if u.lv != 'a' and u.ex and u.ex > now]
+            _wl_tgs2 = set(s.user_tg for s in Subscription.query.filter_by(plan_type='whitelist', status='active').all())
+            all_filtered_users = [u for u in all_filtered_users if u.tg not in _wl_tgs2 and u.lv != 'a' and u.ex and u.ex > now]
         elif status_filter == 'normal':
-            all_filtered_users = [u for u in all_filtered_users if u.lv != 'a' and u.lv != 'c' and (not u.ex or u.ex <= now)]
+            _wl_tgs3 = set(s.user_tg for s in Subscription.query.filter_by(plan_type='whitelist', status='active').all())
+            all_filtered_users = [u for u in all_filtered_users if u.tg not in _wl_tgs3 and u.lv != 'a' and u.lv != 'c' and (not u.ex or u.ex <= now)]
         elif status_filter == 'banned':
             all_filtered_users = [u for u in all_filtered_users if u.lv == 'c' or u.ban_reason]
         elif status_filter == 'emby_banned':
@@ -23036,27 +23098,38 @@ def admin_get_users():
         
         # 用户数据
         user_list = []
+        # 预加载分页用户的订阅记录
+        _page_tgs = [u.tg for u in paginated_users]
+        _page_subs = Subscription.query.filter(
+            Subscription.user_tg.in_(_page_tgs),
+            Subscription.status == 'active'
+        ).all() if _page_tgs else []
+        _page_sub_map = {}
+        for _ps in _page_subs:
+            if _ps.user_tg not in _page_sub_map:
+                _page_sub_map[_ps.user_tg] = _ps
+        
         for user in paginated_users:
             # 订阅状态逻辑：
-            # 1. 白名单用户永远视为已订阅
+            # 1. 白名单套餐用户永远视为已订阅
             # 2. 有有效到期时间的用户视为已订阅
             # 3. 其他用户为未订阅
             subscription_status = 'inactive'
             subscription_end = None
             subscription_plan_type = None
             
-            if user.lv == 'a':
+            _u_sub = _page_sub_map.get(user.tg)
+            _u_is_wl = (_u_sub and _u_sub.plan_type == 'whitelist') or user.lv == 'a'
+            
+            if _u_is_wl:
                 subscription_status = 'active'
                 subscription_end = None  # 白名单永久有效
+                subscription_plan_type = 'whitelist'
             elif user.ex and user.ex > now:
                 subscription_status = 'active'
                 subscription_end = user.ex.isoformat()
-                # 查找当前活跃订阅的套餐类型
-                active_sub = Subscription.query.filter_by(
-                    user_tg=user.tg, status='active'
-                ).order_by(Subscription.end_date.desc()).first()
-                if active_sub:
-                    subscription_plan_type = active_sub.plan_type
+                if _u_sub:
+                    subscription_plan_type = _u_sub.plan_type
             elif user.ex:
                 subscription_end = user.ex.isoformat()  # 已过期也返回到期时间
 
@@ -23119,14 +23192,26 @@ def admin_export_data(export_type):
                            '等级', '订阅状态', '到期时间', '积分', '注册时间'])
             
             users = User.query.order_by(User.cr.desc()).all()
-            level_names = {'a': '白名单', 'b': '普通用户', 'c': '已禁用', 'd': '无账号'}
+            # 预加载白名单订阅
+            _exp_wl_tgs = set(s.user_tg for s in Subscription.query.filter_by(plan_type='whitelist', status='active').all())
+            level_names = {'a': '白名单(旧)', 'b': '普通用户', 'c': '已禁用', 'd': '无账号'}
             for u in users:
-                status = '已订阅' if (u.lv == 'a' or (u.ex and u.ex > now)) else '未订阅'
-                if u.lv == 'c':
+                is_wl = u.tg in _exp_wl_tgs or u.lv == 'a'
+                if is_wl:
+                    status = '白名单'
+                    lv_name = '白名单'
+                elif u.lv == 'c':
                     status = '已禁用'
+                    lv_name = level_names.get(u.lv, u.lv or 'd')
+                elif u.ex and u.ex > now:
+                    status = '已订阅'
+                    lv_name = level_names.get(u.lv, u.lv or 'd')
+                else:
+                    status = '未订阅'
+                    lv_name = level_names.get(u.lv, u.lv or 'd')
                 writer.writerow([
                     u.tg, u.name or '', u.emby_name or '', u.email or '', u.telegram_id or '',
-                    level_names.get(u.lv, u.lv or 'd'), status,
+                    lv_name, status,
                     u.ex.strftime('%Y-%m-%d %H:%M') if u.ex else '',
                     u.coins or 0,
                     u.cr.strftime('%Y-%m-%d %H:%M') if u.cr else ''
@@ -23525,8 +23610,43 @@ def admin_set_user_type(user_id):
         message = ''
         
         if user_type == 'whitelist':
-            # 设为白名单用户
-            user.lv = 'a'
+            # 设为白名单用户（通过套餐系统管理，lv='b' + 永久订阅 + plan_type='whitelist'）
+            user.lv = 'b'
+            user.ex = datetime(9999, 12, 31)  # 永久有效
+            # 清除封禁信息
+            user.ban_reason = None
+            user.ban_time = None
+            user.ban_prev_lv = None
+            user.ban_prev_ex = None
+            
+            # 创建或更新白名单 Subscription 记录
+            existing_sub = Subscription.query.filter_by(
+                user_tg=user.tg, status='active'
+            ).order_by(Subscription.end_date.desc()).first()
+            
+            if existing_sub:
+                existing_sub.plan_type = 'whitelist'
+                existing_sub.plan_name = '白名单用户'
+                existing_sub.end_date = datetime(9999, 12, 31)
+                existing_sub.updated_at = datetime.now()
+            else:
+                new_sub = Subscription(
+                    user_tg=user.tg,
+                    plan_type='whitelist',
+                    plan_name='白名单用户',
+                    duration_months=-1,
+                    price=0,
+                    start_date=datetime.now(),
+                    end_date=datetime(9999, 12, 31),
+                    status='active',
+                    source='manual'
+                )
+                db.session.add(new_sub)
+            
+            # 启用 Emby 账号
+            if user.embyid and emby_client.is_enabled():
+                emby_client.enable_user(user.embyid)
+            
             message = '已设为白名单用户'
             
         elif user_type == 'subscribed':
@@ -23850,7 +23970,7 @@ def admin_get_user_details(user_id):
                 db.session.commit()
                 app.logger.info(f'[管理后台] 自动补充创建订阅记录: 用户={user.name}, 套餐={recent_order.plan_name}')
                 subscriptions = [subscription]
-            elif user.lv != 'a':  # 非白名单用户才补充创建
+            elif user.lv != 'a':  # 旧白名单用户兼容：不补充创建（已有whitelist订阅）
                 # 没有订单记录，可能是管理员手动设置的，创建一个通用记录
                 subscription = Subscription(
                     user_tg=user.tg,
@@ -23889,10 +24009,10 @@ def admin_get_user_details(user_id):
         ).limit(10).all()
         
         # 判断用户等级名称（考虑订阅状态）
-        level_names = {'a': '白名单', 'b': '普通用户', 'c': '已禁用', 'd': '无账号'}
+        _detail_wl = Subscription.query.filter_by(user_tg=user.tg, plan_type='whitelist', status='active').first()
         if user.lv == 'c':
             level_name = '已禁用'
-        elif user.lv == 'a':
+        elif _detail_wl or user.lv == 'a':
             level_name = '白名单'
         elif user.ex and user.ex > datetime.now():
             level_name = '订阅用户'
@@ -23923,6 +24043,7 @@ def admin_get_user_details(user_id):
                 'emby_name': user.emby_name,  # Emby 用户名（独立字段）
                 'level': user.lv,
                 'level_name': level_name,
+                'subscription_plan_type': 'whitelist' if (_detail_wl or user.lv == 'a') else (subscriptions[0].plan_type if subscriptions and subscriptions[0].status == 'active' else None),
                 'is_admin': user.is_admin,
                 'is_bot_admin': is_bot_admin,
                 'email': user.email,  # 绑定邮箱
@@ -25233,7 +25354,9 @@ def check_expired_subscriptions():
                     # 二次确认：重新从数据库读取最新状态，防止竞态条件
                     # （用户可能在查询后刚续费，此时不应被禁用）
                     db.session.refresh(user)
-                    if user.lv == 'a':  # 白名单用户跳过
+                    # 白名单用户跳过（通过订阅记录判断）
+                    _expire_wl = Subscription.query.filter_by(user_tg=user.tg, plan_type='whitelist', status='active').first()
+                    if _expire_wl or user.lv == 'a':
                         continue
                     if user.ex and user.ex > datetime.now():  # 已续费，跳过
                         continue

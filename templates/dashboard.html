@@ -262,7 +262,7 @@
                 <div class="subscription-lines-container">
                     <!-- 左侧：订阅状态 -->
                     <div class="subscription-status-mini">
-                        {% if user.lv == 'a' %}
+                        {% if is_whitelist %}
                         <div class="status-badge-mini whitelist">
                             <span class="badge-icon">👑</span>
                             <div class="badge-info">
@@ -739,8 +739,8 @@
                         <div class="user-profile-info">
                             <h2 class="user-display-name">{{ user.name or '用户' }}</h2>
                             <div class="user-badges">
-                                <span class="user-badge {% if user.lv == 'c' %}badge-banned{% elif user.lv == 'a' %}badge-vip{% elif user.ex and user.ex > now %}badge-sub{% else %}badge-normal{% endif %}">
-                                    {% if user.lv == 'c' %}🚫 已封禁{% elif user.lv == 'a' %}👑 白名单{% elif user.ex and user.ex > now %}⭐ 订阅中{% else %}普通用户{% endif %}
+                                <span class="user-badge {% if user.lv == 'c' %}badge-banned{% elif is_whitelist %}badge-vip{% elif user.ex and user.ex > now %}badge-sub{% else %}badge-normal{% endif %}">
+                                    {% if user.lv == 'c' %}🚫 已封禁{% elif is_whitelist %}👑 白名单{% elif user.ex and user.ex > now %}⭐ 订阅中{% else %}普通用户{% endif %}
                                 </span>
                                 {% if user.embyid %}
                                 <span class="user-badge badge-emby">✓ Emby 已绑定</span>
@@ -835,13 +835,13 @@
                             <p class="feature-desc-v2">绑定已有Emby账号或创建新账号</p>
                             <div class="btn-group-v2">
                                 <button class="btn-v2 btn-primary-v2" onclick="showEmbyBindDialog()">🔗 绑定已有账号</button>
-                                {% if user.lv == 'a' or (user.ex and user.ex > now) %}
+                                {% if is_whitelist or (user.ex and user.ex > now) %}
                                 <button class="btn-v2 btn-secondary-v2" onclick="showEmbyCreateDialog()">➕ 创建新账号</button>
                                 {% else %}
                                 <button class="btn-v2 btn-secondary-v2 btn-disabled" onclick="showToast('您没有有效订阅，无法创建新账号', 'error')" title="需要有效订阅">➕ 创建新账号</button>
                                 {% endif %}
                             </div>
-                            {% if not (user.lv == 'a' or (user.ex and user.ex > now)) %}
+                            {% if not (is_whitelist or (user.ex and user.ex > now)) %}
                             <p class="subscription-sub-tip" style="margin-top: 12px; font-size: 12px; color: #f59e0b;">💡 购买订阅后可创建新Emby账号</p>
                             {% endif %}
                             {% endif %}
@@ -1473,8 +1473,8 @@
                         <div class="doc-body">
                             <h3>会员等级</h3>
                             <ul>
-                                <li><strong>白名单用户 (A级)</strong>：每日 3 次求片，无时间限制</li>
-                                <li><strong>注册用户 (B级)</strong>：每日 1 次求片，需有效订阅</li>
+                                <li><strong>白名单用户</strong>：每日 3 次求片，无时间限制</li>
+                                <li><strong>注册用户</strong>：每日 1 次求片，需有效订阅</li>
                             </ul>
                             <h3>订阅续费</h3>
                             <p>请前往"购买套餐"页面选择适合您的套餐进行续费，支持多种支付方式。</p>

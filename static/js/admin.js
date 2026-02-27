@@ -2717,7 +2717,7 @@ function renderUsers(users) {
     
     tbody.innerHTML = users.map(user => {
         // 判断用户实际状态：白名单 / 订阅用户 / 非订阅用户
-        const isWhitelist = user.level === 'a';
+        const isWhitelist = user.subscription_plan_type === 'whitelist' || user.level === 'a';
         const isBanned = user.level === 'c';
         const isEmbyBanned = !isBanned && !!user.ban_reason;  // Emby被黑名单封禁（lv未改）
         const hasSubscription = user.subscription_status === 'active';
@@ -2762,7 +2762,7 @@ function renderUsers(users) {
             </td>
             <td data-label="订阅">${subscriptionDisplay}</td>
             <td class="hide-mobile" data-label="${window._coinName || '积分'}">${user.coins || 0}</td>
-            <td class="hide-mobile" data-label="到期时间">${user.level === 'a' ? '永久' : (user.subscription_end ? new Date(user.subscription_end).toLocaleDateString('zh-CN') : '-')}</td>
+            <td class="hide-mobile" data-label="到期时间">${isWhitelist ? '永久' : (user.subscription_end ? new Date(user.subscription_end).toLocaleDateString('zh-CN') : '-')}</td>
             <td data-label="操作">
                 <button class="btn-action view" onclick="showUserDetail(${user.id})">详情</button>
                 <select class="level-select" onchange="setUserType(${user.id}, this.value, '${currentType}')">
@@ -2866,7 +2866,7 @@ function searchUsers() {
 async function setUserLevel(userId, level) {
     if (!level) return;
     
-    const levelNames = {'a': '白名单', 'b': '普通用户'};
+    const levelNames = {'a': '白名单(旧)', 'b': '普通用户'};
     const confirmed = await showConfirm({
         title: '设置用户等级',
         message: `确定要将此用户设置为「${levelNames[level]}」吗？`,
@@ -7575,7 +7575,7 @@ async function loadUserDetails(userId) {
         document.getElementById('userDetailTitle').textContent = `用户详情 - ${user.name}`;
         
         // 渲染基本信息
-        const levelClass = user.level === 'c' ? 'status-banned' : (user.level === 'a' ? 'status-active' : '');
+        const levelClass = user.level === 'c' ? 'status-banned' : ((user.subscription_plan_type === 'whitelist' || user.level === 'a') ? 'status-active' : '');
         document.getElementById('userInfoContent').innerHTML = `
             <div class="info-item">
                 <div class="label">用户名</div>
