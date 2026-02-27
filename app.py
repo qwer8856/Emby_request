@@ -9094,10 +9094,7 @@ def get_emby_sessions():
     playing_sessions = [s for s in active_sessions if s.get('is_playing')]
     playing_count = len(playing_sessions)
     
-    # 检查是否白名单用户（通过订阅套餐）
-    _wl_sub = Subscription.query.filter_by(user_tg=user.tg, plan_type='whitelist', status='active').first()
-    _is_whitelist_user = _wl_sub is not None
-    if playing_count > 0 and not _is_whitelist_user:  # 白名单用户不限制
+    if playing_count > 0:
         try:
             config = load_system_config()
             max_streams = config.get('telegram', {}).get('max_streams', 0)
@@ -16793,7 +16790,7 @@ def batch_users():
                 user.ban_time = None
                 user.ban_prev_lv = None
                 user.ban_prev_ex = None
-                # 恢复Emby账号
+                # 启用 Emby 账号（如果之前被禁用）
                 if user.embyid and emby_client.is_enabled():
                     emby_client.enable_user(user.embyid)
                 success_count += 1
@@ -23778,7 +23775,7 @@ def admin_set_user_type(user_id):
                 )
                 db.session.add(new_sub)
             
-            # 启用 Emby 账号
+            # 启用 Emby 账号（如果之前被禁用）
             if user.embyid and emby_client.is_enabled():
                 emby_client.enable_user(user.embyid)
             
