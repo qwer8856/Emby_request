@@ -56,8 +56,8 @@
   关键映射逻辑:
     embyboss.name     → Emby_request.name（网站登录名）+ emby_name（Emby用户名）
     embyboss.pwd      → Emby_request.pwd（网站登录密码）+ pwd2（Emby密码）
-    embyboss.lv       → Emby_request.lv（等级一致: a/b/c/d）
-    embyboss.ex       → Emby_request.ex（到期时间）+ subscriptions 表
+    embyboss.lv       → Emby_request.lv（a=白名单保持a+whitelist订阅, b/c/d不变）
+    embyboss.ex       → Emby_request.ex（到期时间, 白名单设为9999-12-31）+ subscriptions 表
     embyboss.iv       → Emby_request.coins（签到积分）
     embyboss.tg       → Emby_request.telegram_id（Telegram绑定）
     embyboss.us       → 不迁移（embyboss 积分，Emby_request 无对应字段，us 固定为1）
@@ -328,7 +328,7 @@ def map_user_fields(u):
       embyboss.pwd   → pwd（网站登录密码）+ pwd2（Emby服务器密码）
                        迁移后用户密码不变，网站和Emby都能用
       embyboss.tg    → telegram_id（自动完成Telegram绑定）
-      embyboss.lv    → lv（等级一致: a=白名单, b=普通, c=禁用, d=无账号）
+      embyboss.lv    → lv（a=白名单保持a+whitelist订阅, b=普通, c=禁用, d=无账号）
       embyboss.ex    → ex（到期时间）
       embyboss.iv    → coins（签到积分）
       embyboss.us    → 不迁移（Emby_request 的 us 是使用状态，固定为1）
@@ -360,6 +360,15 @@ def map_user_fields(u):
     
     # embyboss.us 是积分，Emby_request 无对应字段（余额默认为0），不迁移
     
+    # 白名单用户(lv='a')：保持 lv='a' + 设 ex=9999-12-31（永久有效）
+    # 同时通过 Subscription.plan_type='whitelist' 标识
+    if lv == 'a':
+        mapped_lv = 'a'
+        mapped_ex = datetime(9999, 12, 31)
+    else:
+        mapped_lv = lv
+        mapped_ex = ex
+    
     return {
         'telegram_id': telegram_id,
         'embyid': embyid,
@@ -367,9 +376,10 @@ def map_user_fields(u):
         'emby_name': name,        # ★ Emby用户名 = 相同名字（关键！）
         'pwd': web_pwd,           # 网站登录密码
         'pwd2': emby_server_pwd,  # Emby 服务器密码
-        'lv': lv,
+        'lv': mapped_lv,          # 白名单保持'a'，同时创建whitelist订阅记录
         'cr': cr,
-        'ex': ex,
+        'ex': mapped_ex,          # 白名单设为9999-12-31（永久有效）
+        'original_lv': lv,        # 保留原始等级用于创建订阅记录
         'us': 1,                  # Emby_request 的使用状态，固定为1
         'iv': 0,                  # Emby_request 的邀请次数，固定为0
         'ch': ch,
@@ -406,26 +416,40 @@ def insert_user(tgt, new_pk, fields):
     ))
 
 
-def insert_subscription(tgt, new_pk, cr, ex, lv):
+def insert_subscription(tgt, new_pk, cr, ex, lv, original_lv=None):
     """为有到期时间的用户创建订阅记录
     
     这样用户在面板上可以直接看到订阅信息。
-    白名单用户(lv='a')也创建记录方便管理员查看。
+    白名单用户创建 plan_type='whitelist' 的订阅记录（新系统白名单标识）。
+    普通用户创建 plan_type='migrated' 的订阅记录。
+    
+    Args:
+        original_lv: 迁移前的原始等级（白名单用户原始为'a'，迁移后lv改为'b'）
     """
     if not ex:
         return False
-    if lv not in ('a', 'b'):
+    # 使用原始等级判断（白名单用户迁移后lv已改为'b'）
+    src_lv = original_lv or lv
+    if src_lv not in ('a', 'b'):
         return False
     
+    # 白名单用户: plan_type='whitelist'，永久有效
+    is_whitelist = (src_lv == 'a')
+    
     start_date = cr or ex
-    if cr and ex:
-        duration_days = (ex - cr).days
-        duration_months = max(1, duration_days // 30)
+    if is_whitelist:
+        duration_months = 0  # 永久
+        sub_end = datetime(9999, 12, 31)
     else:
-        duration_months = 1
+        sub_end = ex
+        if cr and ex:
+            duration_days = (ex - cr).days
+            duration_months = max(1, duration_days // 30)
+        else:
+            duration_months = 1
     
     now = datetime.now()
-    status = 'active' if ex > now else 'expired'
+    status = 'active' if (is_whitelist or ex > now) else 'expired'
     
     tgt.execute("""
         INSERT INTO subscriptions (user_tg, plan_type, plan_name, duration_months, 
@@ -434,12 +458,12 @@ def insert_subscription(tgt, new_pk, cr, ex, lv):
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         new_pk,
-        'migrated',
-        '从 embyboss 迁移',
+        'whitelist' if is_whitelist else 'migrated',
+        '白名单用户' if is_whitelist else '从 embyboss 迁移',
         duration_months,
         0,
         start_date,
-        ex,
+        sub_end,
         status,
         False,
         'migration',
@@ -505,7 +529,7 @@ def migrate():
         if MIGRATE_COINS:
             total_coins_preview += (u.get('iv', 0) or 0)
     
-    print(f"     白名单(a): {level_count.get('a', 0)} | 普通用户(b): {level_count.get('b', 0)} | "
+    print(f"     白名单(a+whitelist订阅): {level_count.get('a', 0)} | 普通用户(b): {level_count.get('b', 0)} | "
           f"已禁用(c): {level_count.get('c', 0)} | 无账号(d): {level_count.get('d', 0)}")
     print(f"     有Emby账号: {has_embyid_count} | 有到期时间: {has_ex_count} | 预计迁移签到积分: {total_coins_preview}")
     print()
@@ -589,7 +613,7 @@ def migrate():
     print("  📋 迁移内容:")
     print("    ✓ 用户名 → 同时写入 name（网站登录名）和 emby_name（Emby用户名）")
     print("    ✓ 密码 → pwd（网站登录密码）+ pwd2（Emby密码）双存储")
-    print("    ✓ 等级 → 白名单/普通/禁用 完整保留")
+    print("    ✓ 等级 → 白名单(a+whitelist订阅)/普通/禁用 完整保留")
     print("    ✓ 到期时间 → emby.ex 字段 + subscriptions 订阅记录表 双写入")
     if MIGRATE_COINS:
         print("    ✓ 签到积分(iv) → coins 字段 + coin_transactions 交易记录表")
@@ -645,7 +669,7 @@ def migrate():
             insert_user(tgt, new_pk, fields)
             
             # 创建订阅记录
-            if insert_subscription(tgt, new_pk, fields['cr'], fields['ex'], fields['lv']):
+            if insert_subscription(tgt, new_pk, fields['cr'], fields['ex'], fields['lv'], original_lv=fields.get('original_lv')):
                 sub_count += 1
             
             # 创建积分交易记录
@@ -721,6 +745,15 @@ def migrate():
                     else:
                         web_pwd = FIXED_PASSWORD
                     
+                    raw_lv = u.get('lv', 'b')
+                    # 白名单用户: 保持 lv='a' + ex=9999 + whitelist订阅
+                    if raw_lv == 'a':
+                        mapped_lv = 'a'
+                        mapped_ex = datetime(9999, 12, 31)
+                    else:
+                        mapped_lv = raw_lv
+                        mapped_ex = u.get('ex')
+                    
                     fields = {
                         'telegram_id': None,
                         'embyid': embyid,
@@ -728,18 +761,19 @@ def migrate():
                         'emby_name': name,
                         'pwd': web_pwd,
                         'pwd2': e2_pwd,
-                        'lv': u.get('lv', 'b'),
+                        'lv': mapped_lv,
                         'cr': u.get('cr'),
-                        'ex': u.get('ex'),
+                        'ex': mapped_ex,
+                        'original_lv': raw_lv,
                         'us': 1,
                         'iv': 0,
                         'ch': None,
                         'coins': 0,
-                        'ban_reason': None,
+                        'ban_reason': '从 embyboss 迁移（原系统已禁用）' if raw_lv == 'c' else None,
                     }
                     
                     insert_user(tgt, new_pk, fields)
-                    insert_subscription(tgt, new_pk, fields['cr'], fields['ex'], fields['lv'])
+                    insert_subscription(tgt, new_pk, fields['cr'], fields['ex'], fields['lv'], original_lv=fields.get('original_lv'))
                     
                     if name:
                         existing['names'].add(name.lower())
@@ -791,7 +825,7 @@ def migrate():
     print("     • 用户名 → 同时作为网站登录名和Emby用户名")
     print("     • Telegram 绑定 → 已自动完成，Bot 功能可直接使用")
     print("     • 订阅到期时间 → 已完整迁移（白名单用户永不过期）")
-    print("     • 用户等级 → 白名单/普通/禁用 完整保留")
+    print("     • 用户等级 → 白名单(a+whitelist订阅)/普通/禁用 完整保留")
     if MIGRATE_COINS:
         print("     • 签到积分(iv) → coins 字段（含交易记录）")
     print("     • Emby 账号ID → 已关联，用户无需重新绑定")

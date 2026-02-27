@@ -4367,8 +4367,8 @@ class User(db.Model):
         if self.lv not in ['a', 'b']:
             return False
         
-        # 白名单现在通过套餐系统管理(plan_type='whitelist')，lv='a'等同于lv='b'
-        # 统一检查过期时间
+        # A = 白名单用户（ex=9999-12-31，永不过期）
+        # B = 普通用户，按 ex 判断
         if self.ex:
             return datetime.now() < self.ex
         return False  # 没有过期时间视为非活跃
@@ -16676,8 +16676,8 @@ def batch_users():
                     emby_client.enable_user(user.embyid)
                 success_count += 1
             elif action == 'whitelist':
-                # 批量设为白名单（通过套餐系统：lv='b' + 永久订阅 + plan_type='whitelist'）
-                user.lv = 'b'
+                # 批量设为白名单（lv='a' + 永久到期 + plan_type='whitelist'订阅记录）
+                user.lv = 'a'
                 user.ex = datetime(9999, 12, 31)
                 # 清除黑名单封禁信息
                 user.ban_reason = None
@@ -23610,8 +23610,8 @@ def admin_set_user_type(user_id):
         message = ''
         
         if user_type == 'whitelist':
-            # 设为白名单用户（通过套餐系统管理，lv='b' + 永久订阅 + plan_type='whitelist'）
-            user.lv = 'b'
+            # 设为白名单用户（lv='a' + 永久到期 + plan_type='whitelist'订阅记录）
+            user.lv = 'a'
             user.ex = datetime(9999, 12, 31)  # 永久有效
             # 清除封禁信息
             user.ban_reason = None
