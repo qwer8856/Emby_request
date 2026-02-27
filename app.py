@@ -16746,11 +16746,12 @@ def batch_users():
                 except:
                     pass
                 plan_name = type_labels.get(plan_type_value, plan_type_value) + '套餐'
-                # 检查该套餐是否标记为白名单套餐
+                # 检查该套餐是否为白名单套餐（标记了 is_whitelist 或时长 >= 999 天即永久）
                 _is_wl_plan = False
                 for _p in _plans:
-                    if _p.get('id') == plan_type_value and _p.get('is_whitelist'):
-                        _is_wl_plan = True
+                    if _p.get('id') == plan_type_value:
+                        if _p.get('is_whitelist') or int(_p.get('duration_days', 0) or 0) >= 999:
+                            _is_wl_plan = True
                         break
                 if _is_wl_plan:
                     # 白名单套餐：设为白名单用户
@@ -18298,17 +18299,20 @@ def use_redeem_code():
         # 计算月数（向上取整，保证 Subscription.duration_months 不为 0）
         duration_months = max(1, -(-redeem.duration_days // 30))  # ceil division
         
-        # 检查该套餐是否标记为白名单套餐
+        # 检查该套餐是否为白名单套餐（标记了 is_whitelist 或时长 >= 999 天即永久）
         _redeem_plan_type = redeem.plan_type
         _redeem_plan_name = plan_name
         _redeem_is_wl = False
-        try:
-            for _rp in load_plans_config():
-                if _rp.get('id') == redeem.plan_type and _rp.get('is_whitelist'):
-                    _redeem_is_wl = True
-                    break
-        except Exception:
-            pass
+        if redeem.duration_days >= 999:
+            _redeem_is_wl = True
+        else:
+            try:
+                for _rp in load_plans_config():
+                    if _rp.get('id') == redeem.plan_type and _rp.get('is_whitelist'):
+                        _redeem_is_wl = True
+                        break
+            except Exception:
+                pass
         
         # 计算订阅时间 - 所有类型都立即生效，在现有到期时间基础上叠加
         now = datetime.now()
@@ -18606,17 +18610,20 @@ def payment_notify():
             start_date = now
             purchased_days = order.duration_days if order.duration_days else (order.duration_months * 30)
             
-            # 检查该套餐是否标记为白名单套餐
+            # 检查该套餐是否为白名单套餐（标记了 is_whitelist 或时长 >= 999 天即永久）
             _purchase_plan_type = order.plan_type
             _purchase_plan_name = order.plan_name
             _is_wl_purchase = False
-            try:
-                for _pp in load_plans_config():
-                    if _pp.get('id') == order.plan_type and _pp.get('is_whitelist'):
-                        _is_wl_purchase = True
-                        break
-            except Exception:
-                pass
+            if purchased_days >= 999:
+                _is_wl_purchase = True
+            else:
+                try:
+                    for _pp in load_plans_config():
+                        if _pp.get('id') == order.plan_type and _pp.get('is_whitelist'):
+                            _is_wl_purchase = True
+                            break
+                except Exception:
+                    pass
             
             if _is_wl_purchase:
                 # 白名单套餐：永久有效
@@ -18721,17 +18728,20 @@ def payment_callback():
                 start_date = now
                 purchased_days = order.duration_days if order.duration_days else (order.duration_months * 30)
                 
-                # 检查该套餐是否标记为白名单套餐
+                # 检查该套餐是否为白名单套餐（标记了 is_whitelist 或时长 >= 999 天即永久）
                 _cb_plan_type = order.plan_type
                 _cb_plan_name = order.plan_name
                 _cb_is_wl = False
-                try:
-                    for _pp in load_plans_config():
-                        if _pp.get('id') == order.plan_type and _pp.get('is_whitelist'):
-                            _cb_is_wl = True
-                            break
-                except Exception:
-                    pass
+                if purchased_days >= 999:
+                    _cb_is_wl = True
+                else:
+                    try:
+                        for _pp in load_plans_config():
+                            if _pp.get('id') == order.plan_type and _pp.get('is_whitelist'):
+                                _cb_is_wl = True
+                                break
+                    except Exception:
+                        pass
                 
                 if _cb_is_wl:
                     # 白名单套餐：永久有效
@@ -23795,18 +23805,33 @@ def admin_set_user_type(user_id):
                 # 动态从套餐配置获取名称（按ID匹配，兼容旧type匹配）
                 plans = load_plans_config()
                 plan_name = None
+                _matched_plan = None
                 for p in plans:
                     if p.get('id') == plan_type_value:
                         plan_name = p.get('name')
+                        _matched_plan = p
                         break
                 if not plan_name:
                     for p in plans:
                         if p.get('type') == plan_type_value:
                             plan_name = p.get('name')
+                            _matched_plan = p
                             break
                 if not plan_name:
                     plan_name = plan_type_value
                 plan_name = plan_name + '套餐'
+                
+                # 永久套餐（duration_days >= 999）或标记了 is_whitelist 的套餐 → 自动设为白名单
+                _is_wl_set = False
+                if _matched_plan:
+                    _dur = int(_matched_plan.get('duration_days', 0) or 0)
+                    if _matched_plan.get('is_whitelist') or _dur >= 999:
+                        _is_wl_set = True
+                if _is_wl_set:
+                    user.lv = 'a'
+                    user.ex = datetime(9999, 12, 31)
+                    plan_type_value = 'whitelist'
+                    plan_name = '白名单用户'
                 
                 existing_sub = Subscription.query.filter_by(
                     user_tg=user.tg, status='active'
