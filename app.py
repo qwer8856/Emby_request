@@ -16749,9 +16749,24 @@ def batch_users():
                 except:
                     pass
                 plan_name = type_labels.get(plan_type_value, plan_type_value) + '套餐'
-                # 确保用户是订阅用户
-                if user.lv not in ['a', 'c']:
-                    user.lv = 'b'
+                # 检查该套餐是否标记为白名单套餐
+                _is_wl_plan = False
+                for _p in _plans:
+                    if _p.get('id') == plan_type_value and _p.get('is_whitelist'):
+                        _is_wl_plan = True
+                        break
+                if _is_wl_plan:
+                    # 白名单套餐：设为白名单用户
+                    user.lv = 'a'
+                    user.ex = datetime(9999, 12, 31)
+                    plan_type_value = 'whitelist'
+                    plan_name = '白名单用户'
+                else:
+                    # 普通套餐：确保用户是订阅用户
+                    if user.lv == 'a':
+                        user.lv = 'b'
+                    elif user.lv not in ['a', 'b', 'c']:
+                        user.lv = 'b'
                 # 更新或创建 Subscription 记录
                 existing_sub = Subscription.query.filter_by(
                     user_tg=user.tg, status='active'
@@ -19477,6 +19492,7 @@ def get_system_config_api():
             'checkin': {
                 'enabled': config.get('checkin', {}).get('enabled', False),
                 'bot_enabled': config.get('checkin', {}).get('bot_enabled', False),
+                'checkin_permission': config.get('checkin', {}).get('checkin_permission', 'all'),
                 'coin_name': config.get('checkin', {}).get('coin_name', '积分'),
                 'coin_min': config.get('checkin', {}).get('coin_min', 1),
                 'coin_max': config.get('checkin', {}).get('coin_max', 10),
@@ -19689,6 +19705,10 @@ def save_system_config_api():
                 current_config['checkin']['enabled'] = bool(checkin['enabled'])
             if 'bot_enabled' in checkin:
                 current_config['checkin']['bot_enabled'] = bool(checkin['bot_enabled'])
+            if 'checkin_permission' in checkin:
+                perm_val = checkin['checkin_permission']
+                if perm_val in ('all', 'subscribed', 'none'):
+                    current_config['checkin']['checkin_permission'] = perm_val
             if 'coin_name' in checkin:
                 current_config['checkin']['coin_name'] = checkin['coin_name'].strip()
             if 'coin_min' in checkin:
@@ -20407,6 +20427,8 @@ def save_plans_config_api():
                 'original_price': float(plan.get('original_price')) if plan.get('original_price') else None,
                 'features': plan.get('features', []) if isinstance(plan.get('features'), list) else [],
                 'popular': bool(plan.get('popular', False)),
+                # 白名单套餐标记（勾选后该套餐用户视为白名单用户）
+                'is_whitelist': bool(plan.get('is_whitelist', False)),
                 # 多周期价格（互斥：一次性和月付/季付/年付只能设一种）
                 'price_once': float(plan.get('price_once', 0)) if plan.get('price_once') else None,
                 'price_1m': float(plan.get('price_1m', 0)) if plan.get('price_1m') else None,
@@ -21744,6 +21766,29 @@ def exchange_plan():
         if user.lv not in ['a', 'b', 'c']:
             user.lv = 'b'
         
+        # 更新或创建 Subscription 记录（确保用户有有效的订阅状态）
+        existing_sub = Subscription.query.filter_by(
+            user_tg=user.tg, status='active'
+        ).order_by(Subscription.end_date.desc()).first()
+        if existing_sub:
+            # 更新现有订阅的到期时间
+            existing_sub.end_date = user.ex
+            existing_sub.updated_at = now
+        else:
+            # 创建新的订阅记录
+            new_sub = Subscription(
+                user_tg=user.tg,
+                plan_type='custom',
+                plan_name=f'积分兑换: {plan_name}',
+                duration_months=0,
+                price=0,
+                start_date=now,
+                end_date=user.ex,
+                status='active',
+                source='manual'
+            )
+            db.session.add(new_sub)
+        
         # 创建兑换记录
         exchange_record = ExchangeRecord(
             user_tg=user.tg,
@@ -22820,8 +22865,11 @@ def get_user_lines():
         is_subscriber = user.lv in ['a', 'b'] and user.ex and user.ex > now  # 有效订阅用户（包含旧白名单lv='a'）
         
         # 通过 Subscription 表判断是否是白名单用户（plan_type='whitelist'）
+        # 同时兼容旧白名单用户（lv='a'）
         is_whitelist = False
-        if is_subscriber:
+        if user.lv == 'a':
+            is_whitelist = True
+        elif is_subscriber:
             active_sub = Subscription.query.filter_by(
                 user_tg=user.tg, status='active'
             ).order_by(Subscription.end_date.desc()).first()
@@ -22850,18 +22898,15 @@ def get_user_lines():
         
         # 获取用户的套餐类型（现在使用套餐ID作为标识）
         user_plan_type = None
-        # 动态从套餐配置中读取有效套餐ID（同时兼容旧的type值）
-        plans = load_plans_config()
-        valid_plan_types = {'whitelist'} | {p.get('id') for p in plans if p.get('id')} | {p.get('type') for p in plans if p.get('type')}
         if is_whitelist:
             user_plan_type = 'whitelist'
         elif is_subscriber:
             active_sub = Subscription.query.filter_by(
                 user_tg=user.tg, status='active'
             ).order_by(Subscription.end_date.desc()).first()
-            if active_sub and active_sub.plan_type in valid_plan_types:
+            if active_sub and active_sub.plan_type:
                 user_plan_type = active_sub.plan_type
-            # 否则 user_plan_type 保持 None（migrated 等无效类型视为未分类）
+            # 否则 user_plan_type 保持 None（无订阅记录的旧用户）
         
         app.logger.info(f'[线路过滤] 用户={user.name}(tg={user.tg}), lv={user.lv}, ex={user.ex}, is_whitelist={is_whitelist}, is_subscriber={is_subscriber}, user_plan_type={user_plan_type}, 线路数={len(lines)}')
         
@@ -23611,7 +23656,17 @@ def admin_set_user_type(user_id):
         plan_type_value = None
         if user_type and user_type.startswith('sub_'):
             plan_type_value = user_type[4:]  # 提取 basic, standard 等
-            user_type = 'subscribed'  # 统一按订阅用户处理
+            # 检查该套餐是否标记为白名单套餐
+            plans = load_plans_config()
+            is_whitelist_plan = False
+            for p in plans:
+                if p.get('id') == plan_type_value and p.get('is_whitelist'):
+                    is_whitelist_plan = True
+                    break
+            if is_whitelist_plan:
+                user_type = 'whitelist'  # 白名单套餐按白名单逻辑处理
+            else:
+                user_type = 'subscribed'  # 普通套餐按订阅用户处理
         
         if user_type not in ['whitelist', 'subscribed', 'normal']:
             return jsonify({'success': False, 'error': '无效的用户类型'}), 400

@@ -2768,7 +2768,7 @@ function renderUsers(users) {
                 <select class="level-select" onchange="setUserType(${user.id}, this.value, '${currentType}')">
                     <option value="" disabled selected>设置类型</option>
                     <option value="whitelist" ${currentType === 'whitelist' ? 'disabled style="color:#999;"' : ''}>👑 白名单用户${currentType === 'whitelist' ? ' ✓' : ''}</option>
-                    ${(window._planTypeOptions || []).map(opt => `<option value="sub_${opt.value}" ${currentType === 'sub_' + opt.value ? 'disabled style="color:#999;"' : ''}>⭐ ${opt.label}${currentType === 'sub_' + opt.value ? ' ✓' : ''}</option>`).join('')}
+                    ${(window._planTypeOptions || []).map(opt => `<option value="sub_${opt.value}" ${currentType === 'sub_' + opt.value ? 'disabled style="color:#999;"' : ''}>${opt.is_whitelist ? '👑' : '⭐'} ${opt.label}${currentType === 'sub_' + opt.value ? ' ✓' : ''}</option>`).join('')}
                     ${currentType === 'subscribed' ? '<option value="" disabled style="color:#999;">⭐ 订阅用户(未分类) ✓</option>' : ''}
                     <option value="normal" ${currentType === 'normal' ? 'disabled style="color:#999;"' : ''}>👤 非订阅用户${currentType === 'normal' ? ' ✓' : ''}</option>
                 </select>
@@ -2921,8 +2921,14 @@ async function setUserType(userId, userType, currentType) {
         const planType = userType.substring(4);
         const planOpt = (window._planTypeOptions || []).find(o => o.value === planType);
         const planLabel = planOpt ? planOpt.label : planType;
-        displayName = planLabel + '订阅用户';
-        confirmMessage = `确定要将此用户设置为「${displayName}」吗？\n\n注意：设置后请在详情页赠送订阅天数。`;
+        const isWhitelistPlan = planOpt && planOpt.is_whitelist;
+        if (isWhitelistPlan) {
+            displayName = planLabel + '（白名单）';
+            confirmMessage = `确定要将此用户设置为「${planLabel}」吗？\n\n该套餐为白名单套餐，用户将永久有效，求片次数按白名单配置。`;
+        } else {
+            displayName = planLabel + '订阅用户';
+            confirmMessage = `确定要将此用户设置为「${displayName}」吗？\n\n注意：设置后请在详情页赠送订阅天数。`;
+        }
         requestType = userType; // 发送完整类型给后端
     } else {
         displayName = userType;
@@ -3499,10 +3505,10 @@ async function loadSystemConfig() {
             }
             
             // 填充求片限制配置
-            document.getElementById('limitLevelA').value = config.request_limit.level_a || 3;
-            document.getElementById('limitLevelB').value = config.request_limit.level_b || 1;
-            document.getElementById('limitLevelC').value = config.request_limit.level_c || 0;
-            document.getElementById('limitLevelD').value = config.request_limit.level_d || 0;
+            document.getElementById('limitLevelA').value = config.request_limit.level_a ?? 3;
+            document.getElementById('limitLevelB').value = config.request_limit.level_b ?? 1;
+            document.getElementById('limitLevelC').value = config.request_limit.level_c ?? 0;
+            document.getElementById('limitLevelD').value = config.request_limit.level_d ?? 0;
             
             // 填充订阅过期配置
             const expireAutoDisable = document.getElementById('expireAutoDisable');
@@ -4729,10 +4735,14 @@ async function resetCategoryConfig() {
 
 // 求片限制配置
 async function saveRequestLimitConfig() {
-    const levelA = parseInt(document.getElementById('limitLevelA').value) || 3;
-    const levelB = parseInt(document.getElementById('limitLevelB').value) || 1;
-    const levelC = parseInt(document.getElementById('limitLevelC').value) || 0;
-    const levelD = parseInt(document.getElementById('limitLevelD').value) || 0;
+    const levelA = Number(document.getElementById('limitLevelA').value);
+    const levelB = Number(document.getElementById('limitLevelB').value);
+    const levelC = Number(document.getElementById('limitLevelC').value);
+    const levelD = Number(document.getElementById('limitLevelD').value);
+    if (isNaN(levelA) || isNaN(levelB) || isNaN(levelC) || isNaN(levelD)) {
+        showToast('错误', '求片限制必须为数字', 'error');
+        return;
+    }
     
     try {
         const response = await fetch('/api/admin/system-config', {
@@ -5205,6 +5215,14 @@ function renderPlansConfig() {
                                    onchange="updatePlanField(${index}, 'popular', this.checked)">
                             <span>设为推荐套餐</span>
                         </label>
+                    </div>
+                    <div class="plan-config-field">
+                        <label class="checkbox-label">
+                            <input type="checkbox" ${plan.is_whitelist ? 'checked' : ''} 
+                                   onchange="updatePlanField(${index}, 'is_whitelist', this.checked)">
+                            <span>👑 白名单套餐</span>
+                        </label>
+                        <span class="field-hint">勾选后，使用此套餐的用户视为白名单用户（永久有效、求片次数按白名单配置）</span>
                     </div>
                 </div>
                 
@@ -6061,7 +6079,7 @@ async function loadGlobalPlanTypeOptions() {
             window._planTypeOptions = [];
             data.plans.forEach(plan => {
                 if (plan.id) {
-                    window._planTypeOptions.push({value: plan.id, label: plan.name || plan.id});
+                    window._planTypeOptions.push({value: plan.id, label: plan.name || plan.id, is_whitelist: !!plan.is_whitelist});
                 }
             });
         }
@@ -7243,7 +7261,7 @@ async function batchSetPlanType() {
         modal.id = 'planTypeSelectModal';
         modal.className = 'global-confirm-overlay';
         const btnsHtml = options.map(opt => 
-            `<button class="plan-select-btn" data-value="${opt.value}" style="display:block;width:100%;padding:10px 16px;margin:6px 0;border:1px solid var(--border-color,#ddd);border-radius:8px;background:var(--bg-secondary,#f5f5f5);cursor:pointer;font-size:14px;text-align:left;transition:all .2s;">⭐ ${opt.label}</button>`
+            `<button class="plan-select-btn" data-value="${opt.value}" style="display:block;width:100%;padding:10px 16px;margin:6px 0;border:1px solid var(--border-color,#ddd);border-radius:8px;background:var(--bg-secondary,#f5f5f5);cursor:pointer;font-size:14px;text-align:left;transition:all .2s;">${opt.is_whitelist ? '👑' : '⭐'} ${opt.label}${opt.is_whitelist ? ' <span style="color:#e67e22;font-size:11px;">(白名单)</span>' : ''}</button>`
         ).join('');
         modal.innerHTML = `
             <div class="global-confirm-dialog info" style="max-width:380px;">
