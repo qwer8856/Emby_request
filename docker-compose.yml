@@ -1,0 +1,35 @@
+services:
+  emby-request:
+    image: gongjuren8856/emby-request:latest
+    container_name: emby-request
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      # 配置文件持久化
+      - /root/Panel/instance:/app/instance
+      # 日志持久化
+      - /root/Panel/logs:/app/logs
+      # 迁移脚本（从 embyboss 迁移用户数据，迁移完成后可删除此行）
+      - /root/Panel/migrate_from_embyboss.py:/app/migrate_from_embyboss.py
+      # 机器码绑定
+      - /etc/machine-id:/etc/machine-id:ro
+    environment:
+      - TZ=Asia/Shanghai
+      # ========== 授权码 [必须] ==========
+      - LICENSE_KEY=
+      # ========== Flask 配置 [必须] ==========
+      # 生成命令: python3 -c "import secrets; print(secrets.token_hex(32))"
+      - SECRET_KEY=
+      # ========== 数据库配置 [必须] ==========
+      - DB_HOST=
+      - DB_PORT=
+      - DB_USER=
+      - DB_PASSWORD=
+      - DB_NAME=
+    networks:
+      - emby-network
+
+networks:
+  emby-network:
+    driver: bridge
