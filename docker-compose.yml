@@ -1,0 +1,37 @@
+services:
+  emby-request:
+    build:
+      context: .
+    image: gongjuren8856/emby-request:latest
+    container_name: emby-request
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      # Persistent config
+      - /root/Panel/instance:/app/instance
+      # Persistent logs
+      - /root/Panel/logs:/app/logs
+      # Migration script from embyboss
+      - /root/Panel/migrate_from_embyboss.py:/app/migrate_from_embyboss.py
+      # Machine ID binding
+      - /etc/machine-id:/etc/machine-id:ro
+    environment:
+      - TZ=Asia/Shanghai
+      # ========== Authorization key [required] ==========
+      - LICENSE_KEY=
+      # ========== Flask config [required] ==========
+      # Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
+      - SECRET_KEY=
+      # ========== Database config [required] ==========
+      - DB_HOST=
+      - DB_PORT=
+      - DB_USER=
+      - DB_PASSWORD=
+      - DB_NAME=
+    networks:
+      - emby-network
+
+networks:
+  emby-network:
+    driver: bridge
