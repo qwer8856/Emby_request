@@ -4915,7 +4915,7 @@ class ServerLine(db.Model):
 
     @staticmethod
     def resolve_url(server_url, port=None, is_https=None):
-        """将线路地址规范化为完整 URL，并尽量兼容旧的 host+port+https 结构"""
+        """将线路地址规范化为完整 URL，并兼容旧的 host+port+https 结构"""
         raw_url = str(server_url or '').strip()
         if not raw_url:
             return '', None, None
