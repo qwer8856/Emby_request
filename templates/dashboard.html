@@ -14,9 +14,9 @@
     <link rel="apple-touch-icon" href="{{ site_config.site_logo }}">
     <link rel="icon" href="{{ site_config.site_logo }}" type="image/png">
     {% endif %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}?v=23">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=54">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/checkin.css') }}?v=3">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}?v={{ app_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v={{ app_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/checkin.css') }}?v={{ app_version }}">
     {% if site_config.custom_css %}
     <style>{{ site_config.custom_css | safe }}</style>
     {% endif %}
@@ -3110,9 +3110,9 @@
             ]
         }
     </script>
-    <script src="{{ url_for('static', filename='js/common.js') }}?v=22"></script>
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=43"></script>
-    <script src="{{ url_for('static', filename='js/checkin.js') }}?v=5"></script>
+    <script src="{{ url_for('static', filename='js/common.js') }}?v={{ app_version }}"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ app_version }}"></script>
+    <script src="{{ url_for('static', filename='js/checkin.js') }}?v={{ app_version }}"></script>
     {% if site_config.custom_js %}
     <script>{{ site_config.custom_js | safe }}</script>
     {% endif %}

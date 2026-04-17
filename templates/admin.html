@@ -8,9 +8,9 @@
     {% if site_config and site_config.site_logo %}
     <link rel="icon" href="{{ site_config.site_logo }}" type="image/png">
     {% endif %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}?v=23">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=21">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-checkin.css') }}?v=2">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}?v={{ app_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v={{ app_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-checkin.css') }}?v={{ app_version }}">
     <!-- 防止刷新页面时闪屏 -->
     <style id="preload-style">
         .admin-section {
@@ -4025,14 +4025,14 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/common.js') }}?v=22"></script>
+    <script src="{{ url_for('static', filename='js/common.js') }}?v={{ app_version }}"></script>
     <script>
         // 管理员权限数据（由后端注入）
         window.ADMIN_INFO = {{ admin_info | default({'is_super': true, 'permissions': [], 'username': '管理员'}) | tojson }};
         window.PERMISSION_GROUPS = {{ permission_groups | default({}) | tojson }};
     </script>
-    <script src="{{ url_for('static', filename='js/admin.js') }}?v=37"></script>
-    <script src="{{ url_for('static', filename='js/admin-checkin.js') }}?v=8"></script>
+    <script src="{{ url_for('static', filename='js/admin.js') }}?v={{ app_version }}"></script>
+    <script src="{{ url_for('static', filename='js/admin-checkin.js') }}?v={{ app_version }}"></script>
 
 </body>
 

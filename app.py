@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.1.2'
+APP_VERSION = '2.1.3'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -271,6 +271,12 @@ tmdb_cache = TMDBCache(default_ttl=86400)  # 1天缓存（86400秒）
 load_dotenv()
 
 app = Flask(__name__)
+
+
+@app.context_processor
+def inject_app_version():
+    """让模板里统一使用 app_version 做缓存版本号"""
+    return {'app_version': APP_VERSION}
 
 # 注册支持负数的 int 转换器（Telegram 用户 ID 为负数）
 from werkzeug.routing import IntegerConverter
