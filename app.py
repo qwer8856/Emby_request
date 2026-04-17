@@ -884,15 +884,19 @@ def load_plans_config():
 
 def save_plans_config(plans):
     """保存套餐配置 - 同时保存到数据库和文件"""
-    success = True
+    db_success = True
+    file_success = True
     
     # 保存到数据库
     try:
         if has_app_context():
-            set_db_config(CONFIG_KEY_PLANS, plans, '套餐配置')
+            if not set_db_config(CONFIG_KEY_PLANS, plans, '套餐配置'):
+                db_success = False
+        else:
+            db_success = False
     except Exception as e:
         print(f"[WARNING] 保存套餐到数据库失败: {e}")
-        success = False
+        db_success = False
     
     # 同时保存到文件
     try:
@@ -901,8 +905,9 @@ def save_plans_config(plans):
             json.dump(plans, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"[WARNING] 保存套餐配置文件失败: {e}")
+        file_success = False
     
-    return success
+    return db_success and file_success
 
 
 def load_site_config():
@@ -935,15 +940,19 @@ def load_site_config():
 
 def save_site_config(config):
     """保存前端配置 - 同时保存到数据库和文件"""
-    success = True
+    db_success = True
+    file_success = True
     
     # 保存到数据库
     try:
         if has_app_context():
-            set_db_config(CONFIG_KEY_SITE, config, '前端站点配置')
+            if not set_db_config(CONFIG_KEY_SITE, config, '前端站点配置'):
+                db_success = False
+        else:
+            db_success = False
     except Exception as e:
         print(f"[WARNING] 保存前端配置到数据库失败: {e}")
-        success = False
+        db_success = False
     
     # 同时保存到文件
     try:
@@ -952,8 +961,9 @@ def save_site_config(config):
             json.dump(config, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"[WARNING] 保存前端配置文件失败: {e}")
+        file_success = False
     
-    return success
+    return db_success and file_success
 
 
 def get_site_config():
@@ -999,15 +1009,19 @@ def load_epay_config():
 
 def save_epay_config(config):
     """保存易支付配置 - 同时保存到数据库和文件"""
-    success = True
+    db_success = True
+    file_success = True
     
     # 保存到数据库
     try:
         if has_app_context():
-            set_db_config(CONFIG_KEY_EPAY, config, '易支付配置')
+            if not set_db_config(CONFIG_KEY_EPAY, config, '易支付配置'):
+                db_success = False
+        else:
+            db_success = False
     except Exception as e:
         print(f"[WARNING] 保存易支付配置到数据库失败: {e}")
-        success = False
+        db_success = False
     
     # 同时保存到文件
     try:
@@ -1016,8 +1030,9 @@ def save_epay_config(config):
             json.dump(config, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"[WARNING] 保存易支付配置文件失败: {e}")
+        file_success = False
     
-    return success
+    return db_success and file_success
 
 
 def get_epay_config():
@@ -1123,18 +1138,23 @@ def load_download_config():
 
 def save_download_config(config):
     """保存下载工具配置 - 同时保存到数据库和文件"""
-    success = True
+    db_success = True
+    file_success = True
     
     # 保存到数据库
     try:
         if has_app_context():
             if 'moviepilot' in config:
-                set_db_config(CONFIG_KEY_MOVIEPILOT, config['moviepilot'], 'MoviePilot 配置')
+                if not set_db_config(CONFIG_KEY_MOVIEPILOT, config['moviepilot'], 'MoviePilot 配置'):
+                    db_success = False
             if 'qbittorrent' in config:
-                set_db_config(CONFIG_KEY_QBITTORRENT, config['qbittorrent'], 'qBittorrent 配置')
+                if not set_db_config(CONFIG_KEY_QBITTORRENT, config['qbittorrent'], 'qBittorrent 配置'):
+                    db_success = False
+        else:
+            db_success = False
     except Exception as e:
         print(f"[WARNING] 保存下载配置到数据库失败: {e}")
-        success = False
+        db_success = False
     
     # 同时保存到文件
     try:
@@ -1143,8 +1163,9 @@ def save_download_config(config):
             json.dump(config, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"[WARNING] 保存下载配置文件失败: {e}")
+        file_success = False
     
-    return success
+    return db_success and file_success
 
 
 def get_download_config():
@@ -1672,8 +1693,8 @@ def save_system_config(config):
         print(f"[WARNING] 保存配置文件失败: {e}")
         file_success = False
     
-    # 只要数据库或文件有一个成功就返回 True
-    return db_success or file_success
+    # 必须双写成功，避免“文件成功但数据库仍旧”造成后台显示已保存但实际回读旧值
+    return db_success and file_success
 
 def get_system_config():
     """获取当前系统配置"""
@@ -19012,7 +19033,7 @@ def save_payment_config_api():
         else:
             return jsonify({
                 'success': False,
-                'error': '保存配置文件失败'
+                'error': '保存配置失败'
             }), 500
             
     except Exception as e:
@@ -19075,7 +19096,7 @@ def save_site_config_api():
         else:
             return jsonify({
                 'success': False,
-                'error': '保存配置文件失败'
+                'error': '保存配置失败'
             }), 500
             
     except Exception as e:
@@ -19160,7 +19181,7 @@ def save_download_config_api():
         else:
             return jsonify({
                 'success': False,
-                'error': '保存配置文件失败'
+                'error': '保存配置失败'
             }), 500
             
     except Exception as e:
@@ -19994,7 +20015,7 @@ def save_system_config_api():
         else:
             return jsonify({
                 'success': False,
-                'error': '保存配置文件失败'
+                'error': '保存配置失败'
             }), 500
             
     except Exception as e:
@@ -20246,7 +20267,7 @@ def save_category_config_api():
         else:
             return jsonify({
                 'success': False,
-                'error': '保存配置文件失败'
+                'error': '保存配置失败'
             }), 500
             
     except Exception as e:
@@ -20576,7 +20597,7 @@ def save_plans_config_api():
         else:
             return jsonify({
                 'success': False,
-                'error': '保存配置文件失败'
+                'error': '保存配置失败'
             }), 500
             
     except Exception as e:
@@ -23273,7 +23294,7 @@ def admin_get_users():
         _page_subs = Subscription.query.filter(
             Subscription.user_tg.in_(_page_tgs),
             Subscription.status == 'active'
-        ).all() if _page_tgs else []
+        ).order_by(Subscription.end_date.desc(), Subscription.created_at.desc()).all() if _page_tgs else []
         _page_sub_map = {}
         for _ps in _page_subs:
             if _ps.user_tg not in _page_sub_map:
@@ -23746,7 +23767,7 @@ def admin_set_user_type(user_id):
     """设置用户类型：白名单用户 / 订阅用户 / 非订阅用户
     
     - whitelist: 设为白名单用户 (lv='a')
-    - subscribed: 设为订阅用户 (lv='b' + 赠送指定天数订阅)
+    - subscribed: 设为订阅用户 (lv='b' + 写入有效期与订阅记录)
     - normal: 设为非订阅用户 (lv='b' + 清除订阅时间)
     """
     try:
@@ -23757,20 +23778,33 @@ def admin_set_user_type(user_id):
         data = request.get_json() or {}
         user_type = data.get('user_type')
         subscription_days = data.get('subscription_days', 30)  # 默认30天
+        now = datetime.now()
+        
+        def _safe_int(value, default=30):
+            try:
+                value = int(value)
+                return value if value > 0 else default
+            except (ValueError, TypeError):
+                return default
+        
+        def _resolve_plan(plan_key):
+            if not plan_key:
+                return None
+            plans = load_plans_config()
+            for p in plans:
+                if p.get('id') == plan_key or p.get('type') == plan_key:
+                    return p
+            return None
         
         # 支持 sub_basic, sub_standard 等格式
         plan_type_value = None
+        matched_plan = None
         if user_type and user_type.startswith('sub_'):
             plan_type_value = user_type[4:]  # 提取 basic, standard 等
-            # 检查该套餐是否标记为白名单套餐
-            plans = load_plans_config()
-            is_whitelist_plan = False
-            for p in plans:
-                if p.get('id') == plan_type_value and p.get('is_whitelist'):
-                    is_whitelist_plan = True
-                    break
-            if is_whitelist_plan:
+            matched_plan = _resolve_plan(plan_type_value)
+            if matched_plan and (matched_plan.get('is_whitelist') or _safe_int(matched_plan.get('duration_days'), 0) >= 999):
                 user_type = 'whitelist'  # 白名单套餐按白名单逻辑处理
+                plan_type_value = 'whitelist'
             else:
                 user_type = 'subscribed'  # 普通套餐按订阅用户处理
         
@@ -23778,50 +23812,66 @@ def admin_set_user_type(user_id):
             return jsonify({'success': False, 'error': '无效的用户类型'}), 400
         
         # 验证订阅天数
-        try:
-            subscription_days = int(subscription_days)
-            if subscription_days <= 0:
-                subscription_days = 30
-        except (ValueError, TypeError):
-            subscription_days = 30
+        subscription_days = _safe_int(subscription_days, 30)
         
         old_level = user.lv
         old_ex = user.ex
         message = ''
+        active_subscriptions = Subscription.query.filter_by(
+            user_tg=user.tg,
+            status='active'
+        ).order_by(Subscription.end_date.desc(), Subscription.created_at.desc()).all()
+        primary_active_sub = active_subscriptions[0] if active_subscriptions else None
+        was_whitelist = user.lv == 'a' or (primary_active_sub and primary_active_sub.plan_type == 'whitelist')
+        
+        def _clear_ban_info():
+            user.ban_reason = None
+            user.ban_time = None
+            user.ban_prev_lv = None
+            user.ban_prev_ex = None
+        
+        def _cancel_extra_active_subs(keep_sub=None):
+            for sub in active_subscriptions:
+                if keep_sub and sub.id == keep_sub.id:
+                    continue
+                sub.status = 'cancelled'
+                sub.updated_at = now
+        
+        def _upsert_active_subscription(plan_type, plan_name, end_date, source='manual', keep_existing=True):
+            target_sub = primary_active_sub if keep_existing else None
+            duration_months = -1 if plan_type == 'whitelist' else max(1, -(-max(1, (end_date - now).days) // 30))
+            if target_sub:
+                target_sub.plan_type = plan_type
+                target_sub.plan_name = plan_name
+                target_sub.duration_months = duration_months
+                target_sub.price = 0
+                target_sub.start_date = target_sub.start_date or now
+                target_sub.end_date = end_date
+                target_sub.status = 'active'
+                target_sub.source = source
+                target_sub.updated_at = now
+            else:
+                target_sub = Subscription(
+                    user_tg=user.tg,
+                    plan_type=plan_type,
+                    plan_name=plan_name,
+                    duration_months=duration_months,
+                    price=0,
+                    start_date=now,
+                    end_date=end_date,
+                    status='active',
+                    source=source
+                )
+                db.session.add(target_sub)
+            _cancel_extra_active_subs(target_sub)
+            return target_sub
         
         if user_type == 'whitelist':
             # 设为白名单用户（lv='a' + 永久到期 + plan_type='whitelist'订阅记录）
             user.lv = 'a'
             user.ex = datetime(9999, 12, 31)  # 永久有效
-            # 清除封禁信息
-            user.ban_reason = None
-            user.ban_time = None
-            user.ban_prev_lv = None
-            user.ban_prev_ex = None
-            
-            # 创建或更新白名单 Subscription 记录
-            existing_sub = Subscription.query.filter_by(
-                user_tg=user.tg, status='active'
-            ).order_by(Subscription.end_date.desc()).first()
-            
-            if existing_sub:
-                existing_sub.plan_type = 'whitelist'
-                existing_sub.plan_name = '白名单用户'
-                existing_sub.end_date = datetime(9999, 12, 31)
-                existing_sub.updated_at = datetime.now()
-            else:
-                new_sub = Subscription(
-                    user_tg=user.tg,
-                    plan_type='whitelist',
-                    plan_name='白名单用户',
-                    duration_months=-1,
-                    price=0,
-                    start_date=datetime.now(),
-                    end_date=datetime(9999, 12, 31),
-                    status='active',
-                    source='manual'
-                )
-                db.session.add(new_sub)
+            _clear_ban_info()
+            _upsert_active_subscription('whitelist', '白名单用户', datetime(9999, 12, 31), source='manual')
             
             # 启用 Emby 账号（如果之前被禁用）
             if user.embyid and emby_client.is_enabled():
@@ -23830,73 +23880,34 @@ def admin_set_user_type(user_id):
             message = '已设为白名单用户'
             
         elif user_type == 'subscribed':
-            # 设为订阅用户：只切换等级，不自动延长时间
-            user.lv = 'b'
-            # 清除黑名单封禁信息（管理员明确操作）
-            user.ban_reason = None
-            user.ban_time = None
-            user.ban_prev_lv = None
-            user.ban_prev_ex = None
+            # 设为订阅用户：切换等级，同时写入有效期，保证列表页/详情页状态一致
+            _clear_ban_info()
             
             # 如果指定了套餐ID，更新或创建 Subscription 记录
+            plan_name = '订阅用户'
+            effective_days = subscription_days
             if plan_type_value:
-                # 动态从套餐配置获取名称（按ID匹配，兼容旧type匹配）
-                plans = load_plans_config()
-                plan_name = None
-                _matched_plan = None
-                for p in plans:
-                    if p.get('id') == plan_type_value:
-                        plan_name = p.get('name')
-                        _matched_plan = p
-                        break
-                if not plan_name:
-                    for p in plans:
-                        if p.get('type') == plan_type_value:
-                            plan_name = p.get('name')
-                            _matched_plan = p
-                            break
-                if not plan_name:
-                    plan_name = plan_type_value
-                plan_name = plan_name + '套餐'
-                
-                # 永久套餐（duration_days >= 999）或标记了 is_whitelist 的套餐 → 自动设为白名单
-                _is_wl_set = False
-                if _matched_plan:
-                    _dur = int(_matched_plan.get('duration_days', 0) or 0)
-                    if _matched_plan.get('is_whitelist') or _dur >= 999:
-                        _is_wl_set = True
-                if _is_wl_set:
-                    user.lv = 'a'
-                    user.ex = datetime(9999, 12, 31)
-                    plan_type_value = 'whitelist'
-                    plan_name = '白名单用户'
-                
-                existing_sub = Subscription.query.filter_by(
-                    user_tg=user.tg, status='active'
-                ).order_by(Subscription.end_date.desc()).first()
-                
-                if existing_sub:
-                    existing_sub.plan_type = plan_type_value
-                    existing_sub.plan_name = plan_name
-                    existing_sub.updated_at = datetime.now()
+                if matched_plan:
+                    plan_name = matched_plan.get('name') or plan_type_value
+                    effective_days = _safe_int(matched_plan.get('duration_days'), effective_days)
+                    plan_name = f'{plan_name}套餐'
                 else:
-                    # 创建新的订阅记录（时长由管理员后续在详情页赠送）
-                    new_sub = Subscription(
-                        user_tg=user.tg,
-                        plan_type=plan_type_value,
-                        plan_name=plan_name,
-                        duration_months=1,
-                        price=0,
-                        start_date=datetime.now(),
-                        end_date=user.ex if user.ex and user.ex > datetime.now() else datetime.now(),
-                        status='active',
-                        source='manual'
-                    )
-                    db.session.add(new_sub)
-                
-                message = f'已设为{plan_name}用户'
+                    plan_name = f'{plan_type_value}套餐'
+            
+            target_end = now + timedelta(days=effective_days)
+            if not was_whitelist:
+                if user.ex and user.ex > now:
+                    target_end = max(target_end, user.ex)
+                if primary_active_sub and primary_active_sub.end_date and primary_active_sub.end_date > now:
+                    target_end = max(target_end, primary_active_sub.end_date)
             else:
-                message = '已设为订阅用户'
+                # 白名单降级为普通订阅时，不沿用 9999-12-31 的永久期限
+                target_end = now + timedelta(days=effective_days)
+            
+            user.lv = 'b'
+            user.ex = target_end
+            _upsert_active_subscription(plan_type_value or 'gift', plan_name, target_end, source='manual')
+            message = f'已设为{plan_name}用户'
             
             # 启用 Emby 账号（如果之前被禁用）
             if user.embyid and emby_client.is_enabled():
@@ -23906,6 +23917,8 @@ def admin_set_user_type(user_id):
             # 设为非订阅用户：普通等级 + 清除订阅
             user.lv = 'b'
             user.ex = None
+            _clear_ban_info()
+            _cancel_extra_active_subs(None)
             message = '已设为非订阅用户，订阅已清除'
         
         db.session.commit()

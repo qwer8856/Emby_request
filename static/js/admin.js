@@ -2927,7 +2927,7 @@ async function setUserType(userId, userType, currentType) {
             confirmMessage = `确定要将此用户设置为「${planLabel}」吗？\n\n该套餐为白名单套餐，用户将永久有效，求片次数按白名单配置。`;
         } else {
             displayName = planLabel + '订阅用户';
-            confirmMessage = `确定要将此用户设置为「${displayName}」吗？\n\n注意：设置后请在详情页赠送订阅天数。`;
+            confirmMessage = `确定要将此用户设置为「${displayName}」吗？\n\n设置后会按套餐默认天数立即生效，后续可在详情页继续调整。`;
         }
         requestType = userType; // 发送完整类型给后端
     } else {
