@@ -137,8 +137,8 @@
             <!-- 閭缁戝畾鎸夐挳 -->
             <div class="email-bind-sidebar" id="emailBindSidebar" onclick="goToEmailBind()">
                 <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
-                <span id="emailBindText">{{ '閭宸茬粦瀹? if user.email else '缁戝畾閭' }}</span>
-                <span class="bind-badge" id="emailBindBadge">{{ '宸茬粦瀹? if user.email else '鏈粦瀹? }}</span>
+                <span id="emailBindText">{{ '邮箱已绑定' if user.email else '绑定邮箱' }}</span>
+                <span class="bind-badge" id="emailBindBadge">{{ '已绑定' if user.email else '未绑定' }}</span>
             </div>
             {% endif %}
             <div class="user-card">
@@ -587,7 +587,7 @@
                                             <span class="badge failed-badge">澶辫触</span>
                                         </div>
                                         <div class="failed-message">
-                                            <p class="error-text">{{ req.download_task.error_message or '涓嬭浇杩囩▼涓嚭鐜伴敊璇? }}</p>
+                                            <p class="error-text">{{ req.download_task.error_message or '下载过程中出现错误' }}</p>
                                             {% if req.download_task.retry_count < req.download_task.max_retries %}
                                             <button class="retry-btn" onclick="retryDownload({{ req.id }}, this)">
                                                 <span class="retry-icon">馃攧</span>
@@ -732,7 +732,7 @@
                             <h2 class="user-display-name">{{ user.name or '鐢ㄦ埛' }}</h2>
                             <div class="user-badges">
                                 <span class="user-badge {% if user.lv == 'c' %}badge-banned{% elif is_whitelist %}badge-vip{% elif user.ex and user.ex > now %}badge-sub{% else %}badge-normal{% endif %}">
-                                    {% if user.lv == 'c' %}馃毇 宸插皝绂亄% elif is_whitelist %}馃憫 鐧藉悕鍗晎% elif user.ex and user.ex > now %}猸?璁㈤槄涓瓄% else %}鏅€氱敤鎴穥% endif %}
+                                    {% if user.lv == 'c' %}已封禁{% elif is_whitelist %}白名单用户{% elif user.ex and user.ex > now %}订阅用户{% else %}普通用户{% endif %}
                                 </span>
                                 {% if user.embyid %}
                                 <span class="user-badge badge-emby">鉁?Emby 宸茬粦瀹?/span>
@@ -1359,7 +1359,7 @@
                     <article class="doc-section" id="doc-start">
                         <h2>馃殌 蹇€熷紑濮?/h2>
                         <div class="doc-body">
-                            <p>{{ site_config.welcome_message or '娆㈣繋浣跨敤 Emby 绠＄悊绯荤粺锛? }}{{ site_config.docs_intro or '浠ヤ笅鏄揩閫熷叆闂ㄦ寚鍗楋細' }}</p>
+                            <p>{{ site_config.welcome_message or '欢迎使用 Emby 管理系统' }}{{ site_config.docs_intro or '以下是快速入门指南：' }}</p>
                             <ol>
                                 <li><strong>鐧诲綍绯荤粺</strong>锛氫娇鐢ㄦ偍鐨?Telegram 璐﹀彿缁戝畾鐧诲綍</li>
                                 <li><strong>鎼滅储褰辩墖</strong>锛氬湪鎼滅储妗嗚緭鍏ユ兂鐪嬬殑鐢靛奖鎴栧墽闆嗗悕绉?/li>
