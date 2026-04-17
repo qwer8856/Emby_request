@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.1.4'
+APP_VERSION = '2.1.5'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -4248,6 +4248,15 @@ def log_response(response):
             response.cache_control.no_cache = True
             response.cache_control.no_store = True
             response.cache_control.must_revalidate = True
+
+    # HTML 页面也不缓存，避免模板更新后仍显示旧界面
+    content_type = response.headers.get('Content-Type', '')
+    if 'text/html' in content_type:
+        response.cache_control.no_cache = True
+        response.cache_control.no_store = True
+        response.cache_control.must_revalidate = True
+        response.cache_control.max_age = 0
+        response.headers['Pragma'] = 'no-cache'
     
     # Gzip 压缩大响应（提升传输速度）
     # 跳过文件下载（Content-Disposition: attachment）和显式标记跳过的响应

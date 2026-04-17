@@ -1,5 +1,5 @@
 // Service Worker for PWA
-const CACHE_NAME = 'emby-request-v4';
+const CACHE_NAME = 'emby-request-v5';
 const STATIC_ASSETS = [
   '/manifest.json',
   '/static/css/common.css',
