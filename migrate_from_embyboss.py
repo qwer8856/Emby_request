@@ -113,7 +113,7 @@ TARGET_MYSQL = {
 
 # ---- SQLite 模式配置（TARGET_MODE='sqlite' 时使用）----
 # 容器内路径（docker-compose 已挂载 ./instance → /app/instance）
-TARGET_SQLITE_PATH = '/app/instance/movie_requests.db'
+TARGET_SQLITE_PATH = '/app/instance/emby_request.db'
 
 # ========================================================
 #               ===== 迁移选项 =====

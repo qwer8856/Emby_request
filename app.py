@@ -298,7 +298,7 @@ else:
         app.config['SQLALCHEMY_DATABASE_URI'] = f'mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
     else:
         # 如果没有设置密码，默认使用SQLite
-        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///movie_requests.db'
+        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///instance/emby_request.db'
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -4123,6 +4123,26 @@ def log_request():
     app.logger.debug(f'{request.method} {request.path}')
 
 
+def get_admin_login_redirect_path():
+    """获取管理员登录入口路径"""
+    try:
+        admin_config = get_admin_config()
+        secret_path = (ADMIN_SECRET_PATH or admin_config.get('secret_path') or '').strip('/')
+        if secret_path:
+            return f'/{secret_path}'
+    except Exception:
+        pass
+    return '/admin/setup'
+
+
+def admin_access_denied(message: str, status_code: int = 403):
+    """统一的管理员访问拒绝响应"""
+    redirect_path = get_admin_login_redirect_path()
+    if request.path.startswith('/api/'):
+        return jsonify({'error': message, 'redirect': redirect_path}), status_code
+    return redirect(redirect_path)
+
+
 # URL路径到权限的映射规则
 ADMIN_URL_PERMISSION_MAP = {
     # 求片管理
@@ -4132,6 +4152,7 @@ ADMIN_URL_PERMISSION_MAP = {
     '/api/admin/batch-delete': 'requests',
     '/api/admin/pt-search': 'requests',
     '/api/admin/pt-download': 'requests',
+    '/api/admin/sync-downloads': 'requests',
     # 用户管理
     '/api/admin/users': 'users',
     '/api/admin/user': 'users',
@@ -4147,8 +4168,10 @@ ADMIN_URL_PERMISSION_MAP = {
     '/api/admin/generate-codes': 'redeem',
     # 播放监控
     '/api/admin/playback': 'playback',
+    '/api/admin/debug': 'playback',
     '/api/admin/devices': 'playback',
     '/api/admin/all-playback': 'playback',
+    '/api/admin/device-blacklist': 'playback',
     # 工单管理
     '/api/admin/tickets': 'tickets',
     '/api/admin/ticket': 'tickets',
@@ -4175,6 +4198,12 @@ ADMIN_URL_PERMISSION_MAP = {
     '/api/admin/audit-logs': 'settings',
     '/api/admin/export': 'settings',
     '/api/admin/category': 'settings',
+    '/api/admin/download-config': 'settings',
+    '/api/admin/db-config': 'settings',
+    '/api/admin/system-config': 'settings',
+    '/api/admin/default-benefits': 'settings',
+    '/api/admin/register-telegram-commands': 'settings',
+    '/api/admin/activity-logs': 'settings',
     # 仪表盘
     '/api/admin/dashboard': 'dashboard',
     '/api/admin/stats': 'dashboard',
@@ -4200,11 +4229,24 @@ def check_admin_permission():
     # 只有登录的管理员才需要检查权限
     if not session.get('admin_logged_in'):
         return
-    
+
+    def _deny_super_admin_only(message: str):
+        if session.get('admin_user_id'):
+            admin_user = db.session.get(AdminUser, session.get('admin_user_id'))
+            if admin_user and admin_user.is_super:
+                return None
+        return jsonify({'error': message}), 403
+
+    if path.startswith('/api/admin/admins'):
+        denied = _deny_super_admin_only('仅超级管理员可管理管理员')
+        if denied is not None:
+            return denied
+        return
+
     admin_id = session.get('admin_user_id')
     if not admin_id:
-        return  # 旧session兼容，视为超级管理员
-    
+        return admin_access_denied('管理员会话已过期，请重新登录')
+
     # 检查是否超级管理员
     if session.get('admin_is_super'):
         return
@@ -5953,11 +5995,11 @@ def admin_required(f):
                     # 管理员已被禁用或删除，清除session
                     for _k in ['admin_logged_in', 'admin_user_id', 'admin_username', 'admin_is_super', 'admin_login_time']:
                         session.pop(_k, None)
-                    return jsonify({'error': '管理员账号已被禁用', 'redirect': f'/{ADMIN_SECRET_PATH}'}), 403
-            else:
-                # 兼容旧session（超级管理员通过配置文件登录）
-                g.current_admin = None
-                return f(*args, **kwargs)
+                    return admin_access_denied('管理员账号已被禁用')
+            # 旧 session 不再视为有效管理员会话，必须重新登录
+            for _k in ['admin_logged_in', 'admin_user_id', 'admin_username', 'admin_is_super', 'admin_login_time']:
+                session.pop(_k, None)
+            return admin_access_denied('管理员会话已过期，请重新登录')
         
         # 方式2: 用户表中的管理员（保留兼容）
         if 'user_id' in session:
@@ -5967,7 +6009,7 @@ def admin_required(f):
                 return f(*args, **kwargs)
         
         app.logger.warning('访问管理后台失败: 无管理员权限')
-        return jsonify({'error': '需要管理员权限', 'redirect': f'/{ADMIN_SECRET_PATH}'}), 403
+        return admin_access_denied('需要管理员权限')
     return decorated_function
 
 
@@ -5978,8 +6020,7 @@ def permission_required(perm):
         def decorated_function(*args, **kwargs):
             admin = getattr(g, 'current_admin', None)
             if admin is None:
-                # 超级管理员（旧方式登录），拥有所有权限
-                return f(*args, **kwargs)
+                return admin_access_denied('需要管理员权限')
             if admin.is_super or admin.has_permission(perm):
                 return f(*args, **kwargs)
             return jsonify({'error': f'无权限执行此操作（需要: {ADMIN_PERMISSION_GROUPS.get(perm, perm)}）'}), 403
@@ -5992,16 +6033,6 @@ def get_current_admin():
     admin = getattr(g, 'current_admin', None)
     if admin:
         return admin
-    # 兼容：如果没有 admin 对象但有 session，创建一个虚拟超级管理员
-    if session.get('admin_logged_in'):
-        return type('SuperAdmin', (), {
-            'id': 0,
-            'username': session.get('admin_username', 'admin'),
-            'is_super': True,
-            'is_active': True,
-            'has_permission': lambda self, p: True,
-            'get_permissions': lambda self: list(ADMIN_PERMISSION_GROUPS.keys()),
-        })()
     return None
 
 
@@ -6012,7 +6043,7 @@ def is_admin_user():
         if admin_id:
             admin_user = db.session.get(AdminUser, admin_id)
             return admin_user and admin_user.is_active
-        return True  # 兼容旧session
+        return False
     
     if 'user_id' in session:
         user = db.session.get(User, session['user_id'])
@@ -10838,9 +10869,16 @@ def admin_dynamic_entry(secret_path):
     
     # 如果已登录，检查是否需要强制修改配置
     if session.get('admin_logged_in'):
-        if not admin_config.get('initialized', False):
-            return redirect('/admin/setup')
-        return redirect('/admin')
+        admin_id = session.get('admin_user_id')
+        if admin_id:
+            admin_user = db.session.get(AdminUser, admin_id)
+            if admin_user and admin_user.is_active:
+                if not admin_config.get('initialized', False):
+                    return redirect('/admin/setup')
+                return redirect('/admin')
+        # 旧 session 或失效账号：清理后继续展示登录页
+        for _k in ['admin_logged_in', 'admin_username', 'admin_user_id', 'admin_is_super', 'admin_login_time']:
+            session.pop(_k, None)
     
     # 显示管理员登录页面
     site_config = get_site_config()
