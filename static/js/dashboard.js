@@ -19,6 +19,19 @@ window.showToast = function(arg1, arg2, arg3) {
 // ==================== Emby 账号绑定/创建功能 ====================
 let usernameCheckTimer = null;
 
+async function readResponseData(response) {
+    const text = await response.text();
+    if (!text) return {};
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        return {
+            success: false,
+            error: text.slice(0, 200) || `HTTP ${response.status}`
+        };
+    }
+}
+
 // 检查是否需要绑定 Emby 账号
 async function checkEmbyBindStatus() {
     try {
@@ -238,12 +251,19 @@ async function submitEmbyBind(event) {
             body: JSON.stringify({ username, password })
         });
         
-        const data = await response.json();
+        const data = await readResponseData(response);
         
         // 检查是否需要重新登录
         if (data.need_login) {
             showToast('登录已过期，请重新登录', 'error');
             setTimeout(() => window.location.href = '/login', 1500);
+            return;
+        }
+        
+        if (!response.ok) {
+            errorEl.textContent = data.error || `绑定失败（HTTP ${response.status}）`;
+            btn.disabled = false;
+            btn.textContent = '验证并绑定';
             return;
         }
         
@@ -258,7 +278,7 @@ async function submitEmbyBind(event) {
             btn.textContent = '验证并绑定';
         }
     } catch (error) {
-        errorEl.textContent = '网络错误，请稍后重试';
+        errorEl.textContent = `网络错误，请稍后重试${error?.message ? `：${error.message}` : ''}`;
         btn.disabled = false;
         btn.textContent = '验证并绑定';
     }
@@ -306,12 +326,19 @@ async function submitEmbyCreate(event) {
             body: JSON.stringify({ username, password })
         });
         
-        const data = await response.json();
+        const data = await readResponseData(response);
         
         // 检查是否需要重新登录
         if (data.need_login) {
             showToast('登录已过期，请重新登录', 'error');
             setTimeout(() => window.location.href = '/login', 1500);
+            return;
+        }
+        
+        if (!response.ok) {
+            errorEl.textContent = data.error || `创建失败（HTTP ${response.status}）`;
+            btn.disabled = false;
+            btn.textContent = '创建账号';
             return;
         }
         
@@ -326,7 +353,7 @@ async function submitEmbyCreate(event) {
             btn.textContent = '创建账号';
         }
     } catch (error) {
-        errorEl.textContent = '网络错误，请稍后重试';
+        errorEl.textContent = `网络错误，请稍后重试${error?.message ? `：${error.message}` : ''}`;
         btn.disabled = false;
         btn.textContent = '创建账号';
     }
