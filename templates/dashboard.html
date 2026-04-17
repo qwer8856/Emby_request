@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>{{ site_config.site_title or 'Emby绠＄悊绯荤粺' }}</title>
-    <!-- PWA 鏀寔 -->
+    <title>{{ site_config.site_title or 'Emby管理系统' }}</title>
+    <!-- PWA 支持 -->
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#667eea">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="绠＄悊绯荤粺">
+    <meta name="apple-mobile-web-app-title" content="管理系统">
     {% if site_config.site_logo %}
     <link rel="apple-touch-icon" href="{{ site_config.site_logo }}">
     <link rel="icon" href="{{ site_config.site_logo }}" type="image/png">
@@ -20,9 +20,9 @@
     {% if site_config.custom_css %}
     <style>{{ site_config.custom_css | safe }}</style>
     {% endif %}
-    <!-- 闃叉鍒锋柊椤甸潰鏃堕棯灞?-->
+    <!-- 防止刷新页面时闪屏 -->
     <style id="preload-style">
-        /* 濡傛灉URL鏈塰ash涓斾笉鏄痟ome锛岄殣钘忛粯璁ょ殑home section */
+        /* 如果URL有hash且不是home，隐藏默认的home section */
         .content-section { display: none !important; }
     </style>
     <script>
@@ -30,23 +30,24 @@
         var hash = window.location.hash.slice(1);
         var validSections = ['home','subscription','purchase','search','trending','requests',{% if invite_reward_enabled %}'invite',{% endif %}'playback','profile','activity-logs','docs','faq','support'];
         if (!hash || hash === 'home' || validSections.indexOf(hash) === -1) {
-            // 榛樿鏄剧ず棣栭〉锛岀洿鎺ョЩ闄ら鍔犺浇鏍峰紡
+            // 默认显示首页，直接移除预加载样式
             var style = document.getElementById('preload-style');
             if (style) style.remove();
         } else {
-            // 鏈夐潪榛樿hash锛氬湪DOM灏辩华鏃跺厛鍒囨崲鍐嶆樉绀猴紝閬垮厤闂睆
+            // 有非默认hash：在DOM就绪时先切换再显示，避免闪屏
             document.addEventListener('DOMContentLoaded', function() {
-                // 鍏堢Щ闄ome鐨刟ctive
+                // 先移除home的active
                 var homeSection = document.getElementById('section-home');
                 var homeNav = document.querySelector('.nav-item[data-section="home"]');
                 if (homeSection) homeSection.classList.remove('active');
                 if (homeNav) homeNav.classList.remove('active');
-                // 婵€娲荤洰鏍噑ection
+                // 激活目标section
                 var targetSection = document.getElementById('section-' + hash);
                 var targetNav = document.querySelector('.nav-item[data-section="' + hash + '"]');
                 if (targetSection) targetSection.classList.add('active');
                 if (targetNav) targetNav.classList.add('active');
-                // 绉婚櫎棰勫姞杞芥牱寮?                var style = document.getElementById('preload-style');
+                // 移除预加载样式
+                var style = document.getElementById('preload-style');
                 if (style) style.remove();
             });
         }
@@ -54,7 +55,7 @@
     </script>
 </head>
 <body class="page-dashboard">
-    <!-- 宸︿晶杈规爮 -->
+    <!-- 左侧边栏 -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="logo">
@@ -63,7 +64,7 @@
                 {% endif %}
                 <div class="logo-text">
                     <div class="logo-title">{{ site_config.site_name or 'Emby' }}</div>
-                    <div class="logo-subtitle">{{ site_config.site_subtitle or '绠＄悊绯荤粺' }}</div>
+                    <div class="logo-subtitle">{{ site_config.site_subtitle or '管理系统' }}</div>
                 </div>
             </div>
         </div>
@@ -71,70 +72,70 @@
         <nav class="sidebar-nav">
             <a href="#home" class="nav-item active" data-section="home" onclick="switchSection('home', event)">
                 <svg viewBox="0 0 24 24"><path d="M10,20V14H14V20H19V12H22L12,3L2,12H5V20H10Z"/></svg>
-                <span>浠〃鐩?/span>
+                <span>仪表盘</span>
             </a>
             <a href="#subscription" class="nav-item" data-section="subscription" onclick="switchSection('subscription', event)">
                 <svg viewBox="0 0 24 24"><path d="M20,8H4V6H20M20,18H4V12H20M20,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V6C22,4.89 21.1,4 20,4Z"/></svg>
-                <span>鎴戠殑璁㈤槄</span>
+                <span>我的订阅</span>
             </a>
             <a href="#purchase" class="nav-item" data-section="purchase" onclick="switchSection('purchase', event)">
                 <svg viewBox="0 0 24 24"><path d="M17,18A2,2 0 0,1 19,20A2,2 0 0,1 17,22C15.89,22 15,21.1 15,20C15,18.89 15.89,18 17,18M1,2H4.27L5.21,4H20A1,1 0 0,1 21,5C21,5.17 20.95,5.34 20.88,5.5L17.3,11.97C16.96,12.58 16.3,13 15.55,13H8.1L7.2,14.63L7.17,14.75A0.25,0.25 0 0,0 7.42,15H19V17H7C5.89,17 5,16.1 5,15C5,14.65 5.09,14.32 5.24,14.04L6.6,11.59L3,4H1V2M7,18A2,2 0 0,1 9,20A2,2 0 0,1 7,22C5.89,22 5,21.1 5,20C5,18.89 5.89,18 7,18M16,11L18.78,6H6.14L8.5,11H16Z"/></svg>
-                <span>璐拱濂楅</span>
+                <span>购买套餐</span>
             </a>
             <a href="#search" class="nav-item" data-section="search" onclick="switchSection('search', event)">
                 <svg viewBox="0 0 24 24"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
-                <span>鎼滅储姹傜墖</span>
+                <span>搜索求片</span>
             </a>
             <a href="#trending" class="nav-item" data-section="trending" onclick="switchSection('trending', event)">
                 <svg viewBox="0 0 24 24"><path d="M16,6L18.29,8.29L13.41,13.17L9.41,9.17L2,16.59L3.41,18L9.41,12L13.41,16L19.71,9.71L22,12V6H16Z"/></svg>
-                <span>鐑棬鎺ㄨ崘</span>
+                <span>热门推荐</span>
             </a>
             <a href="#requests" class="nav-item" data-section="requests" onclick="switchSection('requests', event)">
                 <svg viewBox="0 0 24 24"><path d="M19,3H14.82C14.4,1.84 13.3,1 12,1C10.7,1 9.6,1.84 9.18,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M12,3A1,1 0 0,1 13,4A1,1 0 0,1 12,5A1,1 0 0,1 11,4A1,1 0 0,1 12,3Z"/></svg>
-                <span>姹傜墖绠＄悊</span>
+                <span>求片管理</span>
             </a>
             {% if invite_reward_enabled %}
             <a href="#invite" class="nav-item" data-section="invite" onclick="switchSection('invite', event)">
                 <svg viewBox="0 0 24 24"><path d="M15,14C12.33,14 7,15.33 7,18V20H23V18C23,15.33 17.67,14 15,14M15,12A4,4 0 0,0 19,8A4,4 0 0,0 15,4A4,4 0 0,0 11,8A4,4 0 0,0 15,12M6,10V7H4V10H1V12H4V15H6V12H9V10H6Z"/></svg>
-                <span>閭€璇疯繑鍒?/span>
+                <span>邀请返利</span>
             </a>
             {% endif %}
             <a href="#playback" class="nav-item" data-section="playback" onclick="switchSection('playback', event)">
                 <svg viewBox="0 0 24 24"><path d="M21,3H3C1.89,3 1,3.89 1,5V17A2,2 0 0,0 3,19H8V21H16V19H21A2,2 0 0,0 23,17V5C23,3.89 22.1,3 21,3M21,17H3V5H21M16,11L9,15V7"/></svg>
-                <span>鎾斁鐩戞帶</span>
+                <span>播放监控</span>
             </a>
             <a href="#profile" class="nav-item" data-section="profile" onclick="switchSection('profile', event)">
                 <svg viewBox="0 0 24 24"><path d="M12,4A4,4 0 0,1 16,8A4,4 0 0,1 12,12A4,4 0 0,1 8,8A4,4 0 0,1 12,4M12,14C16.42,14 20,15.79 20,18V20H4V18C4,15.79 7.58,14 12,14Z"/></svg>
-                <span>鎴戠殑淇℃伅</span>
+                <span>我的信息</span>
             </a>
             <a href="#activity-logs" class="nav-item" data-section="activity-logs" onclick="switchSection('activity-logs', event)">
                 <svg viewBox="0 0 24 24"><path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20M9,13V19H7V13H9M15,15V19H13V15H15M11,11V19H9V11H11M17,13V19H15V13H17Z"/></svg>
-                <span>鎿嶄綔鏃ュ織</span>
+                <span>操作日志</span>
             </a>
-            <!-- 浣跨敤鏂囨。銆佸父瑙侀棶棰樸€佹妧鏈敮鎸?閫氳繃棣栭〉蹇嵎鍏ュ彛璁块棶 -->
+            <!-- 使用文档、常见问题、技术支持 通过首页快捷入口访问 -->
         </nav>
         
         <div class="sidebar-footer">
             {% if user.is_admin %}
             <a href="/admin" class="admin-panel-btn">
                 <svg viewBox="0 0 24 24"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
-                <span>绠＄悊鍛樺悗鍙?/span>
+                <span>管理员后台</span>
             </a>
             {% endif %}
             {% if site_config.telegram_group %}
-            <a href="https://t.me/{{ site_config.telegram_group }}" target="_blank" class="telegram-sidebar-btn" title="Telegram 缇ょ粍">
+            <a href="https://t.me/{{ site_config.telegram_group }}" target="_blank" class="telegram-sidebar-btn" title="Telegram 群组">
                 <svg viewBox="0 0 24 24"><path d="M9.78 18.65L10.06 14.42L17.74 7.5C18.08 7.19 17.67 7.04 17.22 7.31L7.74 13.3L3.64 12C2.76 11.75 2.75 11.14 3.84 10.7L19.81 4.54C20.54 4.21 21.24 4.72 20.96 5.84L18.24 18.65C18.05 19.56 17.5 19.78 16.74 19.36L12.6 16.3L10.61 18.23C10.38 18.46 10.19 18.65 9.78 18.65Z"/></svg>
-                <span>Telegram 缇ょ粍</span>
+                <span>Telegram 群组</span>
             </a>
             {% endif %}
-            <!-- Telegram 缁戝畾鎸夐挳 -->
+            <!-- Telegram 绑定按钮 -->
             <div class="telegram-bind-sidebar" id="telegramBindSidebar" onclick="showTelegramBindDialog()">
                 <svg viewBox="0 0 24 24"><path d="M9.78 18.65L10.06 14.42L17.74 7.5C18.08 7.19 17.67 7.04 17.22 7.31L7.74 13.3L3.64 12C2.76 11.75 2.75 11.14 3.84 10.7L19.81 4.54C20.54 4.21 21.24 4.72 20.96 5.84L18.24 18.65C18.05 19.56 17.5 19.78 16.74 19.36L12.6 16.3L10.61 18.23C10.38 18.46 10.19 18.65 9.78 18.65Z"/></svg>
-                <span id="telegramBindText">缁戝畾 Telegram</span>
+                <span id="telegramBindText">绑定 Telegram</span>
                 <span class="bind-badge" id="telegramBindBadge"></span>
             </div>
             {% if email_enabled %}
-            <!-- 閭缁戝畾鎸夐挳 -->
+            <!-- 邮箱绑定按钮 -->
             <div class="email-bind-sidebar" id="emailBindSidebar" onclick="goToEmailBind()">
                 <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
                 <span id="emailBindText">{{ '邮箱已绑定' if user.email else '绑定邮箱' }}</span>
@@ -144,19 +145,19 @@
             <div class="user-card">
                 <div class="user-avatar">{{ (user.name or 'U')[0].upper() }}</div>
                 <div class="user-info-sidebar">
-                    <div class="user-name">{{ user.name or '鐢ㄦ埛' }}</div>
+                    <div class="user-name">{{ user.name or '用户' }}</div>
                     <div class="user-level">{{ level_name }}</div>
                 </div>
             </div>
             <a href="/logout" class="logout-btn">
                 <svg viewBox="0 0 24 24"><path d="M16,17V14H9V10H16V7L21,12L16,17M14,2A2,2 0 0,1 16,4V6H14V4H5V20H14V18H16V20A2,2 0 0,1 14,22H5A2,2 0 0,1 3,20V4A2,2 0 0,1 5,2H14Z"/></svg>
-                <span>閫€鍑虹櫥褰?/span>
+                <span>退出登录</span>
             </a>
             <div class="app-version">v{{ app_version }}</div>
         </div>
     </aside>
     
-    <!-- 绉诲姩绔《閮ㄦ爮 -->
+    <!-- 移动端顶部栏 -->
     <header class="mobile-header">
         <button class="mobile-menu-toggle" id="mobileMenuToggle" onclick="toggleMobileSidebar()">
             <span></span>
@@ -172,161 +173,161 @@
         <div class="mobile-user-avatar">{{ (user.name or 'U')[0].upper() }}</div>
     </header>
     
-    <!-- 绉诲姩绔晶杈规爮閬僵 -->
+    <!-- 移动端侧边栏遮罩 -->
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeMobileSidebar()"></div>
     
-    <!-- 鍙充晶涓诲唴瀹瑰尯 -->
+    <!-- 右侧主内容区 -->
     <main class="main-content">
         
-        <!-- 涓婚〉 Dashboard -->
+        <!-- 主页 Dashboard -->
         <section class="content-section active" id="section-home">
             {% if is_banned %}
-            <!-- 灏佺璀﹀憡妯箙 -->
+            <!-- 封禁警告横幅 -->
             <div class="banned-alert">
-                <div class="banned-alert-icon">馃毇</div>
+                <div class="banned-alert-icon">🚫</div>
                 <div class="banned-alert-content">
-                    <h3>鎮ㄧ殑璐﹀彿宸茶灏佺</h3>
-                    <p>鎮ㄧ殑璐﹀彿鍥犺繚鍙嶄娇鐢ㄨ鍒欏凡琚鐢紝鏃犳硶浣跨敤 Emby 鎾斁鍔熻兘銆傚鏈夌枒闂紝璇疯仈绯荤鐞嗗憳銆?/p>
+                    <h3>您的账号已被封禁</h3>
+                    <p>您的账号因违反使用规则已被禁用，无法使用 Emby 播放功能。如有疑问，请联系管理员。</p>
                 </div>
             </div>
             {% elif emby_disabled_by_blacklist %}
-            <!-- Emby琚粦鍚嶅崟瑙勫垯绂佺敤鎻愮ず -->
+            <!-- Emby被黑名单规则禁用提示 -->
             <div class="banned-alert" style="background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%); border-left: 4px solid #ff9800;">
-                <div class="banned-alert-icon">鈿狅笍</div>
+                <div class="banned-alert-icon">⚠️</div>
                 <div class="banned-alert-content">
-                    <h3 style="color: #e65100;">鎮ㄧ殑 Emby 璐﹀彿宸茶绂佺敤</h3>
-                    <p style="color: #bf360c;">鍘熷洜锛歿{ user.ban_reason }}銆傛偍浠嶅彲鐧诲綍闈㈡澘锛屼絾 Emby 鎾斁鍔熻兘鏆備笉鍙敤銆傚鏈夌枒闂紝璇疯仈绯荤鐞嗗憳銆?/p>
+                    <h3 style="color: #e65100;">您的 Emby 账号已被禁用</h3>
+                    <p style="color: #bf360c;">原因：{{ user.ban_reason }}。您仍可登录面板，但 Emby 播放功能暂不可用。如有疑问，请联系管理员。</p>
                 </div>
             </div>
             {% endif %}
             
-            <!-- 绯荤粺鍏憡鍖哄煙 - 缃《鏄剧ず -->
+            <!-- 系统公告区域 - 置顶显示 -->
             <div class="announcements-container announcements-top" id="announcementsContainer" style="display: none;">
                 <div class="announcements-header">
-                    <span class="announcements-title">馃摙 绯荤粺鍏憡</span>
+                    <span class="announcements-title">📢 系统公告</span>
                     <div class="announcements-controls">
-                        <button class="announcement-nav-btn" onclick="prevAnnouncement()" title="涓婁竴鏉?>
+                        <button class="announcement-nav-btn" onclick="prevAnnouncement()" title="上一条">
                             <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg>
                         </button>
                         <span class="announcement-indicator" id="announcementIndicator">1/1</span>
-                        <button class="announcement-nav-btn" onclick="nextAnnouncement()" title="涓嬩竴鏉?>
+                        <button class="announcement-nav-btn" onclick="nextAnnouncement()" title="下一条">
                             <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg>
                         </button>
                     </div>
-                    <button class="announcements-toggle" onclick="toggleAnnouncementsCollapse()" id="announcementsToggleBtn">鏀惰捣</button>
+                    <button class="announcements-toggle" onclick="toggleAnnouncementsCollapse()" id="announcementsToggleBtn">收起</button>
                 </div>
                 <div class="announcements-list" id="announcementsList">
-                    <!-- 鍏憡鍒楄〃灏嗛€氳繃JS鍔ㄦ€佸姞杞?-->
+                    <!-- 公告列表将通过JS动态加载 -->
                 </div>
             </div>
             
-            <!-- 蹇嵎鍏ュ彛鍗＄墖 -->
+            <!-- 快捷入口卡片 -->
             <div class="quick-actions-modern">
                 <a href="#docs" class="quick-action-item" onclick="switchSection('docs')">
                     <div class="action-icon-wrapper docs">
-                        <span>馃摉</span>
+                        <span>📖</span>
                     </div>
-                    <span class="action-title">浣跨敤鏂囨。</span>
+                    <span class="action-title">使用文档</span>
                 </a>
                 <a href="#faq" class="quick-action-item" onclick="switchSection('faq')">
                     <div class="action-icon-wrapper faq">
-                        <span>鉂?/span>
+                        <span>❓</span>
                     </div>
-                    <span class="action-title">甯歌闂</span>
+                    <span class="action-title">常见问题</span>
                 </a>
                 <a href="#support" class="quick-action-item" onclick="switchSection('support')" id="supportQuickAction">
                     <div class="action-icon-wrapper support">
-                        <span>馃挰</span>
+                        <span>💬</span>
                         <span class="unread-badge" id="supportUnreadBadge" style="display: none;"></span>
                     </div>
-                    <span class="action-title">鎶€鏈敮鎸?/span>
+                    <span class="action-title">技术支持</span>
                 </a>
                 <a href="#trending" class="quick-action-item" onclick="switchSection('trending')">
                     <div class="action-icon-wrapper trending">
-                        <span>馃敟</span>
+                        <span>🔥</span>
                     </div>
-                    <span class="action-title">鐑棬鎺ㄨ崘</span>
+                    <span class="action-title">热门推荐</span>
                 </a>
             </div>
             
-            <!-- 璁㈤槄涓庣嚎璺俊鎭紙鏁村悎锛?-->
+            <!-- 订阅与线路信息（整合） -->
             <div class="dashboard-subscription-lines">
                 <h2 class="section-title">
-                    <span>馃摗 璐﹀彿涓庣嚎璺?/span>
+                    <span>📡 账号与线路</span>
                     <div class="title-actions">
-                        <button class="refresh-btn" onclick="loadServerLines()" title="鍒锋柊">馃攧</button>
-                        <a href="#subscription" class="view-all-link" onclick="switchSection('subscription')">璁㈤槄璇︽儏 鈫?/a>
+                        <button class="refresh-btn" onclick="loadServerLines()" title="刷新">🔄</button>
+                        <a href="#subscription" class="view-all-link" onclick="switchSection('subscription')">订阅详情 →</a>
                     </div>
                 </h2>
                 <div class="subscription-lines-container">
-                    <!-- 宸︿晶锛氳闃呯姸鎬?-->
+                    <!-- 左侧：订阅状态 -->
                     <div class="subscription-status-mini">
                         {% if is_whitelist %}
                         <div class="status-badge-mini whitelist">
-                            <span class="badge-icon">馃憫</span>
+                            <span class="badge-icon">👑</span>
                             <div class="badge-info">
-                                <span class="badge-title">鐧藉悕鍗曠敤鎴?/span>
-                                <span class="badge-desc">姘镐箙鏈夋晥 路 鏃犻檺姹傜墖</span>
+                                <span class="badge-title">白名单用户</span>
+                                <span class="badge-desc">永久有效 · 无限求片</span>
                             </div>
                         </div>
                         {% elif user.ex and user.ex > now %}
                         <div class="status-badge-mini subscriber">
-                            <span class="badge-icon">鉁?/span>
+                            <span class="badge-icon">✨</span>
                             <div class="badge-info">
-                                <span class="badge-title">璁㈤槄鐢ㄦ埛</span>
-                                <span class="badge-desc">鏈夋晥鏈熻嚦 {{ user.ex.strftime('%Y-%m-%d') }}</span>
+                                <span class="badge-title">订阅用户</span>
+                                <span class="badge-desc">有效期至 {{ user.ex.strftime('%Y-%m-%d') }}</span>
                             </div>
                         </div>
                         {% else %}
                         <div class="status-badge-mini no-sub">
-                            <span class="badge-icon">馃摥</span>
+                            <span class="badge-icon">📭</span>
                             <div class="badge-info">
-                                <span class="badge-title">鏈闃?/span>
-                                <span class="badge-desc"><a href="#purchase" onclick="switchSection('purchase')">鐐瑰嚮璐拱濂楅</a></span>
+                                <span class="badge-title">未订阅</span>
+                                <span class="badge-desc"><a href="#purchase" onclick="switchSection('purchase')">点击购买套餐</a></span>
                             </div>
                         </div>
                         {% endif %}
                     </div>
-                    <!-- 涓棿锛氱嚎璺俊鎭?-->
+                    <!-- 中间：线路信息 -->
                     <div class="server-lines-compact" id="serverLinesContainer">
                         <div class="loading-placeholder">
                             <div class="spinner"></div>
-                            <p>鍔犺浇涓?..</p>
+                            <p>加载中...</p>
                         </div>
                     </div>
-                    <!-- 鍙充晶锛氱鍒板崱鐗?-->
+                    <!-- 右侧：签到卡片 -->
                     <div class="checkin-mini-card" id="checkinMiniCard" style="display: none;">
                         <div class="checkin-mini-content">
                             <div class="checkin-mini-header">
-                                <span class="checkin-mini-icon">馃幆</span>
-                                <span class="checkin-mini-title">姣忔棩绛惧埌</span>
+                                <span class="checkin-mini-icon">🎯</span>
+                                <span class="checkin-mini-title">每日签到</span>
                             </div>
                             <div class="checkin-mini-coins">
-                                <span class="coin-icon-mini">馃挵</span>
+                                <span class="coin-icon-mini">💰</span>
                                 <span class="coin-value-mini" id="userCoinsMini">0</span>
-                                <span class="coin-name-mini" id="coinNameMini">绉垎</span>
+                                <span class="coin-name-mini" id="coinNameMini">积分</span>
                             </div>
                             <button class="checkin-mini-btn" id="checkinMiniBtn" onclick="doCheckin()">
-                                <span class="btn-text">绛惧埌</span>
+                                <span class="btn-text">签到</span>
                             </button>
-                            <div class="checkin-mini-hint" id="checkinMiniHint">绛惧埌鑾峰緱濂栧姳</div>
+                            <div class="checkin-mini-hint" id="checkinMiniHint">签到获得奖励</div>
                         </div>
                     </div>
                 </div>
             </div>
             
             {% if invite_reward_enabled %}
-            <!-- 閭€璇峰ソ鍙?- 鏂拌璁?-->
+            <!-- 邀请好友 - 新设计 -->
             <div class="invite-banner-modern">
                 <div class="invite-bg-pattern"></div>
                 <div class="invite-content-wrapper">
-                    <div class="invite-icon-big">馃巵</div>
+                    <div class="invite-icon-big">🎁</div>
                     <div class="invite-info">
-                        <h3>閭€璇峰ソ鍙嬶紝鍏变韩杩斿埄</h3>
-                        <p>濂藉弸閫氳繃鎮ㄧ殑閭€璇烽摼鎺ヨ喘涔板椁愶紝鎮ㄥ皢鑾峰緱<strong>{{ invite_reward_percent }}%閲戦濂栧姳</strong></p>
+                        <h3>邀请好友，共享返利</h3>
+                        <p>好友通过您的邀请链接购买套餐，您将获得<strong>{{ invite_reward_percent }}%金额奖励</strong></p>
                     </div>
                     <button class="invite-action-btn" onclick="showInviteDialog()">
-                        <span>绔嬪嵆閭€璇?/span>
+                        <span>立即邀请</span>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M13 7l5 5m0 0l-5 5m5-5H6"/>
                         </svg>
@@ -335,65 +336,65 @@
             </div>
             {% endif %}
             
-            <!-- 绛惧埌鍏戞崲鍖哄煙锛堜粎褰撶鍒板惎鐢ㄦ椂鏄剧ず锛?-->
+            <!-- 签到兑换区域（仅当签到启用时显示） -->
             <div class="checkin-exchange-section" id="checkinExchangeSection" style="display: none;">
-                <!-- 鍏戞崲濂楅鍖哄煙 -->
+                <!-- 兑换套餐区域 -->
                 <div class="exchange-section">
-                    <h3 class="exchange-title">馃巵 绉垎鍏戞崲</h3>
+                    <h3 class="exchange-title">🎁 积分兑换</h3>
                     <div class="exchange-plans" id="exchangePlans">
-                        <!-- 鍔ㄦ€佺敓鎴愬椁愬垪琛?-->
+                        <!-- 动态生成套餐列表 -->
                     </div>
                 </div>
                 
-                <!-- 鍏戞崲璁板綍 -->
+                <!-- 兑换记录 -->
                 <div class="exchange-records">
                     <div class="records-header">
-                        <h3>鍏戞崲璁板綍</h3>
-                        <button class="view-all-btn" onclick="viewAllExchangeRecords()">鏌ョ湅鍏ㄩ儴</button>
+                        <h3>兑换记录</h3>
+                        <button class="view-all-btn" onclick="viewAllExchangeRecords()">查看全部</button>
                     </div>
                     <div class="records-list" id="exchangeRecordsList">
-                        <!-- 鍔ㄦ€佺敓鎴愯褰?-->
+                        <!-- 动态生成记录 -->
                     </div>
                 </div>
             </div>
         </section>
         
-        <!-- 鎼滅储姹傜墖椤甸潰 -->
+        <!-- 搜索求片页面 -->
         <section class="content-section" id="section-search">
             <div class="section-header">
-                <h1>馃攳 鎼滅储姹傜墖</h1>
-                <p>鍦∕oviePilot涓悳绱綘鎯宠鐨勭數褰辨垨鍓ч泦</p>
+                <h1>🔍 搜索求片</h1>
+                <p>在MoviePilot中搜索你想要的电影或剧集</p>
             </div>
             
-            <!-- 缁熻鍗＄墖 -->
+            <!-- 统计卡片 -->
             <div class="stats-cards">
                 <div class="stat-card">
-                    <div class="stat-icon">馃幀</div>
+                    <div class="stat-icon">🎬</div>
                     <div class="stat-content">
                         <div class="stat-value" id="todayCount">{{ today_count }}</div>
-                        <div class="stat-label">浠婃棩宸叉眰鐗?/div>
+                        <div class="stat-label">今日已求片</div>
                     </div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-icon">猸?/div>
+                    <div class="stat-icon">⭐</div>
                     <div class="stat-content">
                         <div class="stat-value" id="maxDaily">{{ max_daily }}</div>
-                        <div class="stat-label">姣忔棩闄愰</div>
+                        <div class="stat-label">每日限额</div>
                     </div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-icon">馃搳</div>
+                    <div class="stat-icon">📊</div>
                     <div class="stat-content">
                         <div class="stat-value" id="totalRequests">{{ total_requests }}</div>
-                        <div class="stat-label">鎬绘眰鐗囨鏁?/div>
+                        <div class="stat-label">总求片次数</div>
                     </div>
                 </div>
                 {% if library_counts and library_counts.total > 0 %}
                 <div class="stat-card">
-                    <div class="stat-icon">馃摝</div>
+                    <div class="stat-icon">📦</div>
                     <div class="stat-content">
                         <div class="stat-value">{{ library_counts.total }}</div>
-                        <div class="stat-label">濯掍綋搴撴€昏</div>
+                        <div class="stat-label">媒体库总计</div>
                     </div>
                 </div>
                 {% endif %}
@@ -401,89 +402,89 @@
             
             <div class="message" id="message"></div>
             <div class="search-box">
-                <input type="text" id="searchInput" placeholder="杈撳叆鐢靛奖鎴栧墽闆嗗悕绉?..">
-                <button onclick="searchMovies()">馃攳 鎼滅储</button>
+                <input type="text" id="searchInput" placeholder="输入电影或剧集名称...">
+                <button onclick="searchMovies()">🔍 搜索</button>
             </div>
             
             <div class="search-filters" id="searchFilters" style="display: none;">
                 <div class="filter-group">
-                    <label>骞翠唤:</label>
+                    <label>年份:</label>
                     <select id="filterYear" onchange="applyFilters()">
-                        <option value="">鍏ㄩ儴骞翠唤</option>
+                        <option value="">全部年份</option>
                     </select>
                 </div>
                 <div class="filter-group">
-                    <label>绫诲瀷:</label>
+                    <label>类型:</label>
                     <select id="filterType" onchange="applyFilters()">
-                        <option value="">鍏ㄩ儴绫诲瀷</option>
-                        <option value="movie">鐢靛奖</option>
-                        <option value="tv">鍓ч泦</option>
+                        <option value="">全部类型</option>
+                        <option value="movie">电影</option>
+                        <option value="tv">剧集</option>
                     </select>
                 </div>
-                <button class="filter-reset" onclick="resetFilters()">閲嶇疆</button>
+                <button class="filter-reset" onclick="resetFilters()">重置</button>
             </div>
             
             <div class="search-loading">
                 <div class="spinner"></div>
-                <p>鎼滅储涓?..</p>
+                <p>搜索中...</p>
             </div>
             <div class="search-results" id="searchResults"></div>
             <div class="pagination" id="searchPagination" style="justify-content: center; margin-top: 16px;"></div>
         </section>
         
-        <!-- 鐑棬鎺ㄨ崘椤甸潰 -->
+        <!-- 热门推荐页面 -->
         <section class="content-section" id="section-trending">
             <div class="section-header">
-                <h1>馃敟 鐑棬鎺ㄨ崘</h1>
-                <p>杩戝勾鐑害鏈€楂樼殑鐢靛奖鍜屽墽闆?/p>
+                <h1>🔥 热门推荐</h1>
+                <p>近年热度最高的电影和剧集</p>
             </div>
             
             <div class="trending-container">
                 <div class="trending-section">
                     <div class="trending-header">
-                        <h3>馃幀 杩戝勾鐑害鏈€楂樼數褰?/h3>
+                        <h3>🎬 近年热度最高电影</h3>
                         <div class="pagination" id="moviePagination"></div>
                     </div>
                     <div class="search-results" id="trendingMovies">
-                        <p style="text-align: center; padding: 20px 0; color: #999;">鍔犺浇涓?..</p>
+                        <p style="text-align: center; padding: 20px 0; color: #999;">加载中...</p>
                     </div>
                 </div>
                 
                 <div class="trending-section">
                     <div class="trending-header">
-                        <h3>馃摵 杩戝勾鐑害鏈€楂樺墽闆?/h3>
+                        <h3>📺 近年热度最高剧集</h3>
                         <div class="pagination" id="tvPagination"></div>
                     </div>
                     <div class="search-results" id="trendingTV">
-                        <p style="text-align: center; padding: 20px 0; color: #999;">鍔犺浇涓?..</p>
+                        <p style="text-align: center; padding: 20px 0; color: #999;">加载中...</p>
                     </div>
                 </div>
             </div>
         </section>
         
-        <!-- 姹傜墖绠＄悊椤甸潰 -->
+        <!-- 求片管理页面 -->
         <section class="content-section" id="section-requests">
             <div class="section-header">
-                <h1>馃搵 姹傜墖绠＄悊</h1>
-                <p>鏌ョ湅鍜岀鐞嗕綘鐨勬墍鏈夋眰鐗囪褰?/p>
+                <h1>📋 求片管理</h1>
+                <p>查看和管理你的所有求片记录</p>
             </div>
             
             <div class="request-stats">
                 <div class="request-stat-item">
                     <span class="status-dot pending"></span>
-                    <span>寰呭鐞?/span>
+                    <span>待处理</span>
                 </div>
                 <div class="request-stat-item">
                     <span class="status-dot downloading"></span>
-                    <span>涓嬭浇涓?/span>
+                    <span>下载中</span>
                 </div>
                 <div class="request-stat-item">
                     <span class="status-dot completed"></span>
-                    <span>宸插畬鎴?/span>
+                    <span>已完成</span>
                 </div>
                 <div class="request-stat-item">
                     <span class="status-dot failed"></span>
-                    <span>澶辫触</span>
+                    <span>失败</span>
                 </div>
             </div>
             
@@ -501,45 +502,52 @@
                                 <div class="details">
                                     <h3>{{ req.title }} ({{ req.year }}) 
                                         <span style="font-size: 12px; background: #3b82f6; color: white; padding: 2px 8px; border-radius: 3px; margin-left: 8px;">
-                                            {% if req.media_type == 'movie' %}&#x1F3AC; 鐢靛奖{% else %}&#x1F4FA; 鍓ч泦{% endif %}
+                                            {% if req.media_type == 'movie' %}&#x1F3AC; 电影{% else %}&#x1F4FA; 剧集{% endif %}
                                         </span>
                                         {% if req.media_type == 'tv' and req.get_request_scope() %}
                                         <span style="font-size: 12px; background: #10b981; color: white; padding: 2px 8px; border-radius: 3px; margin-left: 4px;">
-                                            馃搼 {{ req.get_request_scope() }}
+                                            📑 {{ req.get_request_scope() }}
                                         </span>
                                         {% endif %}
                                     </h3>
                                     <p>{{ req.overview[:100] }}...</p>
                                     <span class="status {{ req.status }}">
-                                        {% if req.status == 'pending' %}寰呭鐞?                                        {% elif req.status == 'approved' %}宸叉壒鍑?                                        {% elif req.status == 'processing' %}宸叉壒鍑?                                        {% elif req.status == 'completed' %}宸插畬鎴?                                        {% elif req.status == 'rejected' %}宸叉嫆缁?                                        {% elif req.status == 'downloading' %}涓嬭浇涓?                                        {% elif req.status == 'downloaded' %}寰呭叆搴?                                        {% elif req.status == 'failed' %}涓嬭浇澶辫触
+                                        {% if req.status == 'pending' %}待处理
+                                        {% elif req.status == 'approved' %}已批准
+                                        {% elif req.status == 'processing' %}已批准
+                                        {% elif req.status == 'completed' %}已完成
+                                        {% elif req.status == 'rejected' %}已拒绝
+                                        {% elif req.status == 'downloading' %}下载中
+                                        {% elif req.status == 'downloaded' %}待入库
+                                        {% elif req.status == 'failed' %}下载失败
                                         {% endif %}
                                     </span>
                                     
                                     {% if req.status == 'downloading' and req.download_task %}
                                     {% if req.download_task.progress and req.download_task.progress >= 100 %}
-                                    <!-- 涓嬭浇瀹屾垚锛屽緟鍏ュ簱 -->
+                                    <!-- 下载完成，待入库 -->
                                     <div class="download-status-card pending-release">
                                         <div class="card-header">
-                                            <span class="icon">馃摝</span>
-                                            <span class="title">涓嬭浇瀹屾垚</span>
-                                            <span class="badge">寰呭叆搴?/span>
+                                            <span class="icon">📦</span>
+                                            <span class="title">下载完成</span>
+                                            <span class="badge">待入库</span>
                                         </div>
                                         <div class="download-progress completed" data-request-id="{{ req.id }}">
                                             <div class="progress-track">
                                                 <div class="progress-fill" style="width: 100%;"></div>
                                             </div>
                                             <div class="progress-meta">
-                                                <span class="progress-value" style="color: #f59e0b;">鉁?宸蹭笅杞藉畬鎴?/span>
+                                                <span class="progress-value" style="color: #f59e0b;">✅ 已下载完成</span>
                                             </div>
                                         </div>
                                     </div>
                                     {% else %}
-                                    <!-- 涓嬭浇涓姸鎬佸崱鐗?-->
+                                    <!-- 下载中状态卡片 -->
                                     <div class="download-status-card downloading" data-request-id="{{ req.id }}">
                                         <div class="card-header">
-                                            <span class="icon">猬囷笍</span>
-                                            <span class="title">姝ｅ湪涓嬭浇</span>
-                                            <span class="badge">杩涜涓?/span>
+                                            <span class="icon">⬇️</span>
+                                            <span class="title">正在下载</span>
+                                            <span class="badge">进行中</span>
                                         </div>
                                         <div class="download-progress" data-request-id="{{ req.id }}" data-progress="{{ req.download_task.progress or 0 }}" data-speed="{{ req.download_task.download_speed or 0 }}" data-eta="{{ req.download_task.eta if req.download_task.eta is not none else -1 }}">
                                             <div class="progress-track">
@@ -554,63 +562,63 @@
                                     </div>
                                     {% endif %}
                                     {% elif req.status == 'downloaded' %}
-                                    <!-- 寰呭叆搴撶姸鎬佸崱鐗?-->
+                                    <!-- 待入库状态卡片 -->
                                     <div class="download-status-card pending-release">
                                         <div class="card-header">
-                                            <span class="icon">馃摝</span>
-                                            <span class="title">涓嬭浇瀹屾垚</span>
-                                            <span class="badge">寰呭叆搴?/span>
+                                            <span class="icon">📦</span>
+                                            <span class="title">下载完成</span>
+                                            <span class="badge">待入库</span>
                                         </div>
                                         <div class="pending-message">
                                             <div class="spinner"></div>
-                                            <span>璧勬簮宸蹭笅杞藉畬鎴愶紝绛夊緟鍏ュ簱鍒板獟浣撳簱...</span>
+                                            <span>资源已下载完成，等待入库到媒体库...</span>
                                         </div>
                                     </div>
                                     {% elif req.status == 'completed' %}
-                                    <!-- 宸插畬鎴愮姸鎬佸崱鐗?-->
+                                    <!-- 已完成状态卡片 -->
                                     <div class="download-status-card completed">
                                         <div class="card-header">
-                                            <span class="icon">鉁?/span>
-                                            <span class="title">宸插叆搴?/span>
-                                            <span class="badge">瀹屾垚</span>
+                                            <span class="icon">✅</span>
+                                            <span class="title">已入库</span>
+                                            <span class="badge">完成</span>
                                         </div>
                                         <div class="complete-message">
-                                            <span>馃帀 璧勬簮宸叉垚鍔熶笂鏋讹紝鍙墠寰€濯掍綋搴撹鐪嬶紒</span>
+                                            <span>🎉 资源已成功上架，可前往媒体库观看！</span>
                                         </div>
                                     </div>
                                     {% elif req.status == 'failed' and req.download_task %}
-                                    <!-- 涓嬭浇澶辫触鐘舵€佸崱鐗?-->
+                                    <!-- 下载失败状态卡片 -->
                                     <div class="download-status-card failed" data-request-id="{{ req.id }}">
                                         <div class="card-header">
-                                            <span class="icon">鉂?/span>
-                                            <span class="title">涓嬭浇澶辫触</span>
-                                            <span class="badge failed-badge">澶辫触</span>
+                                            <span class="icon">❌</span>
+                                            <span class="title">下载失败</span>
+                                            <span class="badge failed-badge">失败</span>
                                         </div>
                                         <div class="failed-message">
                                             <p class="error-text">{{ req.download_task.error_message or '下载过程中出现错误' }}</p>
                                             {% if req.download_task.retry_count < req.download_task.max_retries %}
                                             <button class="retry-btn" onclick="retryDownload({{ req.id }}, this)">
-                                                <span class="retry-icon">馃攧</span>
-                                                閲嶈瘯涓嬭浇 ({{ req.download_task.retry_count }}/{{ req.download_task.max_retries }})
+                                                <span class="retry-icon">🔄</span>
+                                                重试下载 ({{ req.download_task.retry_count }}/{{ req.download_task.max_retries }})
                                             </button>
                                             {% else %}
-                                            <p class="retry-exhausted">宸茶揪鍒版渶澶ч噸璇曟鏁?({{ req.download_task.max_retries }}娆?</p>
+                                            <p class="retry-exhausted">已达到最大重试次数 ({{ req.download_task.max_retries }}次)</p>
                                             {% endif %}
                                         </div>
                                     </div>
                                     {% endif %}
                                     
                                     <p style="margin-top: 10px; font-size: 12px; color: #999;">
-                                        姹傜墖鏃堕棿: {{ req.created_at.strftime('%Y-%m-%d %H:%M') }}
+                                        求片时间: {{ req.created_at.strftime('%Y-%m-%d %H:%M') }}
                                     </p>
                                     {% if req.user_note %}
                                     <p style="margin-top: 5px; font-size: 12px; color: #3b82f6;">
-                                        馃挰 鎴戠殑澶囨敞: {{ req.user_note }}
+                                        💬 我的备注: {{ req.user_note }}
                                     </p>
                                     {% endif %}
                                     {% if req.admin_note %}
                                     <p style="margin-top: 5px; font-size: 12px; color: #e74c3c;">
-                                        馃摑 绠＄悊鍛樺娉? {{ req.admin_note }}
+                                        📝 管理员备注: {{ req.admin_note }}
                                     </p>
                                     {% endif %}
                                 </div>
@@ -618,23 +626,23 @@
                             {% endfor %}
                         {% else %}
                             <div class="empty-state">
-                                <div class="empty-icon">馃摥</div>
-                                <div class="empty-title">鏆傛棤姹傜墖璁板綍</div>
-                                <div class="empty-desc">鍦ㄤ笂鏂规悳绱㈡涓悳绱㈡兂鐪嬬殑褰辩墖锛岀偣鍑诲嵆鍙彁浜ゆ眰鐗囪姹?/div>
+                                <div class="empty-icon">📭</div>
+                                <div class="empty-title">暂无求片记录</div>
+                                <div class="empty-desc">在上方搜索框中搜索想看的影片，点击即可提交求片请求</div>
                             </div>
                         {% endif %}
                     </div>
                 </div>
         </section>
         
-        <!-- 鎾斁鐩戞帶椤甸潰 -->
+        <!-- 播放监控页面 -->
         <section class="content-section" id="section-playback">
             <div class="section-header">
-                <h1>馃摵 鎾斁鐩戞帶</h1>
-                <p>鏌ョ湅鎮ㄧ殑璁惧銆佹挱鏀剧姸鎬佸拰瑙傜湅鍘嗗彶</p>
+                <h1>📺 播放监控</h1>
+                <p>查看您的设备、播放状态和观看历史</p>
             </div>
             
-            <!-- 鎾斁缁熻鍗＄墖 -->
+            <!-- 播放统计卡片 -->
             <div class="playback-stats-grid">
                 <div class="playback-stat-card stat-playing">
                     <div class="stat-icon">
@@ -642,7 +650,7 @@
                     </div>
                     <div class="stat-content">
                         <div class="stat-value" id="playingCount">-</div>
-                        <div class="stat-label">鎾斁涓?/div>
+                        <div class="stat-label">播放中</div>
                     </div>
                 </div>
                 <div class="playback-stat-card stat-online" style="display: none;">
@@ -651,7 +659,7 @@
                     </div>
                     <div class="stat-content">
                         <div class="stat-value" id="onlineDeviceCount">-</div>
-                        <div class="stat-label">鍦ㄧ嚎璁惧</div>
+                        <div class="stat-label">在线设备</div>
                     </div>
                 </div>
                 <div class="playback-stat-card stat-history">
@@ -660,136 +668,136 @@
                     </div>
                     <div class="stat-content">
                         <div class="stat-value" id="historyCount">-</div>
-                        <div class="stat-label">瑙傜湅璁板綍</div>
+                        <div class="stat-label">观看记录</div>
                     </div>
                 </div>
             </div>
             
-            <!-- 姝ｅ湪鎾斁 -->
+            <!-- 正在播放 -->
             <div class="playback-section">
                 <div class="section-title-bar">
-                    <h3>鈻讹笍 姝ｅ湪鎾斁</h3>
+                    <h3>▶️ 正在播放</h3>
                     <button class="refresh-btn" onclick="refreshPlaybackData()">
                         <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/></svg>
-                        鍒锋柊
+                        刷新
                     </button>
                 </div>
                 <div id="devicesContainer">
                     <div class="loading-placeholder">
                         <div class="loading-spinner"></div>
-                        <span>鍔犺浇涓?..</span>
+                        <span>加载中...</span>
                     </div>
                 </div>
             </div>
             
-            <!-- 鎴戠殑璁惧 -->
+            <!-- 我的设备 -->
             <div class="playback-section">
                 <div class="section-title-bar">
-                    <h3>馃摫 鎴戠殑璁惧</h3>
-                    <span class="device-count-badge" id="myDeviceCount">0 涓澶?/span>
+                    <h3>📱 我的设备</h3>
+                    <span class="device-count-badge" id="myDeviceCount">0 个设备</span>
                 </div>
                 <div id="myDevicesContainer">
                     <div class="loading-placeholder">
                         <div class="loading-spinner"></div>
-                        <span>鍔犺浇涓?..</span>
+                        <span>加载中...</span>
                     </div>
                 </div>
             </div>
             
-            <!-- 鎾斁鍘嗗彶 -->
+            <!-- 播放历史 -->
             <div class="playback-section">
                 <div class="section-title-bar">
-                    <h3>馃摐 鏈€杩戣鐪?/h3>
+                    <h3>📜 最近观看</h3>
                     <select class="history-limit-select" id="historyLimitSelect" onchange="changeHistoryLimit()">
-                        <option value="10">鏈€杩?10 鏉?/option>
-                        <option value="20" selected>鏈€杩?20 鏉?/option>
-                        <option value="50">鏈€杩?50 鏉?/option>
+                        <option value="10">最近 10 条</option>
+                        <option value="20" selected>最近 20 条</option>
+                        <option value="50">最近 50 条</option>
                     </select>
                 </div>
                 <div id="historyContainer">
                     <div class="loading-placeholder">
                         <div class="loading-spinner"></div>
-                        <span>鍔犺浇涓?..</span>
+                        <span>加载中...</span>
                     </div>
                 </div>
             </div>
         </section>
         
-        <!-- 鎴戠殑淇℃伅椤甸潰 -->
+        <!-- 我的信息页面 -->
         <section class="content-section" id="section-profile">
             <div class="section-header">
-                <h1>馃懁 鎴戠殑淇℃伅</h1>
-                <p>鏌ョ湅浣犵殑璐︽埛淇℃伅鍜岀粺璁℃暟鎹?/p>
+                <h1>👤 我的信息</h1>
+                <p>查看你的账户信息和统计数据</p>
             </div>
             
-            <!-- 鏂拌璁＄殑涓汉淇℃伅椤甸潰 -->
+            <!-- 新设计的个人信息页面 -->
             <div class="profile-page-v2">
-                <!-- 椤堕儴鐢ㄦ埛鍗＄墖 -->
+                <!-- 顶部用户卡片 -->
                 <div class="user-profile-card">
                     <div class="user-profile-header">
                         <div class="user-avatar-lg">{{ (user.name or 'U')[0].upper() }}</div>
                         <div class="user-profile-info">
-                            <h2 class="user-display-name">{{ user.name or '鐢ㄦ埛' }}</h2>
+                            <h2 class="user-display-name">{{ user.name or '用户' }}</h2>
                             <div class="user-badges">
                                 <span class="user-badge {% if user.lv == 'c' %}badge-banned{% elif is_whitelist %}badge-vip{% elif user.ex and user.ex > now %}badge-sub{% else %}badge-normal{% endif %}">
-                                    {% if user.lv == 'c' %}已封禁{% elif is_whitelist %}白名单用户{% elif user.ex and user.ex > now %}订阅用户{% else %}普通用户{% endif %}
+                                    {% if user.lv == 'c' %}🚫 已封禁{% elif is_whitelist %}👑 白名单{% elif user.ex and user.ex > now %}⭐ 订阅中{% else %}普通用户{% endif %}
                                 </span>
                                 {% if user.embyid %}
-                                <span class="user-badge badge-emby">鉁?Emby 宸茬粦瀹?/span>
+                                <span class="user-badge badge-emby">✓ Emby 已绑定</span>
                                 {% else %}
-                                <span class="user-badge badge-warning">鈿?鏈粦瀹欵mby</span>
+                                <span class="user-badge badge-warning">⚠ 未绑定Emby</span>
                                 {% endif %}
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <!-- 鏁版嵁缁熻鍖哄煙 -->
+                <!-- 数据统计区域 -->
                 <div class="stats-section-v2">
-                    <h3 class="section-title-v2"><span class="title-icon">馃搳</span> 鏁版嵁缁熻</h3>
+                    <h3 class="section-title-v2"><span class="title-icon">📊</span> 数据统计</h3>
                     <div class="stats-row">
                         <div class="stat-item-v2">
-                            <div class="stat-icon-v2 icon-today">馃幀</div>
+                            <div class="stat-icon-v2 icon-today">🎬</div>
                             <div class="stat-info-v2">
                                 <span class="stat-num">{{ today_count }}</span>
-                                <span class="stat-text">浠婃棩姹傜墖</span>
+                                <span class="stat-text">今日求片</span>
                             </div>
                         </div>
                         <div class="stat-item-v2">
-                            <div class="stat-icon-v2 icon-total">馃搱</div>
+                            <div class="stat-icon-v2 icon-total">📈</div>
                             <div class="stat-info-v2">
                                 <span class="stat-num">{{ total_requests }}</span>
-                                <span class="stat-text">鎬绘眰鐗囨暟</span>
+                                <span class="stat-text">总求片数</span>
                             </div>
                         </div>
                         <div class="stat-item-v2">
-                            <div class="stat-icon-v2 icon-daily">馃搮</div>
+                            <div class="stat-icon-v2 icon-daily">📅</div>
                             <div class="stat-info-v2">
                                 <span class="stat-num">{{ max_daily }}</span>
-                                <span class="stat-text">姣忔棩闄愰</span>
+                                <span class="stat-text">每日限额</span>
                             </div>
                         </div>
                     </div>
                     {% if library_counts and library_counts.total > 0 %}
                     <div class="library-stats-card">
                         <div class="library-stats-header">
-                            <span class="library-icon">锟?/span>
-                            <span class="library-title">濯掍綋搴撶粺璁?/span>
-                            <span class="library-total">鍏?{{ "{:,}".format(library_counts.total) }} 椤?/span>
+                            <span class="library-icon">�</span>
+                            <span class="library-title">媒体库统计</span>
+                            <span class="library-total">共 {{ "{:,}".format(library_counts.total) }} 项</span>
                         </div>
                         <div class="library-stats-grid">
                             <div class="library-stat-item">
-                                <div class="library-stat-icon">馃帴</div>
+                                <div class="library-stat-icon">🎥</div>
                                 <div class="library-stat-data">
                                     <span class="library-stat-value">{{ "{:,}".format(library_counts.movies) }}</span>
-                                    <span class="library-stat-label">鐢靛奖</span>
+                                    <span class="library-stat-label">电影</span>
                                 </div>
                             </div>
                             <div class="library-stat-item">
-                                <div class="library-stat-icon">馃摵</div>
+                                <div class="library-stat-icon">📺</div>
                                 <div class="library-stat-data">
                                     <span class="library-stat-value">{{ "{:,}".format(library_counts.series) }}</span>
-                                    <span class="library-stat-label">鍓ч泦</span>
+                                    <span class="library-stat-label">剧集</span>
                                 </div>
                             </div>
                         </div>
@@ -797,24 +805,24 @@
                     {% endif %}
                 </div>
                 
-                <!-- 鍔熻兘鍗＄墖鍖哄煙 -->
+                <!-- 功能卡片区域 -->
                 <div class="feature-cards-v2">
-                    <!-- Emby 璐﹀彿绠＄悊 -->
+                    <!-- Emby 账号管理 -->
                     <div class="feature-card-v2">
                         <div class="feature-card-header-v2">
-                            <span class="feature-icon-v2">馃幀</span>
-                            <span class="feature-title-v2">Emby 璐﹀彿</span>
+                            <span class="feature-icon-v2">🎬</span>
+                            <span class="feature-title-v2">Emby 账号</span>
                             {% if user.embyid %}
-                            <span class="feature-badge success">宸茬粦瀹?/span>
+                            <span class="feature-badge success">已绑定</span>
                             {% else %}
-                            <span class="feature-badge warning">鏈粦瀹?/span>
+                            <span class="feature-badge warning">未绑定</span>
                             {% endif %}
                         </div>
                         <div class="feature-card-content-v2">
                             {% if user.embyid %}
                             <div class="emby-info-list">
                                 <div class="emby-info-row">
-                                    <span class="info-key">鐢ㄦ埛鍚?/span>
+                                    <span class="info-key">用户名</span>
                                     <span class="info-val">{{ user.emby_name or user.name }}</span>
                                 </div>
                                 <div class="emby-info-row">
@@ -822,146 +830,147 @@
                                     <span class="info-val mono">{{ user.embyid[:16] }}...</span>
                                 </div>
                             </div>
-                            <p class="emby-bindtip">馃挕 濡傞渶鏇存崲Emby璐﹀彿锛岃鑱旂郴绠＄悊鍛樺垹闄ゅ綋鍓嶈处鍙峰悗閲嶆柊缁戝畾</p>
+                            <p class="emby-bindtip">💡 如需更换Emby账号，请联系管理员删除当前账号后重新绑定</p>
                             {% else %}
-                            <p class="feature-desc-v2">缁戝畾宸叉湁Emby璐﹀彿鎴栧垱寤烘柊璐﹀彿</p>
+                            <p class="feature-desc-v2">绑定已有Emby账号或创建新账号</p>
                             <div class="btn-group-v2">
-                                <button class="btn-v2 btn-primary-v2" onclick="showEmbyBindDialog()">馃敆 缁戝畾宸叉湁璐﹀彿</button>
+                                <button class="btn-v2 btn-primary-v2" onclick="showEmbyBindDialog()">🔗 绑定已有账号</button>
                                 {% if is_whitelist or (user.ex and user.ex > now) %}
-                                <button class="btn-v2 btn-secondary-v2" onclick="showEmbyCreateDialog()">鉃?鍒涘缓鏂拌处鍙?/button>
+                                <button class="btn-v2 btn-secondary-v2" onclick="showEmbyCreateDialog()">➕ 创建新账号</button>
                                 {% else %}
-                                <button class="btn-v2 btn-secondary-v2 btn-disabled" onclick="showToast('鎮ㄦ病鏈夋湁鏁堣闃咃紝鏃犳硶鍒涘缓鏂拌处鍙?, 'error')" title="闇€瑕佹湁鏁堣闃?>鉃?鍒涘缓鏂拌处鍙?/button>
+                                <button class="btn-v2 btn-secondary-v2 btn-disabled" onclick="showToast('您没有有效订阅，无法创建新账号', 'error')" title="需要有效订阅">➕ 创建新账号</button>
                                 {% endif %}
                             </div>
                             {% if not (is_whitelist or (user.ex and user.ex > now)) %}
-                            <p class="subscription-sub-tip" style="margin-top: 12px; font-size: 12px; color: #f59e0b;">馃挕 璐拱璁㈤槄鍚庡彲鍒涘缓鏂癊mby璐﹀彿</p>
+                            <p class="subscription-sub-tip" style="margin-top: 12px; font-size: 12px; color: #f59e0b;">💡 购买订阅后可创建新Emby账号</p>
                             {% endif %}
                             {% endif %}
                         </div>
                     </div>
                     
-                    <!-- 淇敼缃戠珯鐧诲綍瀵嗙爜 -->
+                    <!-- 修改网站登录密码 -->
                     <div class="feature-card-v2">
                         <div class="feature-card-header-v2">
-                            <span class="feature-icon-v2">馃攼</span>
-                            <span class="feature-title-v2">淇敼缃戠珯瀵嗙爜</span>
+                            <span class="feature-icon-v2">🔐</span>
+                            <span class="feature-title-v2">修改网站密码</span>
                         </div>
                         <div class="feature-card-content-v2">
                             <div class="password-notice-v2">
-                                <span>馃挕</span> 鐢ㄤ簬鐧诲綍鏈綉绔欑殑瀵嗙爜
+                                <span>💡</span> 用于登录本网站的密码
                             </div>
                             <form id="changePasswordForm" onsubmit="return changePassword(event)">
                                 <div class="form-field-v2">
-                                    <label>褰撳墠瀵嗙爜</label>
+                                    <label>当前密码</label>
                                     <div class="input-group-v2">
-                                        <input type="password" id="currentPassword" name="currentPassword" placeholder="璇疯緭鍏ュ綋鍓嶅瘑鐮? required>
-                                        <button type="button" class="toggle-pwd-v2" onclick="togglePasswordVisibilityField('currentPassword', this)">馃憗锔?/button>
+                                        <input type="password" id="currentPassword" name="currentPassword" placeholder="请输入当前密码" required>
+                                        <button type="button" class="toggle-pwd-v2" onclick="togglePasswordVisibilityField('currentPassword', this)">👁️</button>
                                     </div>
                                 </div>
                                 <div class="form-field-v2">
-                                    <label>鏂板瘑鐮?/label>
+                                    <label>新密码</label>
                                     <div class="input-group-v2">
-                                        <input type="password" id="newPassword" name="newPassword" placeholder="璇疯緭鍏ユ柊瀵嗙爜锛堣嚦灏?浣嶏級" required minlength="6">
-                                        <button type="button" class="toggle-pwd-v2" onclick="togglePasswordVisibilityField('newPassword', this)">馃憗锔?/button>
+                                        <input type="password" id="newPassword" name="newPassword" placeholder="请输入新密码（至少6位）" required minlength="6">
+                                        <button type="button" class="toggle-pwd-v2" onclick="togglePasswordVisibilityField('newPassword', this)">👁️</button>
                                     </div>
                                 </div>
                                 <div class="form-field-v2">
-                                    <label>纭瀵嗙爜</label>
+                                    <label>确认密码</label>
                                     <div class="input-group-v2">
-                                        <input type="password" id="confirmPassword" name="confirmPassword" placeholder="鍐嶆杈撳叆鏂板瘑鐮? required minlength="6">
-                                        <button type="button" class="toggle-pwd-v2" onclick="togglePasswordVisibilityField('confirmPassword', this)">馃憗锔?/button>
+                                        <input type="password" id="confirmPassword" name="confirmPassword" placeholder="再次输入新密码" required minlength="6">
+                                        <button type="button" class="toggle-pwd-v2" onclick="togglePasswordVisibilityField('confirmPassword', this)">👁️</button>
                                     </div>
                                 </div>
                                 <button type="submit" class="btn-v2 btn-primary-v2 btn-full" id="changePasswordBtn">
-                                    <span class="btn-text">纭淇敼</span>
-                                    <span class="btn-loading" style="display: none;">淇敼涓?..</span>
+                                    <span class="btn-text">确认修改</span>
+                                    <span class="btn-loading" style="display: none;">修改中...</span>
                                 </button>
                             </form>
                         </div>
                     </div>
                     
-                    <!-- 閭缁戝畾 -->
+                    <!-- 邮箱绑定 -->
                     {% if email_enabled %}
                     <div class="feature-card-v2">
                         <div class="feature-card-header-v2">
-                            <span class="feature-icon-v2">馃摟</span>
-                            <span class="feature-title-v2">缁戝畾閭</span>
+                            <span class="feature-icon-v2">📧</span>
+                            <span class="feature-title-v2">绑定邮箱</span>
                             {% if user.email %}
-                            <span class="feature-badge success">宸茬粦瀹?/span>
+                            <span class="feature-badge success">已绑定</span>
                             {% else %}
-                            <span class="feature-badge warning">鏈粦瀹?/span>
+                            <span class="feature-badge warning">未绑定</span>
                             {% endif %}
                         </div>
                         <div class="feature-card-content-v2">
                             {% if user.email %}
                             <div class="emby-info-list">
                                 <div class="emby-info-row">
-                                    <span class="info-key">閭</span>
+                                    <span class="info-key">邮箱</span>
                                     <span class="info-val">{{ user.email }}</span>
                                 </div>
                             </div>
-                            <p class="emby-bindtip">馃挕 閭鍙敤浜庢壘鍥炲瘑鐮併€佹帴鏀剁郴缁熼€氱煡</p>
-                            <button class="btn-v2 btn-secondary-v2 btn-full" onclick="unbindEmail()" style="margin-top:10px;">瑙ｇ粦閭</button>
+                            <p class="emby-bindtip">💡 邮箱可用于找回密码、接收系统通知</p>
+                            <button class="btn-v2 btn-secondary-v2 btn-full" onclick="unbindEmail()" style="margin-top:10px;">解绑邮箱</button>
                             {% else %}
                             <div class="password-notice-v2">
-                                <span>馃挕</span> 缁戝畾閭鍚庡彲閫氳繃閭鎵惧洖瀵嗙爜
+                                <span>💡</span> 绑定邮箱后可通过邮箱找回密码
                             </div>
                             <div class="form-field-v2">
-                                <label>閭鍦板潃</label>
+                                <label>邮箱地址</label>
                                 <div class="input-group-v2">
-                                    <input type="email" id="bindEmailAddr" placeholder="璇疯緭鍏ラ偖绠卞湴鍧€">
+                                    <input type="email" id="bindEmailAddr" placeholder="请输入邮箱地址">
                                 </div>
                             </div>
                             <div class="form-field-v2" id="emailCodeGroup" style="display:none;">
-                                <label>楠岃瘉鐮?/label>
+                                <label>验证码</label>
                                 <div class="input-group-v2" style="display:flex;gap:8px;">
-                                    <input type="text" id="bindEmailCode" placeholder="杈撳叆楠岃瘉鐮? maxlength="6" style="flex:1;">
-                                    <button type="button" class="btn-v2 btn-secondary-v2" id="confirmBindEmailBtn" onclick="confirmBindEmail()" style="white-space:nowrap;">纭缁戝畾</button>
+                                    <input type="text" id="bindEmailCode" placeholder="输入验证码" maxlength="6" style="flex:1;">
+                                    <button type="button" class="btn-v2 btn-secondary-v2" id="confirmBindEmailBtn" onclick="confirmBindEmail()" style="white-space:nowrap;">确认绑定</button>
                                 </div>
                             </div>
                             <button class="btn-v2 btn-primary-v2 btn-full" id="sendEmailCodeBtn" onclick="sendEmailBindCode()" style="margin-top:10px;">
-                                <span class="btn-text">鍙戦€侀獙璇佺爜</span>
+                                <span class="btn-text">发送验证码</span>
                             </button>
                             {% endif %}
                         </div>
                     </div>
                     {% endif %}
                     
-                    <!-- 淇敼 Emby 瀵嗙爜 -->
+                    <!-- 修改 Emby 密码 -->
                     {% if user.embyid %}
                     <div class="feature-card-v2">
                         <div class="feature-card-header-v2">
-                            <span class="feature-icon-v2">馃幀</span>
-                            <span class="feature-title-v2">淇敼 Emby 瀵嗙爜</span>
+                            <span class="feature-icon-v2">🎬</span>
+                            <span class="feature-title-v2">修改 Emby 密码</span>
                         </div>
                         <div class="feature-card-content-v2">
                             <div class="password-notice-v2">
-                                <span>馃挕</span> 鐢ㄤ簬鐧诲綍 Emby 瀹㈡埛绔殑瀵嗙爜锛堜笌缃戠珯瀵嗙爜鐙珛锛?                            </div>
+                                <span>💡</span> 用于登录 Emby 客户端的密码（与网站密码独立）
+                            </div>
                             <form id="changeEmbyPasswordForm" onsubmit="return changeEmbyPassword(event)">
                                 <div class="form-field-v2">
-                                    <label>褰撳墠 Emby 瀵嗙爜</label>
+                                    <label>当前 Emby 密码</label>
                                     <div class="input-group-v2">
-                                        <input type="password" id="currentEmbyPassword" name="currentEmbyPassword" placeholder="璇疯緭鍏ュ綋鍓?Emby 瀵嗙爜（濡傛灉涓虹┖鍙笉濉?">
-                                        <button type="button" class="toggle-pwd-v2" onclick="togglePasswordVisibilityField('currentEmbyPassword', this)">馃憗锔?/button>
+                                        <input type="password" id="currentEmbyPassword" name="currentEmbyPassword" placeholder="请输入当前 Emby 密码（若为空可不填）">
+                                        <button type="button" class="toggle-pwd-v2" onclick="togglePasswordVisibilityField('currentEmbyPassword', this)">👁️</button>
                                     </div>
                                 </div>
                                 <div class="form-field-v2">
-                                    <label>鏂?Emby 瀵嗙爜</label>
+                                    <label>新 Emby 密码</label>
                                     <div class="input-group-v2">
-                                        <input type="password" id="newEmbyPassword" name="newEmbyPassword" placeholder="璇疯緭鍏ユ柊瀵嗙爜锛堣嚦灏?浣嶏級" required minlength="6">
-                                        <button type="button" class="toggle-pwd-v2" onclick="togglePasswordVisibilityField('newEmbyPassword', this)">馃憗锔?/button>
+                                        <input type="password" id="newEmbyPassword" name="newEmbyPassword" placeholder="请输入新密码（至少6位）" required minlength="6">
+                                        <button type="button" class="toggle-pwd-v2" onclick="togglePasswordVisibilityField('newEmbyPassword', this)">👁️</button>
                                     </div>
                                 </div>
                                 <div class="form-field-v2">
-                                    <label>纭鏂板瘑鐮?/label>
+                                    <label>确认新密码</label>
                                     <div class="input-group-v2">
-                                        <input type="password" id="confirmEmbyPassword" name="confirmEmbyPassword" placeholder="鍐嶆杈撳叆鏂板瘑鐮? required minlength="6">
-                                        <button type="button" class="toggle-pwd-v2" onclick="togglePasswordVisibilityField('confirmEmbyPassword', this)">馃憗锔?/button>
+                                        <input type="password" id="confirmEmbyPassword" name="confirmEmbyPassword" placeholder="再次输入新密码" required minlength="6">
+                                        <button type="button" class="toggle-pwd-v2" onclick="togglePasswordVisibilityField('confirmEmbyPassword', this)">👁️</button>
                                     </div>
                                 </div>
                                 <button type="submit" class="btn-v2 btn-primary-v2 btn-full" id="changeEmbyPasswordBtn">
-                                    <span class="btn-text">纭淇敼</span>
-                                    <span class="btn-loading" style="display: none;">淇敼涓?..</span>
+                                    <span class="btn-text">确认修改</span>
+                                    <span class="btn-loading" style="display: none;">修改中...</span>
                                 </button>
                             </form>
                         </div>
@@ -969,90 +978,89 @@
                     {% endif %}
                 </div>
                 
-                <!-- 鍗遍櫓鎿嶄綔鍖哄煙 -->
+                <!-- 危险操作区域 -->
                 <div class="danger-zone-v2">
                     <div class="danger-zone-header-v2">
-                        <span>鈿狅笍</span> 鍗遍櫓鎿嶄綔
+                        <span>⚠️</span> 危险操作
                     </div>
                     <div class="danger-zone-content-v2">
                         <div class="danger-item-v2">
                             <div class="danger-text">
-                                <strong>鍒犻櫎璐﹀彿</strong>
-                                <span>姘镐箙鍒犻櫎鎮ㄧ殑璐﹀彿鍙婃墍鏈夋暟鎹紝姝ゆ搷浣滀笉鍙挙閿€</span>
+                                <strong>删除账号</strong>
+                                <span>永久删除您的账号及所有数据，此操作不可撤销</span>
                             </div>
-                            <button class="btn-v2 btn-danger-v2" onclick="showDeleteAccountDialog()">鍒犻櫎璐﹀彿</button>
+                            <button class="btn-v2 btn-danger-v2" onclick="showDeleteAccountDialog()">删除账号</button>
                         </div>
                     </div>
                 </div>
             </div>
         </section>
         
-        <!-- 鎿嶄綔鏃ュ織椤甸潰 -->
+        <!-- 操作日志页面 -->
         <section class="content-section" id="section-activity-logs">
             <div class="section-header">
-                <h1>馃摑 鎿嶄綔鏃ュ織</h1>
-                <p>鏌ョ湅鎮ㄧ殑璐︽埛娲诲姩璁板綍</p>
+                <h1>📝 操作日志</h1>
+                <p>查看您的账户活动记录</p>
             </div>
             
             <div class="activity-logs-page">
-                <!-- 绛涢€夋爮 -->
+                <!-- 筛选栏 -->
                 <div class="activity-filter-bar">
                     <select id="activityTypeFilter" class="activity-filter-select" onchange="loadMyActivityLogs()">
-                        <option value="">馃搵 鍏ㄩ儴鏃ュ織</option>
-                        <option value="login">馃攼 鐧诲綍鐧诲嚭</option>
-                        <option value="password_change">馃攽 瀵嗙爜淇敼</option>
-                        <option value="emby_password_change">🔄 Emby 密码</option>
-                        <option value="request_movie">馃幀 姹傜墖璁板綍</option>
-                        <option value="view_lines">馃敆 鏌ョ湅绾胯矾</option>
-                        <option value="payment_success">馃挵 鍏呭€艰褰?/option>
-                        <option value="redeem_code">馃師锔?鍏戞崲璁板綍</option>
-                        <option value="subscription_change">馃拵 璁㈤槄鍙樻洿</option>
-                        <option value="emby_account_create">馃啎 Emby璐﹀彿</option>
+                        <option value="">📋 全部日志</option>
+                        <option value="login">🔐 登录登出</option>
+                        <option value="password_change">🔑 密码修改</option>
+                        <option value="request_movie">🎬 求片记录</option>
+                        <option value="view_lines">🔗 查看线路</option>
+                        <option value="payment_success">💰 充值记录</option>
+                        <option value="redeem_code">🎟️ 兑换记录</option>
+                        <option value="subscription_change">💎 订阅变更</option>
+                        <option value="emby_account_create">🆕 Emby账号</option>
                     </select>
                     <select id="activityDaysFilter" class="activity-filter-select" onchange="loadMyActivityLogs()">
-                        <option value="7">鈴?鏈€杩?澶?/option>
-                        <option value="30" selected>鈴?鏈€杩?0澶?/option>
-                        <option value="90">鈴?鏈€杩?0澶?/option>
-                        <option value="">鈴?鍏ㄩ儴鏃堕棿</option>
+                        <option value="7">⏰ 最近7天</option>
+                        <option value="30" selected>⏰ 最近30天</option>
+                        <option value="90">⏰ 最近90天</option>
+                        <option value="">⏰ 全部时间</option>
                     </select>
                     <button class="activity-refresh-btn" onclick="loadMyActivityLogs()">
-                        馃攧 鍒锋柊
+                        🔄 刷新
                     </button>
                 </div>
                 
-                <!-- 鏃ュ織鍒楄〃 -->
+                <!-- 日志列表 -->
                 <div class="activity-logs-list" id="myActivityLogsList">
                     <div class="activity-loading">
                         <div class="spinner"></div>
-                        <p>姝ｅ湪鍔犺浇鏃ュ織...</p>
+                        <p>正在加载日志...</p>
                     </div>
                 </div>
                 
-                <!-- 鍒嗛〉 -->
+                <!-- 分页 -->
                 <div class="activity-pagination" id="myActivityPagination">
                 </div>
             </div>
         </section>
         
-        <!-- 鎴戠殑璁㈤槄椤甸潰 -->
+        <!-- 我的订阅页面 -->
         <section class="content-section" id="section-subscription">
             <div class="section-header">
-                <h1>馃挸 鎴戠殑璁㈤槄</h1>
-                <p>鏌ョ湅鍜岀鐞嗘偍鐨勮闃呬俊鎭?/p>
+                <h1>💳 我的订阅</h1>
+                <p>查看和管理您的订阅信息</p>
             </div>
             
             <div class="subscription-page-container">
-                <!-- 褰撳墠璁㈤槄鐘舵€佸崱鐗?- 鏂拌璁?-->
+                <!-- 当前订阅状态卡片 - 新设计 -->
                 <div class="subscription-hero-card">
                     <div class="subscription-hero-bg"></div>
                     <div class="subscription-hero-content">
                         <div class="hero-left">
                             <div class="hero-badge">
-                                <span class="badge-icon">馃憫</span>
-                                <span class="badge-text" id="subscriptionBadgeText">鍔犺浇涓?..</span>
+                                <span class="badge-icon">👑</span>
+                                <span class="badge-text" id="subscriptionBadgeText">加载中...</span>
                             </div>
                             <div class="hero-title">
-                                <h2 id="subscriptionUserName">{{ user.name or '鐢ㄦ埛' }}</h2>
+                                <h2 id="subscriptionUserName">{{ user.name or '用户' }}</h2>
                                 <span class="hero-level" id="subscriptionLevelName">{{ level_name }}</span>
                             </div>
                         </div>
@@ -1065,7 +1073,7 @@
                                     </svg>
                                     <div class="countdown-inner">
                                         <span class="countdown-days" id="countdownDays">--</span>
-                                        <span class="countdown-label">鍓╀綑澶╂暟</span>
+                                        <span class="countdown-label">剩余天数</span>
                                     </div>
                                 </div>
                             </div>
@@ -1073,65 +1081,65 @@
                     </div>
                 </div>
                 
-                <!-- 璁㈤槄璇︽儏缃戞牸 -->
+                <!-- 订阅详情网格 -->
                 <div class="subscription-details-grid">
                     <div class="detail-card">
-                        <div class="detail-icon">馃搮</div>
+                        <div class="detail-icon">📅</div>
                         <div class="detail-info">
-                            <span class="detail-label">寮€濮嬫棩鏈?/span>
+                            <span class="detail-label">开始日期</span>
                             <span class="detail-value" id="subscriptionStartDate">--</span>
                         </div>
                     </div>
                     <div class="detail-card">
-                        <div class="detail-icon">鈴?/div>
+                        <div class="detail-icon">⏰</div>
                         <div class="detail-info">
-                            <span class="detail-label">鍒版湡鏃ユ湡</span>
+                            <span class="detail-label">到期日期</span>
                             <span class="detail-value" id="subscriptionEndDate">--</span>
                         </div>
                     </div>
                     <div class="detail-card">
-                        <div class="detail-icon">馃幀</div>
+                        <div class="detail-icon">🎬</div>
                         <div class="detail-info">
-                            <span class="detail-label">姣忔棩姹傜墖闄愰</span>
+                            <span class="detail-label">每日求片限额</span>
                             <span class="detail-value" id="subscriptionDailyLimit">{{ max_daily }}</span>
                         </div>
                     </div>
                     <div class="detail-card">
-                        <div class="detail-icon">馃搳</div>
+                        <div class="detail-icon">📊</div>
                         <div class="detail-info">
-                            <span class="detail-label">绱姹傜墖</span>
+                            <span class="detail-label">累计求片</span>
                             <span class="detail-value" id="subscriptionTotalRequests">{{ total_requests }}</span>
                         </div>
                     </div>
                 </div>
                 
-                <!-- 馃洝锔?淇濆彿淇℃伅鍗＄墖 - 鐢盝S鍔ㄦ€佹覆鏌?-->
+                <!-- 🛡️ 保号信息卡片 - 由JS动态渲染 -->
                 <div class="retention-info-section" id="retentionInfoSection" style="display:none;"></div>
                 
-                <!-- 蹇嵎鎿嶄綔鎸夐挳缁?-->
+                <!-- 快捷操作按钮组 -->
                 <div class="subscription-action-group">
                     <a href="#purchase" class="sub-action-btn primary" onclick="switchSection('purchase')">
-                        <div class="btn-icon">馃洅</div>
+                        <div class="btn-icon">🛒</div>
                         <div class="btn-content">
-                            <span class="btn-title">璐拱/缁垂濂楅</span>
-                            <span class="btn-desc">閫夋嫨閫傚悎鎮ㄧ殑濂楅</span>
+                            <span class="btn-title">购买/续费套餐</span>
+                            <span class="btn-desc">选择适合您的套餐</span>
                         </div>
-                        <span class="btn-arrow">鈫?/span>
+                        <span class="btn-arrow">→</span>
                     </a>
                     <button class="sub-action-btn secondary" onclick="refreshSubscription()">
-                        <div class="btn-icon">馃攧</div>
+                        <div class="btn-icon">🔄</div>
                         <div class="btn-content">
-                            <span class="btn-title">鍒锋柊鐘舵€?/span>
-                            <span class="btn-desc">鑾峰彇鏈€鏂拌闃呬俊鎭?/span>
+                            <span class="btn-title">刷新状态</span>
+                            <span class="btn-desc">获取最新订阅信息</span>
                         </div>
                     </button>
                 </div>
                 
-                <!-- 璁㈤槄鍘嗗彶鏃堕棿绾?-->
+                <!-- 订阅历史时间线 -->
                 <div class="subscription-history-section">
                     <div class="history-header">
-                        <h3>馃摐 璁㈤槄鍘嗗彶</h3>
-                        <span class="history-count" id="subscriptionHistoryCount">0 鏉¤褰?/span>
+                        <h3>📜 订阅历史</h3>
+                        <span class="history-count" id="subscriptionHistoryCount">0 条记录</span>
                     </div>
                     <div class="history-timeline" id="subscriptionHistory">
                         <div class="history-empty">
@@ -1143,189 +1151,189 @@
                                     <path d="M155 105l5 5 10-10" stroke="#667eea" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
                                 </svg>
                             </div>
-                            <p>鏆傛棤璁㈤槄璁板綍</p>
-                            <span>璐拱濂楅鍚庤褰曞皢鏄剧ず鍦ㄨ繖閲?/span>
+                            <p>暂无订阅记录</p>
+                            <span>购买套餐后记录将显示在这里</span>
                         </div>
                     </div>
                 </div>
                 
-                <!-- 鏉冪泭璇存槑 - 鏍规嵁璁㈤槄绛夌骇鍔ㄦ€佹樉绀?-->
+                <!-- 权益说明 - 根据订阅等级动态显示 -->
                 <div class="subscription-benefits">
-                    <h3>馃巵 璁㈤槄鏉冪泭</h3>
+                    <h3>🎁 订阅权益</h3>
                     <div class="benefits-grid" id="benefitsGrid">
-                        <!-- 鏉冪泭灏嗛€氳繃JS鍔ㄦ€佸姞杞?-->
+                        <!-- 权益将通过JS动态加载 -->
                         <div class="benefit-item">
-                            <div class="benefit-icon">馃幀</div>
-                            <span class="benefit-text">鏃犻檺鍒舵眰鐗?/span>
+                            <div class="benefit-icon">🎬</div>
+                            <span class="benefit-text">无限制求片</span>
                         </div>
                         <div class="benefit-item">
-                            <div class="benefit-icon">鈿?/div>
-                            <span class="benefit-text">浼樺厛澶勭悊</span>
+                            <div class="benefit-icon">⚡</div>
+                            <span class="benefit-text">优先处理</span>
                         </div>
                         <div class="benefit-item">
-                            <div class="benefit-icon">馃摵</div>
-                            <span class="benefit-text">楂樻竻璧勬簮</span>
+                            <div class="benefit-icon">📺</div>
+                            <span class="benefit-text">高清资源</span>
                         </div>
                         <div class="benefit-item">
-                            <div class="benefit-icon">馃挰</div>
-                            <span class="benefit-text">涓撳睘瀹㈡湇</span>
+                            <div class="benefit-icon">💬</div>
+                            <span class="benefit-text">专属客服</span>
                         </div>
                     </div>
                 </div>
             </div>
         </section>
         
-        <!-- 璐拱濂楅椤甸潰 -->
+        <!-- 购买套餐页面 -->
         <section class="content-section" id="section-purchase">
             <div class="section-header">
-                <h1>馃洅 璐拱濂楅</h1>
-                <p>閫夋嫨閫傚悎鎮ㄧ殑璁㈤槄濂楅锛岀偣鍑讳环鏍煎嵆鍙喘涔?/p>
+                <h1>🛒 购买套餐</h1>
+                <p>选择适合您的订阅套餐，点击价格即可购买</p>
             </div>
             
-            <!-- 鍏戞崲鐮佸尯鍩?- 閱掔洰浣嶇疆 -->
+            <!-- 兑换码区域 - 醒目位置 -->
             <div class="redeem-card">
-                <div class="redeem-card-icon">馃巵</div>
+                <div class="redeem-card-icon">🎁</div>
                 <div class="redeem-card-content">
-                    <div class="redeem-card-title">鏈夊厬鎹㈢爜锛熺珛鍗冲厬鎹?/div>
-                    <div class="redeem-card-desc">杈撳叆鍏戞崲鐮佸嵆鍙縺娲诲椁愭垨缁垂</div>
+                    <div class="redeem-card-title">有兑换码？立即兑换</div>
+                    <div class="redeem-card-desc">输入兑换码即可激活套餐或续费</div>
                 </div>
                 <div class="redeem-card-form">
-                    <input type="text" id="redeemCodeInput" placeholder="杈撳叆鍏戞崲鐮? maxlength="20">
-                    <button id="redeemBtn" class="redeem-btn" onclick="redeemCode()">绔嬪嵆鍏戞崲</button>
+                    <input type="text" id="redeemCodeInput" placeholder="输入兑换码" maxlength="20">
+                    <button id="redeemBtn" class="redeem-btn" onclick="redeemCode()">立即兑换</button>
                 </div>
             </div>
             
             <div class="purchase-container">
-                <!-- 濂楅閫夋嫨 - 鍔ㄦ€佸姞杞斤紝鏄剧ず鎵€鏈夊懆鏈熶环鏍?-->
+                <!-- 套餐选择 - 动态加载，显示所有周期价格 -->
                 <div class="plans-grid-new" id="plansGrid">
-                    <div class="plans-loading">鍔犺浇濂楅涓?..</div>
+                    <div class="plans-loading">加载套餐中...</div>
                 </div>
                 
-                <!-- 璐拱鎻愮ず -->
+                <!-- 购买提示 -->
                 <div class="purchase-tips">
                     <div class="tip-item">
-                        <span class="tip-icon">鉁?/span>
-                        <span>鏀粯鎴愬姛鍚庤闃呰嚜鍔ㄧ敓鏁?/span>
+                        <span class="tip-icon">✅</span>
+                        <span>支付成功后订阅自动生效</span>
                     </div>
                     <div class="tip-item">
-                        <span class="tip-icon">馃敀</span>
-                        <span>瀹夊叏鏀粯锛屾敮鎸佹敮浠樺疂/寰俊</span>
+                        <span class="tip-icon">🔒</span>
+                        <span>安全支付，支持支付宝/微信</span>
                     </div>
                     <div class="tip-item">
-                        <span class="tip-icon">馃挰</span>
-                        <span>閬囧埌闂璇疯仈绯诲鏈?/span>
+                        <span class="tip-icon">💬</span>
+                        <span>遇到问题请联系客服</span>
                     </div>
                 </div>
                 
-                <!-- 鎴戠殑璁㈠崟 -->
+                <!-- 我的订单 -->
                 <div class="my-orders-section">
                     <div class="orders-header">
-                        <h3>馃搵 鎴戠殑璁㈠崟</h3>
+                        <h3>📋 我的订单</h3>
                         <button class="refresh-orders-btn" onclick="loadMyOrders()">
                             <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/></svg>
-                            鍒锋柊
+                            刷新
                         </button>
                     </div>
                     <div class="orders-list" id="myOrdersList">
-                        <div class="orders-loading">鍔犺浇璁㈠崟涓?..</div>
+                        <div class="orders-loading">加载订单中...</div>
                     </div>
                 </div>
             </div>
         </section>
         
         {% if invite_reward_enabled %}
-        <!-- 閭€璇疯繑鍒╅〉闈?-->
+        <!-- 邀请返利页面 -->
         <section class="content-section" id="section-invite">
             <div class="section-header">
-                <h1>馃巵 閭€璇疯繑鍒?/h1>
-                <p>閭€璇峰ソ鍙嬫敞鍐屽苟璐拱锛岃幏璧犺喘涔伴噾棰?{{ invite_reward_percent }}% 閲戦</p>
+                <h1>🎁 邀请返利</h1>
+                <p>邀请好友注册并购买，获赠购买金额 {{ invite_reward_percent }}% 金额</p>
             </div>
             
             <div class="invite-container">
-                <!-- 閭€璇风爜鍗＄墖 -->
+                <!-- 邀请码卡片 -->
                 <div class="invite-code-card">
                     <div class="invite-code-header">
-                        <span class="icon">馃帿</span>
-                        <span class="title">鎴戠殑閭€璇风爜</span>
+                        <span class="icon">🎫</span>
+                        <span class="title">我的邀请码</span>
                     </div>
                     <div class="invite-code-content">
-                        <div class="code-display" id="myInviteCode">鍔犺浇涓?..</div>
+                        <div class="code-display" id="myInviteCode">加载中...</div>
                         <button class="copy-btn" onclick="copyInviteCode()">
                             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg>
-                            澶嶅埗
+                            复制
                         </button>
                     </div>
                     <div class="invite-link-section">
-                        <label>閭€璇烽摼鎺ワ細</label>
+                        <label>邀请链接：</label>
                         <div class="link-box">
                             <input type="text" id="inviteLink" readonly value="">
-                            <button class="copy-link-btn" onclick="copyInviteLink()">澶嶅埗閾炬帴</button>
+                            <button class="copy-link-btn" onclick="copyInviteLink()">复制链接</button>
                         </div>
                     </div>
                 </div>
                 
-                <!-- 濂栧姳璇存槑 -->
+                <!-- 奖励说明 -->
                 <div class="reward-rules">
-                    <h3>馃幆 濂栧姳瑙勫垯</h3>
+                    <h3>🎯 奖励规则</h3>
                     <div class="rules-grid">
                         <div class="rule-item">
-                            <div class="rule-icon">馃巵</div>
+                            <div class="rule-icon">🎁</div>
                             <div class="rule-content">
-                                <div class="rule-title">閭€璇疯繑鍒?/div>
-                                <div class="rule-desc">濂藉弸閫氳繃鎮ㄧ殑閭€璇风爜娉ㄥ唽骞惰喘涔板椁?/div>
-                                <div class="rule-reward">鑾疯禒璐拱閲戦 {{ invite_reward_percent }}%</div>
+                                <div class="rule-title">邀请返利</div>
+                                <div class="rule-desc">好友通过您的邀请码注册并购买套餐</div>
+                                <div class="rule-reward">获赠购买金额 {{ invite_reward_percent }}%</div>
                             </div>
                         </div>
                         <div class="rule-item">
-                            <div class="rule-icon">鈾撅笍</div>
+                            <div class="rule-icon">♾️</div>
                             <div class="rule-content">
-                                <div class="rule-title">闀挎湡鏈夋晥</div>
-                                <div class="rule-desc">濂藉弸姣忔缁垂鎮ㄩ兘鑳借幏寰楄繑鍒?/div>
-                                <div class="rule-reward">姘镐箙缁戝畾鍏崇郴</div>
+                                <div class="rule-title">长期有效</div>
+                                <div class="rule-desc">好友每次续费您都能获得返利</div>
+                                <div class="rule-reward">永久绑定关系</div>
                             </div>
                         </div>
                         <div class="rule-item">
-                            <div class="rule-icon">鉁?/div>
+                            <div class="rule-icon">✅</div>
                             <div class="rule-content">
-                                <div class="rule-title">绠＄悊鍛樺鏍?/div>
-                                <div class="rule-desc">濂藉弸鏀粯鎴愬姛鍚庯紝绠＄悊鍛樺鏍搁€氳繃鍗冲彂鏀?/div>
-                                <div class="rule-reward">瀹夊叏鍙潬</div>
+                                <div class="rule-title">管理员审核</div>
+                                <div class="rule-desc">好友支付成功后，管理员审核通过即发放</div>
+                                <div class="rule-reward">安全可靠</div>
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <!-- 閭€璇风粺璁?-->
+                <!-- 邀请统计 -->
                 <div class="invite-stats">
-                    <h3>馃搳 閭€璇风粺璁?/h3>
+                    <h3>📊 邀请统计</h3>
                     <div class="stats-grid">
                         <div class="stat-item">
                             <div class="stat-value" id="totalInvites">0</div>
-                            <div class="stat-label">鎬婚個璇蜂汉鏁?/div>
+                            <div class="stat-label">总邀请人数</div>
                         </div>
                         <div class="stat-item">
                             <div class="stat-value" id="validInvites">0</div>
-                            <div class="stat-label">鏈夋晥閭€璇?/div>
+                            <div class="stat-label">有效邀请</div>
                         </div>
                         <div class="stat-item">
                             <div class="stat-value" id="totalReward">0</div>
-                            <div class="stat-label">绱濂栧姳(澶?</div>
+                            <div class="stat-label">累计奖励(天)</div>
                         </div>
                         <div class="stat-item">
                             <div class="stat-value" id="pendingReward">0</div>
-                            <div class="stat-label">寰呴鍙栧鍔?/div>
+                            <div class="stat-label">待领取奖励</div>
                         </div>
                     </div>
                 </div>
                 
-                <!-- 閭€璇疯褰?-->
+                <!-- 邀请记录 -->
                 <div class="invite-records">
-                    <h3>馃搵 閭€璇疯褰?/h3>
+                    <h3>📋 邀请记录</h3>
                     <div class="records-list" id="inviteRecords">
                         <div class="empty-state small">
-                            <div class="empty-icon">馃摥</div>
-                            <div class="empty-title">鏆傛棤閭€璇疯褰?/div>
-                            <div class="empty-desc">鍒嗕韩鎮ㄧ殑閭€璇风爜缁欏ソ鍙嬪紑濮嬭禋鍙栧鍔?/div>
+                            <div class="empty-icon">📭</div>
+                            <div class="empty-title">暂无邀请记录</div>
+                            <div class="empty-desc">分享您的邀请码给好友开始赚取奖励</div>
                         </div>
                     </div>
                 </div>
@@ -1333,193 +1341,193 @@
         </section>
         {% endif %}
         
-        <!-- 浣跨敤鏂囨。椤甸潰 -->
+        <!-- 使用文档页面 -->
         <section class="content-section" id="section-docs">
             <div class="section-header">
-                <h1>馃摎 浣跨敤鏂囨。</h1>
-                <p>璇︾粏鐨勪娇鐢ㄦ暀绋嬪拰鍔熻兘浠嬬粛</p>
+                <h1>📚 使用文档</h1>
+                <p>详细的使用教程和功能介绍</p>
             </div>
             
             <div class="docs-container">
-                <!-- 蹇€熷鑸?-->
+                <!-- 快速导航 -->
                 <div class="docs-nav">
-                    <div class="nav-title">馃搼 鐩綍</div>
+                    <div class="nav-title">📑 目录</div>
                     <ul class="nav-list">
-                        <li><a href="#doc-start" onclick="scrollToDoc('doc-start')">蹇€熷紑濮?/a></li>
-                        <li><a href="#doc-search" onclick="scrollToDoc('doc-search')">鎼滅储姹傜墖</a></li>
-                        <li><a href="#doc-status" onclick="scrollToDoc('doc-status')">鐘舵€佽鏄?/a></li>
-                        <li><a href="#doc-emby" onclick="scrollToDoc('doc-emby')">Emby 浣跨敤</a></li>
-                        <li><a href="#doc-mobile" onclick="scrollToDoc('doc-mobile')">绉诲姩绔娇鐢?/a></li>
-                        <li><a href="#doc-account" onclick="scrollToDoc('doc-account')">璐︽埛绠＄悊</a></li>
+                        <li><a href="#doc-start" onclick="scrollToDoc('doc-start')">快速开始</a></li>
+                        <li><a href="#doc-search" onclick="scrollToDoc('doc-search')">搜索求片</a></li>
+                        <li><a href="#doc-status" onclick="scrollToDoc('doc-status')">状态说明</a></li>
+                        <li><a href="#doc-emby" onclick="scrollToDoc('doc-emby')">Emby 使用</a></li>
+                        <li><a href="#doc-mobile" onclick="scrollToDoc('doc-mobile')">移动端使用</a></li>
+                        <li><a href="#doc-account" onclick="scrollToDoc('doc-account')">账户管理</a></li>
                     </ul>
                 </div>
                 
-                <!-- 鏂囨。鍐呭 -->
+                <!-- 文档内容 -->
                 <div class="docs-content">
                     <article class="doc-section" id="doc-start">
-                        <h2>馃殌 蹇€熷紑濮?/h2>
+                        <h2>🚀 快速开始</h2>
                         <div class="doc-body">
-                            <p>{{ site_config.welcome_message or '欢迎使用 Emby 管理系统' }}{{ site_config.docs_intro or '以下是快速入门指南：' }}</p>
+                            <p>{{ site_config.welcome_message or '欢迎使用 Emby 管理系统！' }}{{ site_config.docs_intro or '以下是快速入门指南：' }}</p>
                             <ol>
-                                <li><strong>鐧诲綍绯荤粺</strong>锛氫娇鐢ㄦ偍鐨?Telegram 璐﹀彿缁戝畾鐧诲綍</li>
-                                <li><strong>鎼滅储褰辩墖</strong>锛氬湪鎼滅储妗嗚緭鍏ユ兂鐪嬬殑鐢靛奖鎴栧墽闆嗗悕绉?/li>
-                                <li><strong>鎻愪氦姹傜墖</strong>锛氭壘鍒扮洰鏍囧奖鐗囧悗鐐瑰嚮鍗冲彲鎻愪氦姹傜墖璇锋眰</li>
-                                <li><strong>绛夊緟澶勭悊</strong>锛氱郴缁熶細鑷姩澶勭悊鎮ㄧ殑姹傜墖璇锋眰</li>
-                                <li><strong>瑙傜湅褰辩墖</strong>锛氬鐞嗗畬鎴愬悗鍗冲彲鍦?Emby 涓鐪?/li>
+                                <li><strong>登录系统</strong>：使用您的 Telegram 账号绑定登录</li>
+                                <li><strong>搜索影片</strong>：在搜索框输入想看的电影或剧集名称</li>
+                                <li><strong>提交求片</strong>：找到目标影片后点击即可提交求片请求</li>
+                                <li><strong>等待处理</strong>：系统会自动处理您的求片请求</li>
+                                <li><strong>观看影片</strong>：处理完成后即可在 Emby 中观看</li>
                             </ol>
                             <div class="doc-tip">
-                                <span class="tip-icon">馃挕</span>
-                                <span class="tip-text">鎻愮ず锛氭瘡鏃ユ眰鐗囨鏁版牴鎹細鍛樼瓑绾ф湁鎵€涓嶅悓锛岃鍚堢悊浣跨敤銆?/span>
+                                <span class="tip-icon">💡</span>
+                                <span class="tip-text">提示：每日求片次数根据会员等级有所不同，请合理使用。</span>
                             </div>
                         </div>
                     </article>
                     
                     <article class="doc-section" id="doc-search">
-                        <h2>馃攳 鎼滅储姹傜墖</h2>
+                        <h2>🔍 搜索求片</h2>
                         <div class="doc-body">
-                            <h3>鎼滅储鎶€宸?/h3>
+                            <h3>搜索技巧</h3>
                             <ul>
-                                <li>鏀寔涓枃銆佽嫳鏂囥€佹棩鏂囩瓑澶氳瑷€鎼滅储</li>
-                                <li>鍙互鎼滅储鐢靛奖鍚嶃€佸婕斿悕銆佹紨鍛樺悕</li>
-                                <li>寤鸿浣跨敤瀹樻柟璇戝悕浠ヨ幏寰楁洿鍑嗙‘鐨勭粨鏋?/li>
-                                <li>骞翠唤鍙互甯姪鍖哄垎鍚屽悕褰辩墖</li>
+                                <li>支持中文、英文、日文等多语言搜索</li>
+                                <li>可以搜索电影名、导演名、演员名</li>
+                                <li>建议使用官方译名以获得更准确的结果</li>
+                                <li>年份可以帮助区分同名影片</li>
                             </ul>
-                            <h3>姹傜墖娴佺▼</h3>
+                            <h3>求片流程</h3>
                             <ol>
-                                <li>鍦ㄦ悳绱㈡杈撳叆鍏抽敭璇?/li>
-                                <li>浠庢悳绱㈢粨鏋滀腑閫夋嫨鐩爣褰辩墖</li>
-                                <li>纭褰辩墖淇℃伅鍚庢彁浜ゆ眰鐗?/li>
-                                <li>濡傛灉鏄墽闆嗭紝鍙€夋嫨鎸囧畾瀛?闆?/li>
+                                <li>在搜索框输入关键词</li>
+                                <li>从搜索结果中选择目标影片</li>
+                                <li>确认影片信息后提交求片</li>
+                                <li>如果是剧集，可选择指定季/集</li>
                             </ol>
                         </div>
                     </article>
                     
                     <article class="doc-section" id="doc-status">
-                        <h2>馃搳 鐘舵€佽鏄?/h2>
+                        <h2>📊 状态说明</h2>
                         <div class="doc-body">
                             <div class="status-table">
                                 <div class="status-row">
-                                    <span class="status-badge pending">寰呭鐞?/span>
-                                    <span class="status-desc">姹傜墖宸叉彁浜わ紝绛夊緟绯荤粺澶勭悊</span>
+                                    <span class="status-badge pending">待处理</span>
+                                    <span class="status-desc">求片已提交，等待系统处理</span>
                                 </div>
                                 <div class="status-row">
-                                    <span class="status-badge downloading">涓嬭浇涓?/span>
-                                    <span class="status-desc">璧勬簮姝ｅ湪涓嬭浇锛岃鑰愬績绛夊緟</span>
+                                    <span class="status-badge downloading">下载中</span>
+                                    <span class="status-desc">资源正在下载，请耐心等待</span>
                                 </div>
                                 <div class="status-row">
-                                    <span class="status-badge downloaded">寰呭叆搴?/span>
-                                    <span class="status-desc">涓嬭浇瀹屾垚锛岀瓑寰呭叆搴撳埌濯掍綋搴?/span>
+                                    <span class="status-badge downloaded">待入库</span>
+                                    <span class="status-desc">下载完成，等待入库到媒体库</span>
                                 </div>
                                 <div class="status-row">
-                                    <span class="status-badge completed">宸插畬鎴?/span>
-                                    <span class="status-desc">宸插叆搴擄紝鍙湪 Emby 涓鐪?/span>
+                                    <span class="status-badge completed">已完成</span>
+                                    <span class="status-desc">已入库，可在 Emby 中观看</span>
                                 </div>
                                 <div class="status-row">
-                                    <span class="status-badge failed">澶辫触</span>
-                                    <span class="status-desc">澶勭悊澶辫触锛屽彲灏濊瘯閲嶆柊姹傜墖</span>
+                                    <span class="status-badge failed">失败</span>
+                                    <span class="status-desc">处理失败，可尝试重新求片</span>
                                 </div>
                             </div>
                         </div>
                     </article>
                     
                     <article class="doc-section" id="doc-emby">
-                        <h2>馃摵 Emby 浣跨敤</h2>
+                        <h2>📺 Emby 使用</h2>
                         <div class="doc-body">
-                            <h3>瀹㈡埛绔笅杞?/h3>
-                            <p>Emby 鏀寔澶氬钩鍙板鎴风锛?/p>
+                            <h3>客户端下载</h3>
+                            <p>Emby 支持多平台客户端：</p>
                             <ul>
-                                <li><strong>Windows/Mac</strong>锛氬畼缃戜笅杞芥闈㈠鎴风</li>
-                                <li><strong>iOS</strong>锛欰pp Store 鎼滅储 "Emby"</li>
-                                <li><strong>Android</strong>锛欸oogle Play 鎴栧畼缃戜笅杞?APK</li>
-                                <li><strong>TV</strong>锛氬悇澶х數瑙嗗簲鐢ㄥ晢搴楁悳绱?/li>
-                                <li><strong>Web</strong>锛氱洿鎺ユ祻瑙堝櫒璁块棶鏈嶅姟鍣ㄥ湴鍧€</li>
+                                <li><strong>Windows/Mac</strong>：官网下载桌面客户端</li>
+                                <li><strong>iOS</strong>：App Store 搜索 "Emby"</li>
+                                <li><strong>Android</strong>：Google Play 或官网下载 APK</li>
+                                <li><strong>TV</strong>：各大电视应用商店搜索</li>
+                                <li><strong>Web</strong>：直接浏览器访问服务器地址</li>
                             </ul>
-                            <h3>杩炴帴鏈嶅姟鍣?/h3>
+                            <h3>连接服务器</h3>
                             <ol>
-                                <li>鎵撳紑 Emby 瀹㈡埛绔?/li>
-                                <li>杈撳叆鏈嶅姟鍣ㄥ湴鍧€锛堣仈绯荤鐞嗗憳鑾峰彇锛?/li>
-                                <li>浣跨敤鎮ㄧ殑璐﹀彿瀵嗙爜鐧诲綍</li>
-                                <li>寮€濮嬩韩鍙楄褰变綋楠?/li>
+                                <li>打开 Emby 客户端</li>
+                                <li>输入服务器地址（联系管理员获取）</li>
+                                <li>使用您的账号密码登录</li>
+                                <li>开始享受观影体验</li>
                             </ol>
                         </div>
                     </article>
                     
                     <article class="doc-section" id="doc-mobile">
-                        <h2>馃摫 绉诲姩绔娇鐢?/h2>
+                        <h2>📱 移动端使用</h2>
                         <div class="doc-body">
-                            <p>鏈鐞嗙郴缁熷凡閽堝绉诲姩绔紭鍖栵紝鏀寔 PWA 瀹夎锛?/p>
-                            <h3>娣诲姞鍒颁富灞忓箷</h3>
+                            <p>本管理系统已针对移动端优化，支持 PWA 安装：</p>
+                            <h3>添加到主屏幕</h3>
                             <ul>
-                                <li><strong>iOS Safari</strong>锛氱偣鍑诲垎浜寜閽?鈫?娣诲姞鍒颁富灞忓箷</li>
-                                <li><strong>Android Chrome</strong>锛氳彍鍗?鈫?娣诲姞鍒颁富灞忓箷</li>
+                                <li><strong>iOS Safari</strong>：点击分享按钮 → 添加到主屏幕</li>
+                                <li><strong>Android Chrome</strong>：菜单 → 添加到主屏幕</li>
                             </ul>
                             <div class="doc-tip">
-                                <span class="tip-icon">馃挕</span>
-                                <span class="tip-text">娣诲姞鍒颁富灞忓箷鍚庯紝鍙幏寰楃被浼煎師鐢熷簲鐢ㄧ殑浣撻獙銆?/span>
+                                <span class="tip-icon">💡</span>
+                                <span class="tip-text">添加到主屏幕后，可获得类似原生应用的体验。</span>
                             </div>
                         </div>
                     </article>
                     
                     <article class="doc-section" id="doc-account">
-                        <h2>馃懁 璐︽埛绠＄悊</h2>
+                        <h2>👤 账户管理</h2>
                         <div class="doc-body">
-                            <h3>浼氬憳绛夌骇</h3>
+                            <h3>会员等级</h3>
                             <ul>
-                                <li><strong>鐧藉悕鍗曠敤鎴?/strong>锛氭瘡鏃?3 娆℃眰鐗囷紝鏃犳椂闂撮檺鍒?/li>
-                                <li><strong>娉ㄥ唽鐢ㄦ埛</strong>锛氭瘡鏃?1 娆℃眰鐗囷紝闇€鏈夋晥璁㈤槄</li>
+                                <li><strong>白名单用户</strong>：每日 3 次求片，无时间限制</li>
+                                <li><strong>注册用户</strong>：每日 1 次求片，需有效订阅</li>
                             </ul>
-                            <h3>璁㈤槄缁垂</h3>
-                            <p>璇峰墠寰€"璐拱濂楅"椤甸潰閫夋嫨閫傚悎鎮ㄧ殑濂楅杩涜缁垂锛屾敮鎸佸绉嶆敮浠樻柟寮忋€?/p>
+                            <h3>订阅续费</h3>
+                            <p>请前往"购买套餐"页面选择适合您的套餐进行续费，支持多种支付方式。</p>
                         </div>
                     </article>
                 </div>
             </div>
         </section>
         
-        <!-- 甯歌闂椤甸潰 -->
+        <!-- 常见问题页面 -->
         <section class="content-section" id="section-faq">
             <div class="section-header">
-                <h1>鉂?甯歌闂</h1>
-                <p>瑙ｇ瓟鎮ㄥ彲鑳介亣鍒扮殑闂</p>
+                <h1>❓ 常见问题</h1>
+                <p>解答您可能遇到的问题</p>
             </div>
             
             <div class="faq-container">
                 <div class="faq-search">
-                    <input type="text" id="faqSearch" placeholder="鎼滅储闂..." oninput="filterFAQ()" autocomplete="off">
+                    <input type="text" id="faqSearch" placeholder="搜索问题..." oninput="filterFAQ()" autocomplete="off">
                     <svg viewBox="0 0 24 24"><path fill="currentColor" d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3Z"/></svg>
                 </div>
                 
                 <div class="faq-categories" id="faqCategories">
-                    <button class="category-btn active" data-category="all" onclick="filterFAQCategory('all')">鍏ㄩ儴</button>
-                    <!-- 鍒嗙被鎸夐挳鍔ㄦ€佸姞杞?-->
+                    <button class="category-btn active" data-category="all" onclick="filterFAQCategory('all')">全部</button>
+                    <!-- 分类按钮动态加载 -->
                 </div>
                 
                 <div class="faq-list" id="faqList">
                     <div class="loading-state">
-                        <p>鍔犺浇涓?..</p>
+                        <p>加载中...</p>
                     </div>
                 </div>
             </div>
         </section>
         
-        <!-- 鎶€鏈敮鎸侀〉闈?-->
+        <!-- 技术支持页面 -->
         <section class="content-section" id="section-support">
             <div class="section-header">
-                <h1>馃洜锔?鎶€鏈敮鎸?/h1>
-                <p>閬囧埌闂锛熸垜浠潵甯偍瑙ｅ喅</p>
+                <h1>🛠️ 技术支持</h1>
+                <p>遇到问题？我们来帮您解决</p>
             </div>
             
             <div class="support-container">
-                <!-- 鑱旂郴鏂瑰紡 -->
+                <!-- 联系方式 -->
                 <div class="contact-cards">
                     <div class="contact-card">
                         <div class="contact-icon telegram">
                             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M9.78 18.65L10.06 14.42L17.74 7.5C18.08 7.19 17.67 7.04 17.22 7.31L7.74 13.3L3.64 12C2.76 11.75 2.75 11.14 3.84 10.7L19.81 4.54C20.54 4.21 21.24 4.72 20.96 5.84L18.24 18.65C18.05 19.56 17.5 19.78 16.74 19.36L12.6 16.3L10.61 18.23C10.38 18.46 10.19 18.65 9.78 18.65Z"/></svg>
                         </div>
                         <div class="contact-info">
-                            <div class="contact-title">Telegram 缇ょ粍</div>
-                            <div class="contact-desc">鍔犲叆缇ょ粍鑾峰彇鏈€鏂板姩鎬?/div>
-                            <a href="https://t.me/{{ site_config.telegram_group or bot_username }}" target="_blank" class="contact-link">绔嬪嵆鍔犲叆 鈫?/a>
+                            <div class="contact-title">Telegram 群组</div>
+                            <div class="contact-desc">加入群组获取最新动态</div>
+                            <a href="https://t.me/{{ site_config.telegram_group or bot_username }}" target="_blank" class="contact-link">立即加入 →</a>
                         </div>
                     </div>
                     
@@ -1528,72 +1536,72 @@
                             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M20,8L12,13L4,8V6L12,11L20,6M20,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V6C22,4.89 21.1,4 20,4Z"/></svg>
                         </div>
                         <div class="contact-info">
-                            <div class="contact-title">閭欢鏀寔</div>
-                            <div class="contact-desc">鍙戦€侀偖浠惰幏鍙栧府鍔?/div>
-                            <a href="mailto:{{ site_config.support_email or 'support@example.com' }}" class="contact-link">鍙戦€侀偖浠?鈫?/a>
+                            <div class="contact-title">邮件支持</div>
+                            <div class="contact-desc">发送邮件获取帮助</div>
+                            <a href="mailto:{{ site_config.support_email or 'support@example.com' }}" class="contact-link">发送邮件 →</a>
                         </div>
                     </div>
                 </div>
                 
-                <!-- 鎻愪氦宸ュ崟 -->
+                <!-- 提交工单 -->
                 <div class="ticket-form-section">
-                    <h3>馃摑 鎻愪氦宸ュ崟</h3>
+                    <h3>📝 提交工单</h3>
                     <form class="ticket-form" id="ticketForm" onsubmit="submitTicket(event)">
                         <div class="form-group">
-                            <label>闂绫诲瀷 <span class="required">*</span></label>
+                            <label>问题类型 <span class="required">*</span></label>
                             <select id="ticketCategory" required>
-                                <option value="">璇烽€夋嫨闂绫诲瀷</option>
-                                <option value="account">璐︽埛闂</option>
-                                <option value="payment">鏀粯闂</option>
-                                <option value="technical">鎶€鏈棶棰?/option>
-                                <option value="content">鍐呭鍙嶉</option>
-                                <option value="other">鍏朵粬闂</option>
+                                <option value="">请选择问题类型</option>
+                                <option value="account">账户问题</option>
+                                <option value="payment">支付问题</option>
+                                <option value="technical">技术问题</option>
+                                <option value="content">内容反馈</option>
+                                <option value="other">其他问题</option>
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>闂鏍囬 <span class="required">*</span></label>
-                            <input type="text" id="ticketSubject" placeholder="绠€瑕佹弿杩版偍鐨勯棶棰? required maxlength="100">
+                            <label>问题标题 <span class="required">*</span></label>
+                            <input type="text" id="ticketSubject" placeholder="简要描述您的问题" required maxlength="100">
                         </div>
                         <div class="form-group">
-                            <label>璇︾粏鎻忚堪 <span class="required">*</span></label>
-                            <textarea id="ticketDescription" placeholder="璇疯缁嗘弿杩版偍閬囧埌鐨勯棶棰橈紝鍖呮嫭鎿嶄綔姝ラ銆侀敊璇俊鎭瓑" required maxlength="1000" rows="5"></textarea>
+                            <label>详细描述 <span class="required">*</span></label>
+                            <textarea id="ticketDescription" placeholder="请详细描述您遇到的问题，包括操作步骤、错误信息等" required maxlength="1000" rows="5"></textarea>
                         </div>
                         <div class="form-group">
-                            <label>浼樺厛绾?/label>
+                            <label>优先级</label>
                             <div class="priority-options">
                                 <label class="priority-option">
                                     <input type="radio" name="priority" value="low">
-                                    <span class="priority-label low">浣?/span>
+                                    <span class="priority-label low">低</span>
                                 </label>
                                 <label class="priority-option">
                                     <input type="radio" name="priority" value="normal" checked>
-                                    <span class="priority-label normal">鏅€?/span>
+                                    <span class="priority-label normal">普通</span>
                                 </label>
                                 <label class="priority-option">
                                     <input type="radio" name="priority" value="high">
-                                    <span class="priority-label high">楂?/span>
+                                    <span class="priority-label high">高</span>
                                 </label>
                                 <label class="priority-option">
                                     <input type="radio" name="priority" value="urgent">
-                                    <span class="priority-label urgent">绱ф€?/span>
+                                    <span class="priority-label urgent">紧急</span>
                                 </label>
                             </div>
                         </div>
                         <button type="submit" class="submit-ticket-btn">
                             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M2,21L23,12L2,3V10L17,12L2,14V21Z"/></svg>
-                            鎻愪氦宸ュ崟
+                            提交工单
                         </button>
                     </form>
                 </div>
                 
-                <!-- 鎴戠殑宸ュ崟 -->
+                <!-- 我的工单 -->
                 <div class="my-tickets-section">
-                    <h3>馃搵 鎴戠殑宸ュ崟</h3>
+                    <h3>📋 我的工单</h3>
                     <div class="tickets-list" id="myTickets">
                         <div class="empty-state small">
-                            <div class="empty-icon">馃摥</div>
-                            <div class="empty-title">鏆傛棤宸ュ崟</div>
-                            <div class="empty-desc">鎻愪氦宸ュ崟鍚庡彲鍦ㄦ鏌ョ湅澶勭悊杩涘害</div>
+                            <div class="empty-icon">📭</div>
+                            <div class="empty-title">暂无工单</div>
+                            <div class="empty-desc">提交工单后可在此查看处理进度</div>
                         </div>
                     </div>
                 </div>
@@ -1601,152 +1609,152 @@
         </section>
     </main>
     
-    <!-- 纭瀵硅瘽妗?-->
+    <!-- 确认对话框 -->
     <div class="confirm-overlay" id="confirmOverlay" onclick="closeConfirmDialog()">
         <div class="confirm-dialog tv-request-dialog" onclick="event.stopPropagation()">
             <div class="icon">&#x1F3AC;</div>
-            <h3>纭姹傜墖</h3>
+            <h3>确认求片</h3>
             <div class="movie-info">
                 <div class="movie-title" id="confirmMovieTitle"></div>
                 <div class="movie-type" id="confirmMovieType"></div>
             </div>
             
-            <!-- Emby搴撶姸鎬佷俊鎭?-->
+            <!-- Emby库状态信息 -->
             <div id="embyStatusInfo" style="display: none; margin-bottom: 15px;"></div>
             
-            <!-- 鍓ч泦瀛?闆嗛€夋嫨 -->
+            <!-- 剧集季/集选择 -->
             <div id="embyStatusInfo" style="display: none; margin-bottom: 15px;"></div>
             
-            <!-- 鐢佃鍓у/闆嗛€夋嫨鍖哄煙 -->
+            <!-- 电视剧季/集选择区域 -->
             <div class="tv-scope-selector" id="tvScopeSelector" style="display: none;">
-                <div class="scope-title">馃搼 閫夋嫨姹傜墖鑼冨洿</div>
+                <div class="scope-title">📑 选择求片范围</div>
                 <div class="scope-options">
                     <label class="scope-option">
                         <input type="radio" name="requestType" value="all" checked onclick="selectRequestType('all')">
-                        <span class="option-label">馃幀 鍏ㄥ墽锛堟墍鏈夊锛?/span>
+                        <span class="option-label">🎬 全剧（所有季）</span>
                     </label>
                     <label class="scope-option">
                         <input type="radio" name="requestType" value="season" onclick="selectRequestType('season')">
-                        <span class="option-label">馃搨 鎸囧畾瀛?/span>
+                        <span class="option-label">📂 指定季</span>
                     </label>
                     <label class="scope-option">
                         <input type="radio" name="requestType" value="episode" onclick="selectRequestType('episode')">
-                        <span class="option-label">馃搫 鎸囧畾闆?/span>
+                        <span class="option-label">📄 指定集</span>
                     </label>
                 </div>
                 
-                <!-- 瀛ｉ€夋嫨 -->
+                <!-- 季选择 -->
                 <div class="season-selector" id="seasonSelector" style="display: none;">
-                    <label>閫夋嫨瀛ｏ細</label>
+                    <label>选择季：</label>
                     <select id="seasonSelect" onchange="loadEpisodes()">
-                        <option value="">-- 璇烽€夋嫨 --</option>
+                        <option value="">-- 请选择 --</option>
                     </select>
                     <div class="season-loading" id="seasonLoading" style="display: none;">
-                        <span class="mini-spinner"></span> 鍔犺浇涓?..
+                        <span class="mini-spinner"></span> 加载中...
                     </div>
                 </div>
                 
-                <!-- 闆嗛€夋嫨 -->
+                <!-- 集选择 -->
                 <div class="episode-selector" id="episodeSelector" style="display: none;">
-                    <label>閫夋嫨闆嗭細</label>
+                    <label>选择集：</label>
                     <select id="episodeSelect">
-                        <option value="">-- 璇烽€夋嫨 --</option>
+                        <option value="">-- 请选择 --</option>
                     </select>
                     <div class="episode-loading" id="episodeLoading" style="display: none;">
-                        <span class="mini-spinner"></span> 鍔犺浇涓?..
+                        <span class="mini-spinner"></span> 加载中...
                     </div>
                 </div>
                 
-                <!-- 鐢ㄦ埛澶囨敞 -->
+                <!-- 用户备注 -->
                 <div class="user-note-input">
-                    <label>馃挰 澶囨敞锛堝彲閫夛級锛?/label>
-                    <input type="text" id="userNoteInput" placeholder="濡傦細姹?4K HDR 鐗堟湰" maxlength="100">
+                    <label>💬 备注（可选）：</label>
+                    <input type="text" id="userNoteInput" placeholder="如：求 4K HDR 版本" maxlength="100">
                 </div>
             </div>
             
             <div class="buttons">
-                <button class="btn-cancel" onclick="closeConfirmDialog()">鍙栨秷</button>
-                <button class="btn-confirm" id="confirmBtn" onclick="confirmRequest()">纭畾姹傜墖</button>
+                <button class="btn-cancel" onclick="closeConfirmDialog()">取消</button>
+                <button class="btn-confirm" id="confirmBtn" onclick="confirmRequest()">确定求片</button>
             </div>
         </div>
     </div>
 
-    <!-- 缁撴灉鎻愮ず瀵硅瘽妗?-->
+    <!-- 结果提示对话框 -->
     <div class="confirm-overlay" id="resultOverlay" onclick="closeResultDialog()">
         <div class="confirm-dialog" onclick="event.stopPropagation()">
             <div class="icon" id="resultIcon">&#x2705;</div>
-            <h3 id="resultTitle">姹傜墖鎴愬姛</h3>
+            <h3 id="resultTitle">求片成功</h3>
             <div class="movie-info">
                 <div id="resultMessage" style="font-size: 16px; color: #333; line-height: 1.6;"></div>
             </div>
             <div class="buttons">
-                <button class="btn-confirm" onclick="closeResultDialog()" style="width: 100%;">纭畾</button>
+                <button class="btn-confirm" onclick="closeResultDialog()" style="width: 100%;">确定</button>
             </div>
         </div>
     </div>
 
-    <!-- 鍔犺浇鍔ㄧ敾 -->
+    <!-- 加载动画 -->
     <div class="loading-overlay" id="loadingOverlay">
         <div class="loading-content">
             <div class="loading-spinner"></div>
-            <p>姝ｅ湪鎻愪氦姹傜墖璇锋眰...</p>
+            <p>正在提交求片请求...</p>
         </div>
     </div>
 
-    <!-- 鍏憡寮圭獥 -->
+    <!-- 公告弹窗 -->
     {% if announcement_enabled %}
     <div class="announcement-overlay" id="announcementOverlay" onclick="closeAnnouncement()">
         <div class="announcement-dialog" onclick="event.stopPropagation()">
-            <div class="icon">馃摙</div>
-            <h3>绯荤粺鍏憡</h3>
+            <div class="icon">📢</div>
+            <h3>系统公告</h3>
             <div class="content">
                 {{ announcement_content | safe | replace('\n', '<br>') }}
             </div>
             <div class="buttons">
-                <button onclick="closeAnnouncement()">鎴戠煡閬撲簡</button>
+                <button onclick="closeAnnouncement()">我知道了</button>
             </div>
         </div>
     </div>
     {% endif %}
 
-    <!-- Telegram 缁戝畾寮圭獥 -->
+    <!-- Telegram 绑定弹窗 -->
     <div class="telegram-bind-overlay" id="telegramBindOverlay" style="display: none;" onclick="closeTelegramBindDialog()">
         <div class="telegram-bind-dialog" onclick="event.stopPropagation()">
             <div class="dialog-header">
-                <h3>馃摫 缁戝畾 Telegram</h3>
-                <button class="close-btn" onclick="closeTelegramBindDialog()">鉁?/button>
+                <h3>📱 绑定 Telegram</h3>
+                <button class="close-btn" onclick="closeTelegramBindDialog()">✕</button>
             </div>
             <div class="dialog-content">
                 <div class="bind-intro">
-                    <p>缁戝畾鍚庢偍鍙互浜彈锛?/p>
+                    <p>绑定后您可以享受：</p>
                     <ul>
-                        <li><span class="icon">馃敂</span> 姹傜墖杩涘害瀹炴椂鎺ㄩ€?/li>
-                        <li><span class="icon">鈴?/span> 璁㈤槄鍒版湡鍙婃椂鎻愰啋</li>
-                        <li><span class="icon">馃</span> Bot 蹇嵎鏌ヨ鏈嶅姟</li>
+                        <li><span class="icon">🔔</span> 求片进度实时推送</li>
+                        <li><span class="icon">⏰</span> 订阅到期及时提醒</li>
+                        <li><span class="icon">🤖</span> Bot 快捷查询服务</li>
                     </ul>
                 </div>
-                <!-- 妯悜甯冨眬鐨勬楠?-->
+                <!-- 横向布局的步骤 -->
                 <div class="bind-steps-horizontal">
                     <div class="step-item">
                         <div class="step-badge">STEP 1</div>
                         <div class="step-content">
-                            <label>鎵撳紑 Telegram Bot</label>
+                            <label>打开 Telegram Bot</label>
                             <a href="#" id="telegramBotLink" target="_blank" class="bot-link">
-                                <span class="bot-icon">馃</span>
-                                <span class="bot-name">@鍔犺浇涓?..</span>
-                                <span class="arrow">鈫?/span>
+                                <span class="bot-icon">🤖</span>
+                                <span class="bot-name">@加载中...</span>
+                                <span class="arrow">→</span>
                             </a>
                         </div>
                     </div>
-                    <div class="step-divider-horizontal">鈫?/div>
+                    <div class="step-divider-horizontal">→</div>
                     <div class="step-item">
                         <div class="step-badge">STEP 2</div>
                         <div class="step-content">
-                            <label>鍙戦€佺粦瀹氭寚浠?/label>
+                            <label>发送绑定指令</label>
                             <div class="bind-code-container">
-                                <code id="telegramBindInstruction">/bind 鍔犺浇涓?..</code>
-                                <button class="copy-btn" type="button" onclick="copyBindCommand(event)" title="澶嶅埗鎸囦护">
-                                    <span>馃搵</span>
+                                <code id="telegramBindInstruction">/bind 加载中...</code>
+                                <button class="copy-btn" type="button" onclick="copyBindCommand(event)" title="复制指令">
+                                    <span>📋</span>
                                 </button>
                             </div>
                         </div>
@@ -1754,102 +1762,103 @@
                 </div>
                 <div class="bind-code-display">
                     <div class="code-header">
-                        <span class="code-label">鎮ㄧ殑缁戝畾鐮?/span>
+                        <span class="code-label">您的绑定码</span>
                         <span class="code-expire" id="telegramBindExpire"></span>
                     </div>
                     <div class="code-main">
-                        <span class="code-value" id="telegramBindCode">鍔犺浇涓?..</span>
-                        <button class="refresh-btn" id="refreshBindCodeBtn" onclick="regenerateBindCode()" title="閲嶆柊鐢熸垚">
-                            <span>馃攧</span>
+                        <span class="code-value" id="telegramBindCode">加载中...</span>
+                        <button class="refresh-btn" id="refreshBindCodeBtn" onclick="regenerateBindCode()" title="重新生成">
+                            <span>🔄</span>
                         </button>
                     </div>
                 </div>
                 <div class="bind-status-hint" id="telegramBindStatusHint">
-                    <span class="hint-icon">鈴?/span>
-                    <span class="hint-text">绛夊緟缁戝畾涓?.. 鍙戦€佹寚浠ゅ悗姝ゅ璇濇灏嗚嚜鍔ㄥ叧闂?/span>
+                    <span class="hint-icon">⏳</span>
+                    <span class="hint-text">等待绑定中... 发送指令后此对话框将自动关闭</span>
                 </div>
             </div>
         </div>
     </div>
 
     {% if require_telegram_bind and not user_has_telegram %}
-    <!-- 寮哄埗缁戝畾 Telegram 閬僵锛堜笉鍙叧闂級 -->
+    <!-- 强制绑定 Telegram 遮罩（不可关闭） -->
     <div class="force-bind-tg-overlay" id="forceBindTgOverlay">
         <div class="force-bind-tg-dialog">
             <div class="force-bind-header">
-                <div class="force-bind-icon">馃攼</div>
-                <h2>璇峰厛缁戝畾 Telegram</h2>
-                <p>绠＄悊鍛樿姹傛墍鏈夌敤鎴风粦瀹?Telegram 鍚庢墠鑳戒娇鐢ㄧ郴缁熷姛鑳?br>瀹屾垚缁戝畾鍚庢绐楀彛灏嗚嚜鍔ㄥ叧闂?/p>
+                <div class="force-bind-icon">🔐</div>
+                <h2>请先绑定 Telegram</h2>
+                <p>管理员要求所有用户绑定 Telegram 后才能使用系统功能<br>完成绑定后此窗口将自动关闭</p>
             </div>
             <div class="force-bind-steps">
                 <div class="force-step">
                     <div class="force-step-num">1</div>
                     <div class="force-step-content">
-                        <label>鎵撳紑 Telegram Bot</label>
+                        <label>打开 Telegram Bot</label>
                         <a href="#" id="forceBindBotLink" target="_blank" class="force-bot-link">
-                            <span>馃</span>
-                            <span id="forceBindBotName">@鍔犺浇涓?..</span>
-                            <span class="arrow">鈫?/span>
+                            <span>🤖</span>
+                            <span id="forceBindBotName">@加载中...</span>
+                            <span class="arrow">→</span>
                         </a>
                     </div>
                 </div>
                 <div class="force-step">
                     <div class="force-step-num">2</div>
                     <div class="force-step-content">
-                        <label>鍚?Bot 鍙戦€佺粦瀹氭寚浠?/label>
+                        <label>向 Bot 发送绑定指令</label>
                         <div class="force-bind-code-box">
-                            <code id="forceBindInstruction">/bind 鍔犺浇涓?..</code>
-                            <button class="copy-btn" type="button" onclick="copyForceBindCommand(event)" title="澶嶅埗鎸囦护">馃搵</button>
+                            <code id="forceBindInstruction">/bind 加载中...</code>
+                            <button class="copy-btn" type="button" onclick="copyForceBindCommand(event)" title="复制指令">📋</button>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="force-bind-code-display">
                 <div class="code-header">
-                    <span class="code-label">鎮ㄧ殑缁戝畾鐮?/span>
+                    <span class="code-label">您的绑定码</span>
                     <span class="code-expire" id="forceBindExpire"></span>
                 </div>
                 <div class="code-main">
-                    <span class="code-value" id="forceBindCode">鍔犺浇涓?..</span>
-                    <button class="refresh-btn" onclick="generateForceBindCode(true)" title="閲嶆柊鐢熸垚">馃攧</button>
+                    <span class="code-value" id="forceBindCode">加载中...</span>
+                    <button class="refresh-btn" onclick="generateForceBindCode(true)" title="重新生成">🔄</button>
                 </div>
             </div>
             <div class="force-bind-status">
-                <span class="hint-icon">鈴?/span>
-                <span>绛夊緟缁戝畾涓?.. 缁戝畾鎴愬姛鍚庡皢鑷姩杩涘叆绯荤粺</span>
+                <span class="hint-icon">⏳</span>
+                <span>等待绑定中... 绑定成功后将自动进入系统</span>
             </div>
         </div>
     </div>
     {% endif %}
 
-    <!-- Emby 璐﹀彿寮曞寮圭獥锛堟湭缁戝畾鏃惰嚜鍔ㄥ脊鍑猴級 -->
+    <!-- Emby 账号引导弹窗（未绑定时自动弹出） -->
     <div class="emby-bind-overlay" id="embyGuideOverlay" style="display: none;">
         <div class="emby-bind-dialog emby-guide-dialog">
             <button class="close-btn" onclick="closeEmbyGuideDialog()" style="color:#999">&times;</button>
             <div class="guide-header">
-                <div class="guide-icon">馃摵</div>
-                <h2>娆㈣繋浣跨敤 Emby 褰辫鏈嶅姟</h2>
-                <p>妫€娴嬪埌鎮ㄨ繕娌℃湁缁戝畾 Emby 璐﹀彿锛岃鍏堝畬鎴愯处鍙疯缃互寮€濮嬩娇鐢?/p>
+                <div class="guide-icon">📺</div>
+                <h2>欢迎使用 Emby 影视服务</h2>
+                <p>检测到您还没有绑定 Emby 账号，请先完成账号设置以开始使用</p>
             </div>
             <div class="guide-options">
                 <div class="guide-option" onclick="guideToEmbyBind()">
-                    <div class="guide-option-icon">馃敆</div>
+                    <div class="guide-option-icon">🔗</div>
                     <div class="guide-option-info">
-                        <h3>缁戝畾宸叉湁璐﹀彿</h3>
-                        <p>鎴戝凡缁忔湁 Emby 璐﹀彿锛岀洿鎺ョ粦瀹氫娇鐢?/p>
+                        <h3>绑定已有账号</h3>
+                        <p>我已经有 Emby 账号，直接绑定使用</p>
                     </div>
-                    <div class="guide-option-arrow">鈥?/div>
+                    <div class="guide-option-arrow">›</div>
                 </div>
                 <div class="guide-option" id="guideCreateBtn" onclick="guideToEmbyCreate()">
-                    <div class="guide-option-icon">鉁?/div>
+                    <div class="guide-option-icon">✨</div>
                     <div class="guide-option-info">
-                        <h3>鍒涘缓鏂拌处鍙?/h3>
-                        <p>鎴戣繕娌℃湁璐﹀彿锛屽府鎴戝垱寤轰竴涓柊鐨?/p>
+                        <h3>创建新账号</h3>
+                        <p>我还没有账号，帮我创建一个新的</p>
                     </div>
-                    <div class="guide-option-arrow">鈥?/div>
+                    <div class="guide-option-arrow">›</div>
                 </div>
                 <div class="guide-create-hint" id="guideCreateHint" style="display: none;">
-                    馃挕 鍒涘缓鏂拌处鍙烽渶瑕佹湁鏁堣闃咃紝鎮ㄥ彲浠ュ厛缁戝畾宸叉湁璐﹀彿鎴栬喘涔拌闃呭悗鍐嶅垱寤?                </div>
+                    💡 创建新账号需要有效订阅，您可以先绑定已有账号或购买订阅后再创建
+                </div>
             </div>
         </div>
     </div>
@@ -1956,70 +1965,70 @@
         }
     </style>
 
-    <!-- Emby 璐﹀彿缁戝畾寮圭獥锛堜粎缁戝畾宸叉湁璐﹀彿锛?-->
+    <!-- Emby 账号绑定弹窗（仅绑定已有账号） -->
     <div class="emby-bind-overlay" id="embyBindOverlay" style="display: none;">
         <div class="emby-bind-dialog">
             <button class="close-btn" onclick="closeEmbyBindDialog()">&times;</button>
             <div class="dialog-header">
-                <h2>馃敆 缁戝畾 Emby 璐﹀彿</h2>
-                <p>缁戝畾鎮ㄥ凡鏈夌殑 Emby 璐﹀彿</p>
+                <h2>🔗 绑定 Emby 账号</h2>
+                <p>绑定您已有的 Emby 账号</p>
             </div>
             
-            <!-- 缁戝畾鐜版湁璐﹀彿琛ㄥ崟 -->
+            <!-- 绑定现有账号表单 -->
             <div class="emby-tab-content" id="bindTab">
-                <p class="tab-desc">濡傛灉鎮ㄥ凡鏈?Emby 璐﹀彿锛岃杈撳叆璐﹀彿瀵嗙爜杩涜缁戝畾楠岃瘉</p>
+                <p class="tab-desc">如果您已有 Emby 账号，请输入账号密码进行绑定验证</p>
                 <form id="embyBindForm" onsubmit="submitEmbyBind(event)">
                     <div class="form-group">
-                        <label>Emby 鐢ㄦ埛鍚?/label>
-                        <input type="text" id="bindUsername" placeholder="璇疯緭鍏ユ偍鐨?Emby 鐢ㄦ埛鍚? required>
+                        <label>Emby 用户名</label>
+                        <input type="text" id="bindUsername" placeholder="请输入您的 Emby 用户名" required>
                     </div>
                     <div class="form-group">
-                        <label>Emby 瀵嗙爜</label>
-                        <input type="password" id="bindPassword" placeholder="璇疯緭鍏ユ偍鐨?Emby 瀵嗙爜锛堝彲涓虹┖锛?>
+                        <label>Emby 密码</label>
+                        <input type="password" id="bindPassword" placeholder="请输入您的 Emby 密码（可为空）">
                     </div>
                     <div class="form-error" id="bindError"></div>
-                    <button type="submit" class="submit-btn" id="bindSubmitBtn">楠岃瘉骞剁粦瀹?/button>
+                    <button type="submit" class="submit-btn" id="bindSubmitBtn">验证并绑定</button>
                 </form>
             </div>
         </div>
     </div>
 
-    <!-- Emby 璐﹀彿鍒涘缓寮圭獥锛堜粎鍒涘缓鏂拌处鍙凤級 -->
+    <!-- Emby 账号创建弹窗（仅创建新账号） -->
     <div class="emby-bind-overlay" id="embyCreateOverlay" style="display: none;">
         <div class="emby-bind-dialog">
             <button class="close-btn" onclick="closeEmbyCreateDialog()">&times;</button>
             <div class="dialog-header">
-                <h2>鉃?鍒涘缓 Emby 璐﹀彿</h2>
-                <p>鍒涘缓涓€涓柊鐨?Emby 璐﹀彿</p>
+                <h2>➕ 创建 Emby 账号</h2>
+                <p>创建一个新的 Emby 账号</p>
             </div>
             
-            <!-- 鍒涘缓鏂拌处鍙疯〃鍗?-->
+            <!-- 创建新账号表单 -->
             <div class="emby-tab-content" id="createTab">
-                <p class="tab-desc">鍒涘缓涓€涓柊鐨?Emby 璐﹀彿锛岀敤浜庤鐪嬪奖瑙嗗唴瀹?/p>
+                <p class="tab-desc">创建一个新的 Emby 账号，用于观看影视内容</p>
                 <form id="embyCreateForm" onsubmit="submitEmbyCreate(event)">
                     <div class="form-group">
-                        <label>鐢ㄦ埛鍚?<span class="hint">(1-20涓瓧绗︼紝鏀寔涓枃銆佸瓧姣嶃€佹暟瀛椼€佷笅鍒掔嚎)</span></label>
-                        <input type="text" id="createUsername" placeholder="璁剧疆鎮ㄧ殑鐢ㄦ埛鍚? required 
+                        <label>用户名 <span class="hint">(1-20个字符，支持中文、字母、数字、下划线)</span></label>
+                        <input type="text" id="createUsername" placeholder="设置您的用户名" required 
                                maxlength="20" oninput="checkEmbyUsername()">
                         <div class="username-status" id="usernameStatus"></div>
                     </div>
                     <div class="form-group">
-                        <label>瀵嗙爜 <span class="hint">(鍙负绌猴紝鏈€闀?2涓瓧绗?</span></label>
-                        <input type="password" id="createPassword" placeholder="璁剧疆鎮ㄧ殑瀵嗙爜">
+                        <label>密码 <span class="hint">(可为空，最长32个字符)</span></label>
+                        <input type="password" id="createPassword" placeholder="设置您的密码">
                     </div>
                     <div class="form-group">
-                        <label>纭瀵嗙爜</label>
-                        <input type="password" id="createPasswordConfirm" placeholder="鍐嶆杈撳叆瀵嗙爜">
+                        <label>确认密码</label>
+                        <input type="password" id="createPasswordConfirm" placeholder="再次输入密码">
                     </div>
                     <div class="form-error" id="createError"></div>
-                    <button type="submit" class="submit-btn" id="createSubmitBtn">鍒涘缓璐﹀彿</button>
+                    <button type="submit" class="submit-btn" id="createSubmitBtn">创建账号</button>
                 </form>
             </div>
         </div>
     </div>
 
     <style>
-        /* Emby 璐﹀彿缁戝畾寮圭獥鏍峰紡 */
+        /* Emby 账号绑定弹窗样式 */
         .emby-bind-overlay {
             position: fixed;
             top: 0;
@@ -2208,7 +2217,7 @@
             transform: none;
         }
         
-        /* Emby 璐﹀彿绠＄悊鍖哄煙鏍峰紡 */
+        /* Emby 账号管理区域样式 */
         .emby-account-section {
             margin-bottom: 30px;
         }
@@ -2356,7 +2365,7 @@
             transform: translateY(-2px);
         }
         
-        /* Telegram 缁戝畾鐘舵€佹牱寮?*/
+        /* Telegram 绑定状态样式 */
         .telegram-bind-status {
             margin-top: 10px;
         }
@@ -2404,7 +2413,7 @@
             background: rgba(239, 68, 68, 0.25);
         }
         
-        /* ====== 寮哄埗缁戝畾 Telegram 閬僵鏍峰紡 ====== */
+        /* ====== 强制绑定 Telegram 遮罩样式 ====== */
         .force-bind-tg-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -2554,7 +2563,7 @@
             .force-bind-code-display .code-value { font-size: 22px; letter-spacing: 2px; }
         }
 
-        /* Telegram 缁戝畾寮圭獥鏍峰紡 */
+        /* Telegram 绑定弹窗样式 */
         .telegram-bind-overlay {
             position: fixed;
             top: 0;
@@ -2692,7 +2701,7 @@
             font-size: 16px;
         }
         
-        /* 妯悜甯冨眬鐨勬楠?*/
+        /* 横向布局的步骤 */
         .telegram-bind-dialog .bind-steps-horizontal {
             display: flex;
             flex-direction: row;
@@ -2929,7 +2938,7 @@
             to { transform: rotate(360deg); }
         }
 
-        /* 瑙ｇ粦纭寮圭獥 */
+        /* 解绑确认弹窗 */
         .unbind-overlay {
             position: fixed;
             top: 0;
@@ -3065,24 +3074,24 @@
         }
     </style>
     
-    <!-- 瑙ｇ粦 Emby 璐﹀彿纭寮圭獥 -->
+    <!-- 解绑 Emby 账号确认弹窗 -->
     <div class="unbind-overlay" id="unbindEmbyOverlay" style="display: none;">
         <div class="unbind-dialog">
-            <div class="warning-icon">鈿狅笍</div>
-            <h3>瑙ｇ粦 Emby 璐﹀彿</h3>
-            <p>瑙ｇ粦鍚庯紝鎮ㄥ皢鏃犳硶浣跨敤濯掍綋搴撴湇鍔★紝浣?Emby 璐﹀彿鏈韩涓嶄細琚垹闄?/p>
+            <div class="warning-icon">⚠️</div>
+            <h3>解绑 Emby 账号</h3>
+            <p>解绑后，您将无法使用媒体库服务，但 Emby 账号本身不会被删除</p>
             <div class="warning-text">
-                鈿狅笍 瑙ｇ粦鍚庢偍闇€瑕侀噸鏂扮粦瀹氭垨鍒涘缓璐﹀彿鎵嶈兘缁х画浣跨敤
+                ⚠️ 解绑后您需要重新绑定或创建账号才能继续使用
             </div>
             <form id="unbindEmbyForm" onsubmit="submitEmbyUnbind(event)">
                 <div class="form-group">
-                    <label>璇疯緭鍏ュ綋鍓嶅瘑鐮佺‘璁よВ缁?/label>
-                    <input type="password" id="unbindPassword" placeholder="璇疯緭鍏ユ偍鐨勫瘑鐮? required>
+                    <label>请输入当前密码确认解绑</label>
+                    <input type="password" id="unbindPassword" placeholder="请输入您的密码" required>
                 </div>
                 <div class="form-error" id="unbindError"></div>
                 <div class="dialog-btns">
-                    <button type="button" class="btn-cancel" onclick="closeUnbindEmbyDialog()">鍙栨秷</button>
-                    <button type="submit" class="btn-confirm-unbind" id="unbindSubmitBtn">纭瑙ｇ粦</button>
+                    <button type="button" class="btn-cancel" onclick="closeUnbindEmbyDialog()">取消</button>
+                    <button type="submit" class="btn-confirm-unbind" id="unbindSubmitBtn">确认解绑</button>
                 </div>
             </form>
         </div>
@@ -3101,15 +3110,15 @@
             ]
         }
     </script>
-    <script src="{{ url_for('static', filename='js/common.js') }}?v={{ app_version }}"></script>
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ app_version }}"></script>
-    <script src="{{ url_for('static', filename='js/checkin.js') }}?v={{ app_version }}"></script>
+    <script src="{{ url_for('static', filename='js/common.js') }}?v=22"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=43"></script>
+    <script src="{{ url_for('static', filename='js/checkin.js') }}?v=5"></script>
     {% if site_config.custom_js %}
     <script>{{ site_config.custom_js | safe }}</script>
     {% endif %}
     {% if not user.embyid %}
     <script>
-        // 鐢ㄦ埛鏈粦瀹?Emby锛岄〉闈㈠姞杞藉悗寮瑰嚭寮曞
+        // 用户未绑定 Emby，页面加载后弹出引导
         document.addEventListener('DOMContentLoaded', function() {
             setTimeout(checkEmbyBindStatus, 800);
         });
