@@ -1556,22 +1556,9 @@
                             </div>
                             <div class="form-group">
                                 <label for="lineServerUrl">服务器地址 *</label>
-                                <input type="text" id="lineServerUrl" placeholder="如：emby.example.com"
+                                <input type="text" id="lineServerUrl" placeholder="如：https://emby.example.com:8096"
                                     class="form-input">
-                                <span class="form-hint">不带协议前缀(http/https)</span>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group half">
-                                    <label for="linePort">端口</label>
-                                    <input type="number" id="linePort" value="8096" class="form-input">
-                                </div>
-                                <div class="form-group half">
-                                    <label for="lineHttps">使用HTTPS</label>
-                                    <select id="lineHttps" class="form-input">
-                                        <option value="false">否 (HTTP)</option>
-                                        <option value="true">是 (HTTPS)</option>
-                                    </select>
-                                </div>
+                                <span class="form-hint">直接填写完整服务器地址，包含协议、域名和端口</span>
                             </div>
                             <div class="form-group">
                                 <label>可见套餐类型 *</label>

@@ -20,7 +20,7 @@ import time
 import threading
 from threading import Lock, Thread, Event
 from typing import Optional, Union
-from urllib.parse import quote_plus, quote
+from urllib.parse import quote_plus, quote, urlparse
 import xml.etree.ElementTree as ET
 import re
 from PIL import Image, ImageDraw, ImageFont
@@ -4912,6 +4912,36 @@ class ServerLine(db.Model):
     is_active = db.Column(db.Boolean, default=True)  # 是否启用
     created_at = db.Column(db.DateTime, default=lambda: datetime.now())
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
+
+    @staticmethod
+    def resolve_url(server_url, port=None, is_https=None):
+        """将线路地址规范化为完整 URL，并尽量兼容旧的 host+port+https 结构"""
+        raw_url = str(server_url or '').strip()
+        if not raw_url:
+            return '', None, None
+
+        if re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*://', raw_url):
+            parsed = urlparse(raw_url)
+            resolved_is_https = (parsed.scheme or '').lower() == 'https'
+            resolved_port = parsed.port or (443 if resolved_is_https else 80)
+            return raw_url, resolved_port, resolved_is_https
+
+        resolved_is_https = bool(is_https)
+        try:
+            resolved_port = int(port) if port not in (None, '') else None
+        except (TypeError, ValueError):
+            resolved_port = None
+
+        if resolved_port is None:
+            resolved_port = 443 if resolved_is_https else 8096
+
+        scheme = 'https' if resolved_is_https else 'http'
+        return f'{scheme}://{raw_url}:{resolved_port}', resolved_port, resolved_is_https
+
+    def get_full_url(self):
+        """获取完整线路地址"""
+        full_url, _, _ = self.resolve_url(self.server_url, self.port, self.is_https)
+        return full_url
     
     def to_dict(self, include_sensitive=True):
         """转换为字典
@@ -4930,11 +4960,11 @@ class ServerLine(db.Model):
         }
         
         if include_sensitive:
-            protocol = 'https' if self.is_https else 'http'
-            base_dict['server_url'] = self.server_url
+            full_url = self.get_full_url()
+            base_dict['server_url'] = full_url
             base_dict['port'] = self.port
             base_dict['is_https'] = self.is_https
-            base_dict['full_url'] = f"{protocol}://{self.server_url}:{self.port}"
+            base_dict['full_url'] = full_url
         
         return base_dict
     
@@ -22799,6 +22829,7 @@ def admin_add_line():
         
         if not name:
             return jsonify({'success': False, 'error': '线路名称不能为空'}), 400
+        server_url, port, is_https = ServerLine.resolve_url(server_url, port, is_https)
         if not server_url:
             return jsonify({'success': False, 'error': '服务器地址不能为空'}), 400
         
@@ -22843,12 +22874,15 @@ def admin_update_line(line_id):
         
         if 'name' in data:
             line.name = data['name'].strip()
-        if 'server_url' in data:
-            line.server_url = data['server_url'].strip()
-        if 'port' in data:
-            line.port = data['port']
-        if 'is_https' in data:
-            line.is_https = data['is_https']
+        if any(key in data for key in ('server_url', 'port', 'is_https')):
+            next_server_url = data.get('server_url', line.server_url)
+            next_port = data.get('port', line.port)
+            next_is_https = data.get('is_https', line.is_https)
+            line.server_url, line.port, line.is_https = ServerLine.resolve_url(
+                next_server_url,
+                next_port,
+                next_is_https
+            )
         if 'description' in data:
             line.description = data['description'].strip()
         if 'access_level' in data:

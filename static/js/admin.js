@@ -6021,7 +6021,7 @@ function renderLines(lines) {
     }
     
     linesList.innerHTML = lines.map(line => {
-        const fullUrl = line.full_url || (line.is_https ? 'https' : 'http') + '://' + line.server_url + ':' + line.port;
+        const fullUrl = line.full_url || line.server_url || '';
         const planTypes = line.allowed_plan_types || [];
         const planBadges = planTypes.length > 0
             ? planTypes.map(t => `<span class="line-badge-mini plan-type-tag">${planTypeNames[t] || t}</span>`).join('')
@@ -6124,8 +6124,6 @@ function showAddLineModal() {
     document.getElementById('editLineId').value = '';
     document.getElementById('lineName').value = '';
     document.getElementById('lineServerUrl').value = '';
-    document.getElementById('linePort').value = '8096';
-    document.getElementById('lineHttps').value = 'false';
     document.getElementById('lineDescription').value = '';
     document.getElementById('lineSortOrder').value = '0';
     loadLinePlanTypeOptions([]);
@@ -6139,9 +6137,7 @@ function editLine(lineId) {
     document.getElementById('lineModalTitle').textContent = '编辑线路';
     document.getElementById('editLineId').value = line.id;
     document.getElementById('lineName').value = line.name || '';
-    document.getElementById('lineServerUrl').value = line.server_url || '';
-    document.getElementById('linePort').value = line.port || 8096;
-    document.getElementById('lineHttps').value = line.is_https ? 'true' : 'false';
+    document.getElementById('lineServerUrl').value = line.full_url || line.server_url || '';
     document.getElementById('lineDescription').value = line.description || '';
     document.getElementById('lineSortOrder').value = line.sort_order || 0;
     loadLinePlanTypeOptions(line.allowed_plan_types || []);
@@ -6156,8 +6152,6 @@ async function saveLine() {
     const lineId = document.getElementById('editLineId').value;
     const name = document.getElementById('lineName').value.trim();
     const serverUrl = document.getElementById('lineServerUrl').value.trim();
-    const port = parseInt(document.getElementById('linePort').value) || 8096;
-    const isHttps = document.getElementById('lineHttps').value === 'true';
     const description = document.getElementById('lineDescription').value.trim();
     const sortOrder = parseInt(document.getElementById('lineSortOrder').value) || 0;
     
@@ -6184,8 +6178,6 @@ async function saveLine() {
     const payload = {
         name,
         server_url: serverUrl,
-        port,
-        is_https: isHttps,
         access_level: accessLevel,
         allowed_plan_types: allowedPlanTypes,
         description,
