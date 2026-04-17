@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.1.3'
+APP_VERSION = '2.1.4'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -271,6 +271,8 @@ tmdb_cache = TMDBCache(default_ttl=86400)  # 1天缓存（86400秒）
 load_dotenv()
 
 app = Flask(__name__)
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.jinja_env.auto_reload = True
 
 
 @app.context_processor
