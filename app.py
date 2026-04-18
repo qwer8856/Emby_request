@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.8'
+APP_VERSION = '2.2.9'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -11105,7 +11105,10 @@ def request_movie():
     
     # 先返回成功响应给用户，然后异步发送 Telegram 通知
     daily_limit = user.get_daily_limit()
-    remaining = daily_limit - user.get_today_request_count() if not user.is_admin else '无限制'
+    today_count = user.get_today_request_count()
+    total_requests = MovieRequest.query.filter_by(user_tg=user.tg).count()
+    remaining = daily_limit - today_count if not user.is_admin else '无限制'
+    remaining_text = '无限制' if user.is_admin else str(remaining)
     
     # 在后台发送 Telegram 通知（不阻塞响应）
     try:
@@ -11142,7 +11145,12 @@ def request_movie():
     return jsonify({
         'success': True,
         'message': '求片成功！',
-        'remaining': remaining
+        'remaining': remaining,
+        'remaining_text': remaining_text,
+        'today_count': today_count,
+        'total_requests': total_requests,
+        'daily_limit': None if user.is_admin else daily_limit,
+        'daily_limit_text': '无限制' if user.is_admin else str(daily_limit)
     }), 200
 
 
@@ -17905,6 +17913,13 @@ def api_my_requests():
     requests_list = MovieRequest.query.options(
         joinedload(MovieRequest.download_task)
     ).filter_by(user_tg=user.tg).order_by(MovieRequest.created_at.desc()).limit(100).all()
+    requests_query = MovieRequest.query.filter_by(user_tg=user.tg)
+    today_count = user.get_today_request_count()
+    total_requests = requests_query.count()
+    daily_limit = user.get_daily_limit()
+    daily_limit_text = '无限制' if user.is_admin else str(daily_limit)
+    remaining = '无限制' if user.is_admin else max(daily_limit - today_count, 0)
+    remaining_text = '无限制' if user.is_admin else str(remaining)
     
     # 根据配置决定是否使用图片代理
     site_config = get_site_config()
@@ -17951,7 +17966,13 @@ def api_my_requests():
     return jsonify({
         'success': True,
         'requests': results,
-        'total': len(results)
+        'total': len(results),
+        'today_count': today_count,
+        'total_requests': total_requests,
+        'daily_limit': None if user.is_admin else daily_limit,
+        'daily_limit_text': daily_limit_text,
+        'remaining': remaining,
+        'remaining_text': remaining_text
     })
 
 

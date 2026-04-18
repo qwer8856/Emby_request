@@ -263,27 +263,27 @@
                     <!-- 左侧：订阅状态 -->
                     <div class="subscription-status-mini">
                         {% if is_whitelist %}
-                        <div class="status-badge-mini whitelist">
-                            <span class="badge-icon">👑</span>
+                        <div class="status-badge-mini whitelist" id="subscriptionMiniStatus">
+                            <span class="badge-icon" id="subscriptionMiniIcon">👑</span>
                             <div class="badge-info">
-                                <span class="badge-title">白名单用户</span>
-                                <span class="badge-desc">永久有效 · 无限求片</span>
+                                <span class="badge-title" id="subscriptionMiniTitle">白名单用户</span>
+                                <span class="badge-desc" id="subscriptionMiniDesc">永久有效 · 无限求片</span>
                             </div>
                         </div>
                         {% elif user.ex and user.ex > now %}
-                        <div class="status-badge-mini subscriber">
-                            <span class="badge-icon">✨</span>
+                        <div class="status-badge-mini subscriber" id="subscriptionMiniStatus">
+                            <span class="badge-icon" id="subscriptionMiniIcon">✨</span>
                             <div class="badge-info">
-                                <span class="badge-title">订阅用户</span>
-                                <span class="badge-desc">有效期至 {{ user.ex.strftime('%Y-%m-%d') }}</span>
+                                <span class="badge-title" id="subscriptionMiniTitle">订阅用户</span>
+                                <span class="badge-desc" id="subscriptionMiniDesc">有效期至 {{ user.ex.strftime('%Y-%m-%d') }}</span>
                             </div>
                         </div>
                         {% else %}
-                        <div class="status-badge-mini no-sub">
-                            <span class="badge-icon">📭</span>
+                        <div class="status-badge-mini no-sub" id="subscriptionMiniStatus">
+                            <span class="badge-icon" id="subscriptionMiniIcon">📭</span>
                             <div class="badge-info">
-                                <span class="badge-title">未订阅</span>
-                                <span class="badge-desc"><a href="#purchase" onclick="switchSection('purchase')">点击购买套餐</a></span>
+                                <span class="badge-title" id="subscriptionMiniTitle">未订阅</span>
+                                <span class="badge-desc" id="subscriptionMiniDesc"><a href="#purchase" onclick="switchSection('purchase')">点击购买套餐</a></span>
                             </div>
                         </div>
                         {% endif %}
@@ -759,21 +759,21 @@
                         <div class="stat-item-v2">
                             <div class="stat-icon-v2 icon-today">🎬</div>
                             <div class="stat-info-v2">
-                                <span class="stat-num">{{ today_count }}</span>
+                                <span class="stat-num" id="homeTodayCount">{{ today_count }}</span>
                                 <span class="stat-text">今日求片</span>
                             </div>
                         </div>
                         <div class="stat-item-v2">
                             <div class="stat-icon-v2 icon-total">📈</div>
                             <div class="stat-info-v2">
-                                <span class="stat-num">{{ total_requests }}</span>
+                                <span class="stat-num" id="homeTotalRequests">{{ total_requests }}</span>
                                 <span class="stat-text">总求片数</span>
                             </div>
                         </div>
                         <div class="stat-item-v2">
                             <div class="stat-icon-v2 icon-daily">📅</div>
                             <div class="stat-info-v2">
-                                <span class="stat-num">{{ max_daily }}</span>
+                                <span class="stat-num" id="homeMaxDaily">{{ max_daily }}</span>
                                 <span class="stat-text">每日限额</span>
                             </div>
                         </div>
@@ -3103,15 +3103,16 @@
             "tmdbImageBase": {{ tmdb_image_base | tojson }},
             "requestedKeys": [
                 {% if requests %}
-                {% for req in requests %}
+                {% set requested_requests = requests | rejectattr('status', 'equalto', 'rejected') | list %}
+                {% for req in requested_requests %}
                 {{ (req.tmdb_id ~ '_' ~ req.media_type) | tojson }}{% if not loop.last %},{% endif %}
                 {% endfor %}
                 {% endif %}
             ]
         }
     </script>
-    <script src="{{ url_for('static', filename='js/common.js') }}?v=22"></script>
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=43"></script>
+    <script src="{{ url_for('static', filename='js/common.js') }}?v=23"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=44"></script>
     <script src="{{ url_for('static', filename='js/checkin.js') }}?v=5"></script>
     {% if site_config.custom_js %}
     <script>{{ site_config.custom_js | safe }}</script>

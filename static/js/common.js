@@ -333,4 +333,118 @@
     }
 
     global.showCaptchaPrompt = showCaptchaPrompt;
+
+    // ==================== 数据刷新总线 ====================
+    const refreshChannelName = 'emby-request-refresh';
+    const refreshListeners = new Set();
+    let refreshChannel = null;
+
+    function notifyRefreshListeners(payload) {
+        refreshListeners.forEach((handler) => {
+            try {
+                handler(payload);
+            } catch (error) {
+                console.error('刷新监听器执行失败:', error);
+            }
+        });
+    }
+
+    function emitAppRefresh(scope = 'dashboard', detail = {}) {
+        const payload = {
+            scope,
+            detail,
+            ts: Date.now()
+        };
+
+        if (refreshChannel) {
+            try {
+                refreshChannel.postMessage(payload);
+            } catch (error) {
+                console.warn('广播刷新消息失败:', error);
+            }
+        }
+
+        try {
+            localStorage.setItem(refreshChannelName, JSON.stringify(payload));
+            localStorage.removeItem(refreshChannelName);
+        } catch (error) {
+            // ignore storage quota / disabled storage issues
+        }
+
+        return payload;
+    }
+
+    function onAppRefresh(handler) {
+        if (typeof handler !== 'function') return () => {};
+        refreshListeners.add(handler);
+        return () => refreshListeners.delete(handler);
+    }
+
+    function inferRefreshScope(url, method) {
+        const upperMethod = String(method || 'GET').toUpperCase();
+        if (upperMethod === 'GET' || upperMethod === 'HEAD') return null;
+
+        const path = String(url || '');
+        if (path.includes('/api/admin/') || path.includes('/admin/')) return 'admin';
+        if (
+            path.includes('/request-movie') ||
+            path.includes('/api/emby/') ||
+            path.includes('/api/user/') ||
+            path.includes('/api/account/') ||
+            path.includes('/api/redeem/') ||
+            path.includes('/api/support/') ||
+            path.includes('/api/user/checkin') ||
+            path.includes('/api/user/exchange') ||
+            path.includes('/api/request') ||
+            path.includes('/api/orders') ||
+            path.includes('/api/order') ||
+            path.includes('/api/subscription') ||
+            path.includes('/api/ticket') ||
+            path.includes('/api/invite') ||
+            path.includes('/api/payment')
+        ) {
+            return 'dashboard';
+        }
+        return null;
+    }
+
+    if (typeof BroadcastChannel !== 'undefined') {
+        try {
+            refreshChannel = new BroadcastChannel(refreshChannelName);
+            refreshChannel.onmessage = (event) => notifyRefreshListeners(event.data);
+        } catch (error) {
+            refreshChannel = null;
+        }
+    }
+
+    window.addEventListener('storage', (event) => {
+        if (event.key !== refreshChannelName || !event.newValue) return;
+        try {
+            notifyRefreshListeners(JSON.parse(event.newValue));
+        } catch (error) {
+            // ignore malformed payloads
+        }
+    });
+
+    if (typeof global.fetch === 'function' && !global.__appFetchWrapped) {
+        const originalFetch = global.fetch.bind(global);
+        global.fetch = async function(input, init) {
+            const response = await originalFetch(input, init);
+            try {
+                const url = typeof input === 'string' ? input : (input && input.url) ? input.url : '';
+                const method = (init && init.method) || (input && input.method) || 'GET';
+                const scope = inferRefreshScope(url, method);
+                if (scope && response && response.ok) {
+                    emitAppRefresh(scope, { url, method, status: response.status });
+                }
+            } catch (error) {
+                // 不中断业务请求
+            }
+            return response;
+        };
+        global.__appFetchWrapped = true;
+    }
+
+    global.emitAppRefresh = emitAppRefresh;
+    global.onAppRefresh = onAppRefresh;
 })(window);

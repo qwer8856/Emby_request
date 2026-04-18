@@ -1187,6 +1187,8 @@ async function unbindTelegramId() {
             if (updateHash) {
                 history.replaceState(null, '', `#${sectionName}`);
             }
+
+            currentDashboardSection = sectionName;
             
             // 移动端关闭侧边栏
             if (window.innerWidth <= 768) {
@@ -1201,7 +1203,14 @@ async function unbindTelegramId() {
             // 每次点击菜单都重新加载对应模块数据
             switch(sectionName) {
                 case 'home':
-                    updateDashboardStats();
+                    refreshHomeOverview().catch(error => {
+                        console.error('刷新首页失败:', error);
+                    });
+                    break;
+                case 'search':
+                    refreshSearchOverview().catch(error => {
+                        console.error('刷新搜索页失败:', error);
+                    });
                     break;
                 case 'subscription':
                     loadSubscriptionInfo();
@@ -1210,8 +1219,8 @@ async function unbindTelegramId() {
                     loadPlans();
                     break;
                 case 'trending':
-                    loadTrending('movie', 'trendingMovies', 'moviePagination', 1);
-                    loadTrending('tv', 'trendingTV', 'tvPagination', 1);
+                    loadTrending('movie', 'trendingMovies', 'moviePagination', movieCurrentPage);
+                    loadTrending('tv', 'trendingTV', 'tvPagination', tvCurrentPage);
                     trendingLoaded = true;
                     break;
                 case 'requests':
@@ -1272,11 +1281,9 @@ async function unbindTelegramId() {
         
         // 更新主页统计数据
         function updateDashboardStats() {
-            const todayCountEl = document.getElementById('todayCount');
-            const dashTodayCountEl = document.getElementById('dashTodayCount');
-            if (todayCountEl && dashTodayCountEl) {
-                dashTodayCountEl.textContent = todayCountEl.textContent;
-            }
+            refreshHomeOverview().catch(error => {
+                console.error('刷新首页数据失败:', error);
+            });
         }
         
         // 显示邀请对话框
@@ -1426,6 +1433,11 @@ async function unbindTelegramId() {
         }
 
         let searchTimeout;
+        let currentDashboardSection = 'home';
+        let dashboardAutoRefreshTimer = null;
+        let dashboardRefreshInFlight = false;
+        let dashboardRefreshSyncBound = false;
+        let dashboardRefreshUnsubscribe = null;
     let movieCurrentPage = 1;
         let tvCurrentPage = 1;
         let trendingLoaded = false;
@@ -1448,29 +1460,262 @@ async function unbindTelegramId() {
         }
         const requestedMovies = new Set((dashboardMeta.requestedKeys) || []);
         const tmdbImageBase = dashboardMeta.tmdbImageBase || '';
-        
-        // 更新统计数据
-        function updateStats(remaining) {
-            // 更新今日已求片数
-            const todayCountEl = document.getElementById('todayCount');
-            const dashTodayCountEl = document.getElementById('dashTodayCount');
-            if (todayCountEl) {
-                const currentCount = parseInt(todayCountEl.textContent) || 0;
-                todayCountEl.textContent = currentCount + 1;
-                // 同步更新主页统计
-                if (dashTodayCountEl) {
-                    dashTodayCountEl.textContent = currentCount + 1;
-                }
-            }
-            
-            // 更新总求片次数
-            const totalRequestsEl = document.getElementById('totalRequests');
-            if (totalRequestsEl) {
-                const currentTotal = parseInt(totalRequestsEl.textContent) || 0;
-                totalRequestsEl.textContent = currentTotal + 1;
+
+        function shouldAutoRefreshDashboardSection(sectionName = currentDashboardSection) {
+            return ['home', 'search', 'subscription', 'purchase', 'trending', 'requests', 'playback', 'invite', 'support', 'activity-logs'].includes(sectionName);
+        }
+
+        function setTextIfExists(id, value) {
+            const el = document.getElementById(id);
+            if (el && value !== undefined && value !== null) {
+                el.textContent = value;
             }
         }
+
+        function formatDashboardDate(value) {
+            if (!value) return '--';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '--';
+            return date.toLocaleDateString('zh-CN');
+        }
+
+        function syncRequestedMoviesFromRequests(requests) {
+            requestedMovies.clear();
+            (requests || []).forEach(req => {
+                if (req && req.status !== 'rejected' && req.tmdb_id !== undefined && req.media_type) {
+                    requestedMovies.add(`${req.tmdb_id}_${req.media_type}`);
+                }
+            });
+        }
+
+        function updateRequestCounters(data = {}) {
+            const todayCount = data.today_count;
+            const totalRequests = data.total_requests;
+            const dailyLimit = data.daily_limit_text ?? data.daily_limit;
+
+            [
+                ['todayCount', todayCount],
+                ['homeTodayCount', todayCount],
+                ['dashTodayCount', todayCount]
+            ].forEach(([id, value]) => setTextIfExists(id, value));
+
+            [
+                ['totalRequests', totalRequests],
+                ['homeTotalRequests', totalRequests],
+                ['subscriptionTotalRequests', totalRequests],
+                ['dashTotalRequests', totalRequests]
+            ].forEach(([id, value]) => setTextIfExists(id, value));
+
+            [
+                ['maxDaily', dailyLimit],
+                ['homeMaxDaily', dailyLimit],
+                ['subscriptionDailyLimit', dailyLimit],
+                ['dashMaxDaily', dailyLimit]
+            ].forEach(([id, value]) => setTextIfExists(id, value));
+
+            const remainingText = data.remaining_text ?? data.remaining;
+            if (remainingText !== undefined && remainingText !== null) {
+                setTextIfExists('requestRemaining', remainingText);
+            }
+        }
+
+        function applySubscriptionMini(subscriptionData) {
+            const mini = document.getElementById('subscriptionMiniStatus');
+            const icon = document.getElementById('subscriptionMiniIcon');
+            const title = document.getElementById('subscriptionMiniTitle');
+            const desc = document.getElementById('subscriptionMiniDesc');
+            if (!mini || !icon || !title || !desc) return;
+
+            const sub = subscriptionData && subscriptionData.subscription;
+            if (!sub) {
+                mini.className = 'status-badge-mini no-sub';
+                icon.textContent = '📭';
+                title.textContent = '未订阅';
+                desc.innerHTML = '<a href="#purchase" onclick="switchSection(\'purchase\')">点击购买套餐</a>';
+                return;
+            }
+
+            const isWhitelist = !!(sub.is_whitelist || sub.plan_type === 'whitelist');
+            const isActive = isWhitelist || sub.status === 'active' || (sub.end_date && new Date(sub.end_date).getTime() > Date.now());
+
+            if (isWhitelist) {
+                mini.className = 'status-badge-mini whitelist';
+                icon.textContent = '👑';
+                title.textContent = '白名单用户';
+                desc.textContent = '永久有效 · 无限求片';
+                return;
+            }
+
+            if (isActive) {
+                mini.className = 'status-badge-mini subscriber';
+                icon.textContent = '✨';
+                title.textContent = '订阅用户';
+                desc.textContent = sub.end_date ? `有效期至 ${formatDashboardDate(sub.end_date)}` : '订阅有效';
+                return;
+            }
+
+            mini.className = 'status-badge-mini no-sub';
+            icon.textContent = '📭';
+            title.textContent = '未订阅';
+            desc.innerHTML = '<a href="#purchase" onclick="switchSection(\'purchase\')">点击购买套餐</a>';
+        }
+
+        function applyMyRequestsSnapshot(data, options = {}) {
+            const requests = data.requests || [];
+            syncRequestedMoviesFromRequests(requests);
+            updateRequestCounters(data);
+
+            if (options.markCards !== false) {
+                markRequestedCards();
+            }
+
+            if (options.redrawSearch && allSearchResults.length > 0) {
+                displaySearchPage(searchCurrentPage, false);
+            }
+        }
+
+        async function fetchMyRequestsSnapshot() {
+            const response = await fetch('/api/my-requests', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            checkSessionExpiry(response);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.error || '获取求片数据失败');
+            }
+
+            return data;
+        }
+
+        async function refreshHomeOverview() {
+            const [requestsResult, subscriptionResult] = await Promise.allSettled([
+                fetchMyRequestsSnapshot(),
+                fetch('/api/subscription/current')
+            ]);
+
+            if (requestsResult.status === 'fulfilled') {
+                applyMyRequestsSnapshot(requestsResult.value, { markCards: true, redrawSearch: false });
+            }
+
+            if (subscriptionResult.status === 'fulfilled' && subscriptionResult.value && subscriptionResult.value.ok) {
+                const subscriptionData = await subscriptionResult.value.json();
+                applySubscriptionMini(subscriptionData);
+            }
+        }
+
+        async function refreshSearchOverview() {
+            const requestsData = await fetchMyRequestsSnapshot();
+            applyMyRequestsSnapshot(requestsData, {
+                markCards: true,
+                redrawSearch: false
+            });
+        }
+
+        async function refreshCurrentDashboardSection(reason = 'auto') {
+            if (document.hidden || dashboardRefreshInFlight || !shouldAutoRefreshDashboardSection()) {
+                return;
+            }
+
+            if (reason === 'interval' && document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+                return;
+            }
+
+            if (currentDashboardSection === 'playback' && reason === 'interval') {
+                return;
+            }
+
+            dashboardRefreshInFlight = true;
+            try {
+                switch (currentDashboardSection) {
+                    case 'home':
+                        await refreshHomeOverview();
+                        break;
+                    case 'search':
+                        await refreshSearchOverview();
+                        break;
+                    case 'subscription':
+                        await loadSubscriptionInfo();
+                        break;
+                    case 'purchase':
+                        await loadPlans();
+                        break;
+                    case 'trending':
+                        await Promise.all([
+                            loadTrending('movie', 'trendingMovies', 'moviePagination', movieCurrentPage),
+                            loadTrending('tv', 'trendingTV', 'tvPagination', tvCurrentPage)
+                        ]);
+                        break;
+                    case 'requests':
+                        await refreshRequestList();
+                        break;
+                    case 'playback':
+                        await loadPlaybackData();
+                        break;
+                    case 'invite':
+                        await loadInviteInfo();
+                        break;
+                    case 'support':
+                        await loadMyTickets();
+                        break;
+                    case 'activity-logs':
+                        await loadMyActivityLogs(myActivityCurrentPage);
+                        break;
+                    default:
+                        break;
+                }
+            } catch (error) {
+                console.error('自动刷新前台失败:', error);
+            } finally {
+                dashboardRefreshInFlight = false;
+            }
+        }
+
+        function startDashboardAutoRefresh() {
+            stopDashboardAutoRefresh();
+            dashboardAutoRefreshTimer = setInterval(() => {
+                refreshCurrentDashboardSection('interval');
+            }, 45000);
+        }
+
+        function stopDashboardAutoRefresh() {
+            if (dashboardAutoRefreshTimer) {
+                clearInterval(dashboardAutoRefreshTimer);
+                dashboardAutoRefreshTimer = null;
+            }
+        }
+
+        function bindDashboardRefreshSync() {
+            if (dashboardRefreshSyncBound) return;
+            dashboardRefreshSyncBound = true;
+
+            if (typeof onAppRefresh === 'function' && !dashboardRefreshUnsubscribe) {
+                dashboardRefreshUnsubscribe = onAppRefresh((payload) => {
+                    if (!payload) return;
+                    refreshCurrentDashboardSection('broadcast');
+                });
+            }
+
+            window.addEventListener('focus', () => {
+                refreshCurrentDashboardSection('focus');
+            });
+
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) {
+                    refreshCurrentDashboardSection('visible');
+                }
+            });
+        }
         
+        // 更新统计数据
+        function updateStats(data = {}) {
+            updateRequestCounters(data);
+        }
+
         // 根据屏幕宽度动态设置每页显示数量
         function updateSearchResultsPerPage() {
             if (window.innerWidth <= 480) {
@@ -1757,8 +2002,8 @@ async function unbindTelegramId() {
                 const onclick = card.getAttribute('onclick');
                 if (onclick) {
                     const match = onclick.match(/requestMovie\((\d+),\s*'(\w+)'/);
-                    if (match && isRequested(match[1], match[2])) {
-                        card.classList.add('requested');
+                    if (match) {
+                        card.classList.toggle('requested', isRequested(match[1], match[2]));
                     }
                 }
             });
@@ -1867,6 +2112,8 @@ async function unbindTelegramId() {
             }, 500);
 
             initDownloadProgressWatcher();
+            bindDashboardRefreshSync();
+            startDashboardAutoRefresh();
         });
         
         // 初始化求片记录分页
@@ -2089,7 +2336,7 @@ async function unbindTelegramId() {
         }
         
         // 显示搜索结果的指定页
-        function displaySearchPage(page) {
+        function displaySearchPage(page, scrollToResults = true) {
             const resultsDiv = document.getElementById('searchResults');
             const paginationDiv = document.getElementById('searchPagination');
             const totalPages = Math.ceil(allSearchResults.length / searchResultsPerPage);
@@ -2133,7 +2380,9 @@ async function unbindTelegramId() {
             updateSearchPagination(totalPages);
             
             // 滚动到搜索结果顶部
-            resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (scrollToResults) {
+                resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
         }
         
         // 更新搜索结果分页按钮
@@ -2760,7 +3009,7 @@ async function unbindTelegramId() {
                     markRequestedCards();
                     
                     // 更新统计数据
-                    updateStats(data.remaining);
+                    updateStats(data);
                     
                     // 成功提示弹窗
                     showToast(
@@ -3072,27 +3321,14 @@ async function unbindTelegramId() {
         
         async function refreshRequestList() {
             try {
-                const response = await fetch('/api/my-requests', {
-                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                });
-                checkSessionExpiry(response);
-                
-                if (!response.ok) {
-                    showMessage('刷新失败', 'error');
-                    return;
-                }
-                
-                const data = await response.json();
-                if (!data.success) {
-                    showMessage(data.error || '刷新失败', 'error');
-                    return;
-                }
-                
+                const data = await fetchMyRequestsSnapshot();
+                applyMyRequestsSnapshot(data, { markCards: true, redrawSearch: false });
+
                 const requestList = document.getElementById('requestList');
                 if (!requestList) return;
-                
+
                 const requests = data.requests || [];
-                
+
                 if (requests.length === 0) {
                     requestList.innerHTML = `
                         <div class="empty-state">
@@ -3634,6 +3870,11 @@ async function unbindTelegramId() {
             const endDate = document.getElementById('subscriptionEndDate');
             
             try {
+                const requestSnapshot = await fetchMyRequestsSnapshot().catch(() => null);
+                if (requestSnapshot) {
+                    applyMyRequestsSnapshot(requestSnapshot, { markCards: true, redrawSearch: false });
+                }
+
                 // 获取当前订阅
                 const response = await fetch('/api/subscription/current');
                 const data = await response.json();

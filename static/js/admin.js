@@ -58,6 +58,8 @@ let currentRequestId = null;
         
         // 初始化管理员权限 - 隐藏无权限的菜单
         initAdminPermissions();
+        bindAdminRefreshSync();
+        startAdminAutoRefresh();
     });
     
     // ==================== 管理员退出登录 ====================
@@ -1470,6 +1472,131 @@ let currentRequestId = null;
 
 // ==================== 管理模块切换 ====================
 let currentAdminSection = 'dashboard';
+const ADMIN_AUTO_REFRESH_INTERVAL = 45000;
+let adminAutoRefreshTimer = null;
+let adminRefreshInFlight = false;
+let adminRefreshSyncBound = false;
+let adminRefreshUnsubscribe = null;
+
+function shouldAutoRefreshAdminSection(section = currentAdminSection) {
+    return ['dashboard', 'requests', 'subscriptions', 'orders', 'tickets', 'invites', 'users', 'plans', 'redeem', 'redeem-codes', 'playback', 'knowledge', 'audit', 'settings', 'blacklist'].includes(section);
+}
+
+async function refreshAdminCurrentSection(reason = 'auto') {
+    if (document.hidden || adminRefreshInFlight || !shouldAutoRefreshAdminSection()) {
+        return;
+    }
+
+    if (reason === 'interval' && document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+        return;
+    }
+
+    if (currentAdminSection === 'playback' && reason === 'interval') {
+        return;
+    }
+
+    adminRefreshInFlight = true;
+    try {
+        switch (currentAdminSection) {
+            case 'dashboard':
+                await loadDashboardStats();
+                break;
+            case 'requests':
+                window.location.reload();
+                return;
+            case 'subscriptions':
+                await loadSubscriptions();
+                break;
+            case 'orders':
+                await loadOrders();
+                break;
+            case 'tickets':
+                await loadTickets();
+                break;
+            case 'invites':
+                await loadInviteStats();
+                break;
+            case 'users':
+                await loadGlobalPlanTypeOptions();
+                await loadUsers(userCurrentPage, window._userPerPage || 20);
+                break;
+            case 'plans':
+                await loadPlansConfig();
+                break;
+            case 'redeem':
+            case 'redeem-codes':
+                await loadRedeemCodes();
+                break;
+            case 'playback':
+                refreshAdminPlayback();
+                break;
+            case 'knowledge':
+                await loadKnowledge();
+                break;
+            case 'audit':
+                await loadAuditLogs(1);
+                break;
+            case 'settings':
+                await loadSiteConfig();
+                await loadPaymentConfig();
+                await loadDownloadConfig();
+                await loadSystemConfig();
+                await loadCategoryConfig();
+                await loadLines();
+                await loadAnnouncements();
+                await loadAllActivityLogs();
+                if (window.ADMIN_INFO && window.ADMIN_INFO.is_super) {
+                    await loadAdminList();
+                }
+                break;
+            case 'blacklist':
+                await loadBlacklist();
+                break;
+            default:
+                break;
+        }
+    } catch (error) {
+        console.error('自动刷新后台失败:', error);
+    } finally {
+        adminRefreshInFlight = false;
+    }
+}
+
+function startAdminAutoRefresh() {
+    stopAdminAutoRefresh();
+    adminAutoRefreshTimer = setInterval(() => {
+        refreshAdminCurrentSection('interval');
+    }, ADMIN_AUTO_REFRESH_INTERVAL);
+}
+
+function stopAdminAutoRefresh() {
+    if (adminAutoRefreshTimer) {
+        clearInterval(adminAutoRefreshTimer);
+        adminAutoRefreshTimer = null;
+    }
+}
+
+function bindAdminRefreshSync() {
+    if (adminRefreshSyncBound) return;
+    adminRefreshSyncBound = true;
+
+    if (typeof onAppRefresh === 'function' && !adminRefreshUnsubscribe) {
+        adminRefreshUnsubscribe = onAppRefresh((payload) => {
+            if (!payload) return;
+            refreshAdminCurrentSection('broadcast');
+        });
+    }
+
+    window.addEventListener('focus', () => {
+        refreshAdminCurrentSection('focus');
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            refreshAdminCurrentSection('visible');
+        }
+    });
+}
 
 function switchAdminSection(section, event, updateHash = true) {
     if (event) event.preventDefault();
@@ -1515,6 +1642,13 @@ function switchAdminSection(section, event, updateHash = true) {
     document.getElementById('pageTitle').textContent = titles[section] || section;
     
     currentAdminSection = section;
+    if (section === 'requests' && updateHash !== false) {
+        if (updateHash) {
+            history.replaceState(null, '', `#${section}`);
+        }
+        window.location.reload();
+        return;
+    }
     
     // 更新URL hash（记住当前页面）
     if (updateHash) {
@@ -1525,9 +1659,6 @@ function switchAdminSection(section, event, updateHash = true) {
     switch(section) {
         case 'dashboard':
             loadDashboardStats();
-            break;
-        case 'requests':
-            refreshDashboard();
             break;
         case 'subscriptions':
             loadSubscriptions();
