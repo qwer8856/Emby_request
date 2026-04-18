@@ -1232,6 +1232,17 @@ let currentRequestId = null;
                 .replace(/'/g, '&#39;');
         }
 
+        function fixText(text) {
+            if (text === undefined || text === null) return '';
+            const raw = String(text);
+            if (!/[ÃÂ�æçåäöüß]/.test(raw)) return raw;
+            try {
+                const decoded = decodeURIComponent(escape(raw));
+                if (decoded && decoded !== raw) return decoded;
+            } catch (e) {}
+            return raw;
+        }
+
         // ==================== 搜索功能 ====================
         function searchRequests() {
             const searchInput = document.getElementById('searchInput');
@@ -3686,7 +3697,7 @@ async function loadSystemConfig() {
         }
     } catch (error) {
         console.error('加载系统配置失败:', error);
-        showToast('错误', '加载系统配置失败', 'error');
+        showToast('错误', error.message || '加载系统配置失败', 'error');
     }
 }
 
@@ -7736,7 +7747,7 @@ async function loadUserDetails(userId) {
             document.getElementById('requestsContent').innerHTML = result.requests.map(req => `
                 <div class="list-item">
                     <div class="list-item-main">
-                        <div class="list-item-title">${req.title} (${req.year || ''})</div>
+                        <div class="list-item-title">${fixText(req.title)} (${req.year || ''})</div>
                         <div class="list-item-subtitle">
                             ${req.media_type === 'tv' ? '📺 剧集' : '🎬 电影'} | 
                             ${req.created_at ? new Date(req.created_at).toLocaleString('zh-CN') : ''}

@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.6'
+APP_VERSION = '2.2.7'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -41,6 +41,44 @@ def has_app_context():
         return flask_has_app_context()
     except:
         return False
+
+
+def normalize_display_text(text):
+    """尽量修正常见的乱码字符串（仅用于展示层）"""
+    if not isinstance(text, str) or not text:
+        return text
+
+    # 正常中文/英文内容不动，避免误伤
+    if any(ord(ch) > 255 for ch in text):
+        return text
+
+    suspicious = ('Ã', 'Â', '�', 'æ', 'ç', 'å', 'ä', 'ö', 'ü', 'ß')
+    if not any(ch in text for ch in suspicious):
+        return text
+
+    candidates = []
+    for encoding in ('utf-8', 'gbk', 'cp936', 'big5'):
+        try:
+            candidate = text.encode('latin1').decode(encoding)
+            if candidate and candidate != text:
+                candidates.append(candidate)
+        except Exception:
+            pass
+
+    if not candidates:
+        return text
+
+    def score(value):
+        cjk = len(re.findall(r'[\u4e00-\u9fff]', value))
+        bad = sum(value.count(ch) for ch in suspicious) + value.count('�')
+        return cjk * 4 - bad * 6 - len(value) * 0.01
+
+    best = max(candidates, key=score)
+    return best if score(best) > score(text) else text
+
+
+def fix_text_filter(text):
+    return normalize_display_text(text)
 
 
 # ==================== 数据库配置缓存（在 db 初始化前定义）====================
@@ -280,6 +318,9 @@ def inject_app_version():
     """让模板里统一使用 app_version 做缓存版本号"""
     return {'app_version': APP_VERSION}
 
+
+app.template_filter('fix_text')(fix_text_filter)
+
 # 注册支持负数的 int 转换器（Telegram 用户 ID 为负数）
 from werkzeug.routing import IntegerConverter
 class SignedIntConverter(IntegerConverter):
@@ -292,6 +333,7 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-change-this'
 # 数据库配置 - 支持两种方式
 # 方式1: 直接使用 DATABASE_URI（兼容旧配置）
 # 方式2: 使用分离的配置项（推荐）
+db_password = os.getenv('DB_PASSWORD', '')
 if os.getenv('DATABASE_URI'):
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI')
 else:
@@ -19751,28 +19793,47 @@ def clear_config_cache():
 @admin_required
 def get_system_config_api():
     """获取系统配置（管理员）- 不使用缓存确保读取最新值"""
-    config = load_system_config(use_cache=False)
-    templates = config['telegram'].get('templates', {'request': '', 'completion': ''})
+    try:
+        config = load_system_config(use_cache=False) or get_default_system_config()
+    except Exception as e:
+        app.logger.error(f'获取系统配置失败，使用默认值回退: {e}', exc_info=True)
+        config = get_default_system_config()
+
+    telegram_cfg = config.get('telegram') or {}
+    emby_cfg = config.get('emby') or {}
+    search_cfg = config.get('search') or {}
+    tmdb_cfg = config.get('tmdb') or {}
+    request_limit_cfg = config.get('request_limit') or {}
+    checkin_cfg = config.get('checkin') or {}
+    subscription_expire_cfg = config.get('subscription_expire') or {}
+    invite_reward_cfg = config.get('invite_reward') or {}
+    email_cfg = config.get('email') or {}
+    login_notify_cfg = config.get('login_notify') or {}
+    expire_remind_cfg = config.get('expire_remind') or {}
+    ranking_cfg = config.get('ranking') or {}
+
+    templates = telegram_cfg.get('templates') or {'request': '', 'completion': ''}
+
     return jsonify({
         'success': True,
         'config': {
             'emby': {
-                'url': config['emby']['url'],
-                'api_key': config['emby']['api_key'],
-                'webhook_secret': config['emby']['webhook_secret'],
-                'configured': bool(config['emby']['url'] and config['emby']['api_key'])
+                'url': emby_cfg.get('url', ''),
+                'api_key': emby_cfg.get('api_key', ''),
+                'webhook_secret': emby_cfg.get('webhook_secret', ''),
+                'configured': bool(emby_cfg.get('url') and emby_cfg.get('api_key'))
             },
             'telegram': {
-                'bot_token': config['telegram']['bot_token'],
-                'chat_id': config['telegram']['chat_id'],
-                'group_id': config['telegram']['group_id'],
-                'gift_days': config['telegram'].get('gift_days', 30),
-                'max_streams': config['telegram'].get('max_streams', 0),
-                'bot_admins': config['telegram'].get('bot_admins', ''),
-                'bot_photo': config['telegram'].get('bot_photo', ''),
-                'require_bindtg': config['telegram'].get('require_bindtg', False),
+                'bot_token': telegram_cfg.get('bot_token', ''),
+                'chat_id': telegram_cfg.get('chat_id', ''),
+                'group_id': telegram_cfg.get('group_id', ''),
+                'gift_days': telegram_cfg.get('gift_days', 30),
+                'max_streams': telegram_cfg.get('max_streams', 0),
+                'bot_admins': telegram_cfg.get('bot_admins', ''),
+                'bot_photo': telegram_cfg.get('bot_photo', ''),
+                'require_bindtg': telegram_cfg.get('require_bindtg', False),
                 'templates': templates,
-                'request_notification': config['telegram'].get('request_notification', {
+                'request_notification': telegram_cfg.get('request_notification', {
                     'enabled': True,
                     'send_to': 'group',
                     'mention_admin': True,
@@ -19780,7 +19841,7 @@ def get_system_config_api():
                     'show_poster': True,
                     'custom_message': ''
                 }),
-                'library_notification': config['telegram'].get('library_notification', {
+                'library_notification': telegram_cfg.get('library_notification', {
                     'enabled': False,
                     'chat_id': '',
                     'show_poster': True,
@@ -19789,83 +19850,83 @@ def get_system_config_api():
                         'text': ''
                     }
                 }),
-                'configured': bool(config['telegram']['bot_token'] and config['telegram']['chat_id'])
+                'configured': bool(telegram_cfg.get('bot_token') and telegram_cfg.get('chat_id'))
             },
             'search': {
-                'strategy': config['search']['strategy'],
-                'poll_interval': config['search']['poll_interval']
+                'strategy': search_cfg.get('strategy', 'all'),
+                'poll_interval': search_cfg.get('poll_interval', 10)
             },
             'tmdb': {
-                'api_key': config['tmdb']['api_key'],
-                'configured': bool(config['tmdb']['api_key'])
+                'api_key': tmdb_cfg.get('api_key', ''),
+                'configured': bool(tmdb_cfg.get('api_key'))
             },
             'request_limit': {
-                'max_daily': config['request_limit']['max_daily'],
-                'level_a': config['request_limit'].get('level_a', 3),
-                'level_b': config['request_limit'].get('level_b', 1),
-                'level_c': config['request_limit'].get('level_c', 0),
-                'level_d': config['request_limit'].get('level_d', 0)
+                'max_daily': request_limit_cfg.get('max_daily', 3),
+                'level_a': request_limit_cfg.get('level_a', 3),
+                'level_b': request_limit_cfg.get('level_b', 1),
+                'level_c': request_limit_cfg.get('level_c', 0),
+                'level_d': request_limit_cfg.get('level_d', 0)
             },
             'checkin': {
-                'enabled': config.get('checkin', {}).get('enabled', False),
-                'bot_enabled': config.get('checkin', {}).get('bot_enabled', False),
-                'checkin_permission': config.get('checkin', {}).get('checkin_permission', 'all'),
-                'coin_name': config.get('checkin', {}).get('coin_name', '积分'),
-                'coin_min': config.get('checkin', {}).get('coin_min', 1),
-                'coin_max': config.get('checkin', {}).get('coin_max', 10),
-                'exchange_plans': config.get('checkin', {}).get('exchange_plans', [])
+                'enabled': checkin_cfg.get('enabled', False),
+                'bot_enabled': checkin_cfg.get('bot_enabled', False),
+                'checkin_permission': checkin_cfg.get('checkin_permission', 'all'),
+                'coin_name': checkin_cfg.get('coin_name', '积分'),
+                'coin_min': checkin_cfg.get('coin_min', 1),
+                'coin_max': checkin_cfg.get('coin_max', 10),
+                'exchange_plans': checkin_cfg.get('exchange_plans', [])
             },
             'subscription_expire': {
-                'auto_disable': config.get('subscription_expire', {}).get('auto_disable', True),
-                'delete_days': config.get('subscription_expire', {}).get('delete_days', 0),
-                'delete_web_account': config.get('subscription_expire', {}).get('delete_web_account', False),
-                'retention_mode': config.get('subscription_expire', {}).get('retention_mode', 'off'),
-                'retention_checkin_days': config.get('subscription_expire', {}).get('retention_checkin_days', 20),
-                'retention_checkin_cost': config.get('subscription_expire', {}).get('retention_checkin_cost', 10),
-                'retention_watch_days': config.get('subscription_expire', {}).get('retention_watch_days', 30),
-                'retention_watch_minutes': config.get('subscription_expire', {}).get('retention_watch_minutes', 30),
-                'retention_renew_days': config.get('subscription_expire', {}).get('retention_renew_days', 30),
+                'auto_disable': subscription_expire_cfg.get('auto_disable', True),
+                'delete_days': subscription_expire_cfg.get('delete_days', 0),
+                'delete_web_account': subscription_expire_cfg.get('delete_web_account', False),
+                'retention_mode': subscription_expire_cfg.get('retention_mode', 'off'),
+                'retention_checkin_days': subscription_expire_cfg.get('retention_checkin_days', 20),
+                'retention_checkin_cost': subscription_expire_cfg.get('retention_checkin_cost', 10),
+                'retention_watch_days': subscription_expire_cfg.get('retention_watch_days', 30),
+                'retention_watch_minutes': subscription_expire_cfg.get('retention_watch_minutes', 30),
+                'retention_renew_days': subscription_expire_cfg.get('retention_renew_days', 30),
             },
             'invite_reward': {
-                'enabled': config.get('invite_reward', {}).get('enabled', True),
-                'reward_percent': config.get('invite_reward', {}).get('reward_percent', 10),
-                'min_reward_days': config.get('invite_reward', {}).get('min_reward_days', 1),
-                'reward_mode': config.get('invite_reward', {}).get('reward_mode', 'recurring')
+                'enabled': invite_reward_cfg.get('enabled', True),
+                'reward_percent': invite_reward_cfg.get('reward_percent', 10),
+                'min_reward_days': invite_reward_cfg.get('min_reward_days', 1),
+                'reward_mode': invite_reward_cfg.get('reward_mode', 'recurring')
             },
             'email': {
-                'enabled': config.get('email', {}).get('enabled', False),
-                'smtp_host': config.get('email', {}).get('smtp_host', ''),
-                'smtp_port': config.get('email', {}).get('smtp_port', 465),
-                'smtp_ssl': config.get('email', {}).get('smtp_ssl', True),
-                'smtp_user': config.get('email', {}).get('smtp_user', ''),
-                'smtp_password': config.get('email', {}).get('smtp_password', ''),
-                'sender_name': config.get('email', {}).get('sender_name', 'Emby管理系统'),
-                'require_email_register': config.get('email', {}).get('require_email_register', False)
+                'enabled': email_cfg.get('enabled', False),
+                'smtp_host': email_cfg.get('smtp_host', ''),
+                'smtp_port': email_cfg.get('smtp_port', 465),
+                'smtp_ssl': email_cfg.get('smtp_ssl', True),
+                'smtp_user': email_cfg.get('smtp_user', ''),
+                'smtp_password': email_cfg.get('smtp_password', ''),
+                'sender_name': email_cfg.get('sender_name', 'Emby管理系统'),
+                'require_email_register': email_cfg.get('require_email_register', False)
             },
             'login_notify': {
-                'enabled': config.get('login_notify', {}).get('enabled', False),
-                'email': config.get('login_notify', {}).get('email', True),
-                'telegram': config.get('login_notify', {}).get('telegram', True),
+                'enabled': login_notify_cfg.get('enabled', False),
+                'email': login_notify_cfg.get('email', True),
+                'telegram': login_notify_cfg.get('telegram', True),
             },
             'expire_remind': {
-                'enabled': config.get('expire_remind', {}).get('enabled', False),
-                'days': config.get('expire_remind', {}).get('days', [3, 7]),
-                'email': config.get('expire_remind', {}).get('email', True),
-                'telegram': config.get('expire_remind', {}).get('telegram', True),
+                'enabled': expire_remind_cfg.get('enabled', False),
+                'days': expire_remind_cfg.get('days', [3, 7]),
+                'email': expire_remind_cfg.get('email', True),
+                'telegram': expire_remind_cfg.get('telegram', True),
             },
             'ranking': {
-                'enabled': config.get('ranking', {}).get('enabled', False),
-                'movie_limit': config.get('ranking', {}).get('movie_limit', 10),
-                'episode_limit': config.get('ranking', {}).get('episode_limit', 10),
-                'user_limit': config.get('ranking', {}).get('user_limit', 10),
-                'exclude_users': config.get('ranking', {}).get('exclude_users', ''),
-                'push_enabled': config.get('ranking', {}).get('push_enabled', False),
-                'push_chat_id': config.get('ranking', {}).get('push_chat_id', ''),
-                'push_daily_time': config.get('ranking', {}).get('push_daily_time', '21:00'),
-                'push_weekly_day': config.get('ranking', {}).get('push_weekly_day', 0),
-                'push_weekly_time': config.get('ranking', {}).get('push_weekly_time', '21:00'),
-                'push_daily': config.get('ranking', {}).get('push_daily', True),
-                'push_weekly': config.get('ranking', {}).get('push_weekly', True),
+                'enabled': ranking_cfg.get('enabled', False),
+                'movie_limit': ranking_cfg.get('movie_limit', 10),
+                'episode_limit': ranking_cfg.get('episode_limit', 10),
+                'user_limit': ranking_cfg.get('user_limit', 10),
+                'exclude_users': ranking_cfg.get('exclude_users', ''),
+                'push_enabled': ranking_cfg.get('push_enabled', False),
+                'push_chat_id': ranking_cfg.get('push_chat_id', ''),
+                'push_daily_time': ranking_cfg.get('push_daily_time', '21:00'),
+                'push_weekly_day': ranking_cfg.get('push_weekly_day', 0),
+                'push_weekly_time': ranking_cfg.get('push_weekly_time', '21:00'),
+                'push_daily': ranking_cfg.get('push_daily', True),
+                'push_weekly': ranking_cfg.get('push_weekly', True),
             }
         }
     }), 200
