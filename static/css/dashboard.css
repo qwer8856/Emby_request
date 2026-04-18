@@ -3037,30 +3037,51 @@
         
         /* 数据统计区域 */
         .stats-section-v2 {
-            background: white;
-            border-radius: 16px;
-            padding: 20px;
+            background: linear-gradient(160deg, #ffffff 0%, #f8fbff 100%);
+            border: 1px solid #e2e8f0;
+            border-radius: 18px;
+            padding: 22px;
             margin-bottom: 20px;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
         }
         
         .section-title-v2 {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
             font-size: 16px;
-            font-weight: 600;
-            color: #1e293b;
+            font-weight: 700;
+            color: #0f172a;
             margin: 0 0 16px 0;
         }
         
         .title-icon {
-            font-size: 18px;
+            width: 30px;
+            height: 30px;
+            border-radius: 9px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .title-icon--stats {
+            background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+        }
+
+        .title-icon--stats svg {
+            width: 16px;
+            height: 16px;
+            fill: none;
+            stroke: #1d4ed8;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
         
         .stats-row {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 12px;
             margin-bottom: 16px;
         }
@@ -3070,30 +3091,54 @@
             align-items: center;
             gap: 12px;
             padding: 14px;
-            background: #f8fafc;
-            border-radius: 12px;
-            transition: all 0.2s ease;
+            border-radius: 13px;
+            background: #ffffff;
+            border: 1px solid #e6ecf3;
+            box-shadow: 0 3px 10px rgba(15, 23, 42, 0.04);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
         
         .stat-item-v2:hover {
-            background: #f1f5f9;
             transform: translateY(-2px);
+            box-shadow: 0 10px 22px rgba(15, 23, 42, 0.1);
+        }
+
+        .stat-item-v2--today {
+            background: linear-gradient(135deg, #f8fbff, #eef5ff);
+        }
+
+        .stat-item-v2--total {
+            background: linear-gradient(135deg, #f8f8ff, #eef0ff);
+        }
+
+        .stat-item-v2--daily {
+            background: linear-gradient(135deg, #fffdf8, #fff5dc);
         }
         
         .stat-icon-v2 {
-            width: 40px;
-            height: 40px;
-            border-radius: 10px;
+            width: 42px;
+            height: 42px;
+            border-radius: 11px;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 20px;
             flex-shrink: 0;
+            border: 1px solid transparent;
         }
         
-        .stat-icon-v2.icon-today { background: linear-gradient(135deg, #dbeafe, #bfdbfe); }
-        .stat-icon-v2.icon-total { background: linear-gradient(135deg, #e0e7ff, #c7d2fe); }
-        .stat-icon-v2.icon-daily { background: linear-gradient(135deg, #fef3c7, #fde68a); }
+        .stat-icon-v2.icon-today {
+            background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+            border-color: #bfdbfe;
+        }
+        .stat-icon-v2.icon-total {
+            background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+            border-color: #c7d2fe;
+        }
+        .stat-icon-v2.icon-daily {
+            background: linear-gradient(135deg, #fef3c7, #fde68a);
+            border-color: #fde68a;
+        }
         
         .stat-info-v2 {
             display: flex;
@@ -3102,88 +3147,142 @@
         }
         
         .stat-num {
-            font-size: 20px;
-            font-weight: 700;
-            color: #1e293b;
-            line-height: 1.2;
+            font-size: 24px;
+            font-weight: 800;
+            color: #0f172a;
+            line-height: 1.15;
+            letter-spacing: -0.01em;
         }
         
         .stat-text {
             font-size: 12px;
-            color: #64748b;
+            color: #475569;
+            font-weight: 600;
         }
         
         /* 媒体库统计卡片 */
         .library-stats-card {
-            background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
-            border-radius: 12px;
+            background: linear-gradient(145deg, #f3f9ff 0%, #e8f2ff 100%);
+            border-radius: 14px;
             padding: 16px;
-            border: 1px solid #bae6fd;
+            border: 1px solid #cfe3ff;
         }
         
         .library-stats-header {
             display: flex;
             align-items: center;
-            gap: 8px;
+            justify-content: space-between;
+            gap: 10px;
             margin-bottom: 14px;
             padding-bottom: 12px;
-            border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+            border-bottom: 1px solid rgba(59, 130, 246, 0.22);
+        }
+
+        .library-title-wrap {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
         }
         
         .library-icon {
-            font-size: 20px;
+            width: 28px;
+            height: 28px;
+            border-radius: 9px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+            border: 1px solid #bfdbfe;
+            flex-shrink: 0;
+        }
+
+        .library-icon svg {
+            width: 15px;
+            height: 15px;
+            fill: none;
+            stroke: #1d4ed8;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
         
         .library-title {
             font-size: 14px;
-            font-weight: 600;
+            font-weight: 700;
             color: #1e40af;
             flex: 1;
         }
         
         .library-total {
-            font-size: 13px;
-            font-weight: 600;
-            color: #3b82f6;
-            background: white;
-            padding: 4px 12px;
-            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #2563eb;
+            background: #ffffff;
+            border: 1px solid #d6e7ff;
+            padding: 5px 12px;
+            border-radius: 999px;
+            white-space: nowrap;
         }
         
         .library-stats-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
         }
         
         .library-stat-item {
             display: flex;
             align-items: center;
             gap: 10px;
-            background: white;
-            padding: 12px 14px;
-            border-radius: 10px;
+            background: #ffffff;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid #e4eefc;
+            box-shadow: 0 3px 8px rgba(30, 64, 175, 0.06);
         }
         
         .library-stat-icon {
-            font-size: 24px;
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .library-stat-icon--movie {
+            background: linear-gradient(135deg, #fde68a, #fcd34d);
+        }
+
+        .library-stat-icon--series {
+            background: linear-gradient(135deg, #c7d2fe, #a5b4fc);
+        }
+
+        .library-stat-icon--episodes {
+            background: linear-gradient(135deg, #bbf7d0, #86efac);
         }
         
         .library-stat-data {
             display: flex;
             flex-direction: column;
+            min-width: 0;
         }
         
         .library-stat-value {
-            font-size: 18px;
-            font-weight: 700;
-            color: #1e293b;
-            line-height: 1.2;
+            font-size: 22px;
+            font-weight: 800;
+            color: #0f172a;
+            line-height: 1.1;
+            letter-spacing: -0.01em;
         }
         
         .library-stat-label {
             font-size: 12px;
-            color: #64748b;
+            color: #475569;
+            font-weight: 600;
         }
         
         /* 功能卡片区域 */
@@ -3564,7 +3663,27 @@
             }
             
             .library-stats-grid {
-                grid-template-columns: 1fr 1fr;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 8px;
+            }
+
+            .library-stat-item {
+                padding: 10px;
+                gap: 8px;
+            }
+
+            .library-stat-icon {
+                width: 30px;
+                height: 30px;
+                font-size: 16px;
+            }
+
+            .library-stat-value {
+                font-size: 18px;
+            }
+
+            .library-stat-label {
+                font-size: 11px;
             }
             
             .feature-cards-v2 {

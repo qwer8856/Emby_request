@@ -754,23 +754,30 @@
                 
                 <!-- 数据统计区域 -->
                 <div class="stats-section-v2">
-                    <h3 class="section-title-v2"><span class="title-icon">📊</span> 数据统计</h3>
+                    <h3 class="section-title-v2">
+                        <span class="title-icon title-icon--stats">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M4 20V10M10 20V4M16 20V13M22 20H2"/>
+                            </svg>
+                        </span>
+                        <span>数据统计</span>
+                    </h3>
                     <div class="stats-row">
-                        <div class="stat-item-v2">
+                        <div class="stat-item-v2 stat-item-v2--today">
                             <div class="stat-icon-v2 icon-today">🎬</div>
                             <div class="stat-info-v2">
                                 <span class="stat-num" id="homeTodayCount">{{ today_count }}</span>
                                 <span class="stat-text">今日求片</span>
                             </div>
                         </div>
-                        <div class="stat-item-v2">
+                        <div class="stat-item-v2 stat-item-v2--total">
                             <div class="stat-icon-v2 icon-total">📈</div>
                             <div class="stat-info-v2">
                                 <span class="stat-num" id="homeTotalRequests">{{ total_requests }}</span>
                                 <span class="stat-text">总求片数</span>
                             </div>
                         </div>
-                        <div class="stat-item-v2">
+                        <div class="stat-item-v2 stat-item-v2--daily">
                             <div class="stat-icon-v2 icon-daily">📅</div>
                             <div class="stat-info-v2">
                                 <span class="stat-num" id="homeMaxDaily">{{ max_daily }}</span>
@@ -781,23 +788,36 @@
                     {% if library_counts and library_counts.total > 0 %}
                     <div class="library-stats-card">
                         <div class="library-stats-header">
-                            <span class="library-icon">�</span>
-                            <span class="library-title">媒体库统计</span>
+                            <div class="library-title-wrap">
+                                <span class="library-icon">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M4 6H20M4 12H20M4 18H20M8 4V20M16 4V20"/>
+                                    </svg>
+                                </span>
+                                <span class="library-title">媒体库统计</span>
+                            </div>
                             <span class="library-total">共 {{ "{:,}".format(library_counts.total) }} 项</span>
                         </div>
                         <div class="library-stats-grid">
                             <div class="library-stat-item">
-                                <div class="library-stat-icon">🎥</div>
+                                <div class="library-stat-icon library-stat-icon--movie">🎬</div>
                                 <div class="library-stat-data">
                                     <span class="library-stat-value">{{ "{:,}".format(library_counts.movies) }}</span>
                                     <span class="library-stat-label">电影</span>
                                 </div>
                             </div>
                             <div class="library-stat-item">
-                                <div class="library-stat-icon">📺</div>
+                                <div class="library-stat-icon library-stat-icon--series">📺</div>
                                 <div class="library-stat-data">
                                     <span class="library-stat-value">{{ "{:,}".format(library_counts.series) }}</span>
                                     <span class="library-stat-label">剧集</span>
+                                </div>
+                            </div>
+                            <div class="library-stat-item">
+                                <div class="library-stat-icon library-stat-icon--episodes">🎞️</div>
+                                <div class="library-stat-data">
+                                    <span class="library-stat-value">{{ "{:,}".format(library_counts.episodes or 0) }}</span>
+                                    <span class="library-stat-label">总集数</span>
                                 </div>
                             </div>
                         </div>
