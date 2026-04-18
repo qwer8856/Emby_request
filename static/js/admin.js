@@ -105,7 +105,7 @@ let currentRequestId = null;
     // ==================== 设置页面分组切换 ====================
     // 当前选中的设置分组
     let _currentSettingsGroup = 'basic';
-    
+
     function switchSettingsGroup(group, btn) {
         _currentSettingsGroup = group;
         

@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.15'
+APP_VERSION = '2.2.18'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -6198,14 +6198,21 @@ class DownloadMonitor:
         self.interval = max(interval, 5)
         self.thread: Optional[Thread] = None
         self.stop_event = Event()
+        self._qbit_disabled_warned = False
 
     def start(self):
         if not ENABLE_DOWNLOAD_MONITOR:
             app.logger.info('下载监控已禁用，跳过启动')
             return
         if not qbit_client.is_enabled():
-            app.logger.warning('未配置 qBittorrent，下载监控不启动')
+            # before_request 会触发多次启动检查；未配置时仅首次提示，避免刷屏
+            if not self._qbit_disabled_warned:
+                app.logger.warning('未配置 qBittorrent，下载监控不启动')
+                self._qbit_disabled_warned = True
             return
+        if self._qbit_disabled_warned:
+            app.logger.info('检测到 qBittorrent 已配置，下载监控恢复启动')
+            self._qbit_disabled_warned = False
         if self.thread and self.thread.is_alive():
             return
         self.thread = Thread(target=self._run, name='DownloadMonitor', daemon=True)
