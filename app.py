@@ -2323,6 +2323,34 @@ class QbitClient:
         matching.sort(key=lambda x: x.get('added_on', 0), reverse=True)
         return matching[0]
 
+    def recheck_torrents(self, hashes: list[str]) -> dict:
+        """对指定种子执行强制校验"""
+        if not hashes:
+            raise ValueError('缺少 hashes')
+
+        def _do_recheck():
+            self.ensure_login()
+            url = f"{self.base_url}/api/v2/torrents/recheck"
+            response = self.session.post(url, data={'hashes': '|'.join(hashes)}, timeout=15)
+            response.raise_for_status()
+            return {'success': True}
+
+        return self._with_retry(_do_recheck)
+
+    def resume_torrents(self, hashes: list[str]) -> dict:
+        """恢复指定种子下载"""
+        if not hashes:
+            raise ValueError('缺少 hashes')
+
+        def _do_resume():
+            self.ensure_login()
+            url = f"{self.base_url}/api/v2/torrents/resume"
+            response = self.session.post(url, data={'hashes': '|'.join(hashes)}, timeout=15)
+            response.raise_for_status()
+            return {'success': True}
+
+        return self._with_retry(_do_resume)
+
 
 class EmbyClient:
     """Emby 媒体库客户端"""
@@ -4705,6 +4733,10 @@ class DownloadTask(db.Model):
             'finished_at': self.finished_at.isoformat() if self.finished_at else None,
         }
 
+    def can_retry(self):
+        """检查是否可以重试"""
+        return (self.retry_count or 0) < (self.max_retries or 3) and self.status == 'failed'
+
 
 def generate_next_user_id():
     """生成下一个可用的正整数用户 ID（从 1000 开始递增）"""
@@ -5146,10 +5178,6 @@ class SupportTicket(db.Model):
         if include_messages:
             result['messages'] = [msg.to_dict() for msg in self.messages]
         return result
-    
-    def can_retry(self):
-        """检查是否可以重试"""
-        return self.retry_count < self.max_retries and self.status == 'failed'
 
 
 class TicketMessage(db.Model):
@@ -16589,12 +16617,15 @@ def retry_download(request_id):
     if not task:
         return jsonify({'success': False, 'error': '该求片没有下载任务'}), 400
     
+    if not qbit_client.is_enabled():
+        return jsonify({'success': False, 'error': 'qBittorrent 未配置，无法重试'}), 400
+
     # 检查是否可以重试
     if not task.can_retry():
-        if task.retry_count >= task.max_retries:
+        if (task.retry_count or 0) >= (task.max_retries or 3):
             return jsonify({
                 'success': False, 
-                'error': f'已达到最大重试次数 ({task.max_retries}次)'
+                'error': f'已达到最大重试次数 ({task.max_retries or 3}次)'
             }), 400
         else:
             return jsonify({
@@ -16602,37 +16633,96 @@ def retry_download(request_id):
                 'error': '只有失败的任务才能重试'
             }), 400
     
-    # 记录重试
-    task.retry_count += 1
+    # 记录重试计数（无论成功失败，均视为一次重试尝试）
+    task.retry_count = (task.retry_count or 0) + 1
     task.last_retry_at = datetime.now()
-    task.error_message = f'第 {task.retry_count} 次重试中...'
-    
-    # 重置任务状态
+    retry_no = task.retry_count
+    qb_tag = task.qb_tag or f"request-{movie_request.id}"
+    task.qb_tag = qb_tag
+
+    retried = False
+    retry_error = ''
+
+    # 方案1：优先尝试恢复 qBittorrent 里已存在的失败任务
+    if task.torrent_hash:
+        try:
+            qbit_client.recheck_torrents([task.torrent_hash])
+            qbit_client.resume_torrents([task.torrent_hash])
+            retried = True
+            app.logger.info(f'重试下载: 已恢复 qB 现有任务 hash={task.torrent_hash[:16]}..., task_id={task.id}')
+        except Exception as exc:
+            retry_error = f'恢复已有任务失败: {exc}'
+            app.logger.warning(f'重试下载恢复失败 task_id={task.id}: {exc}')
+
+    # 方案2：若无法恢复，则通过 MoviePilot 重新下发下载
+    if not retried:
+        download_url = (task.download_url or '').strip()
+        if not download_url:
+            retry_error = '该任务缺少 download_url，无法重新下发'
+        else:
+            moviepilot_client = pt_manager.get_client('MoviePilot')
+            if not moviepilot_client or not moviepilot_client.is_enabled():
+                retry_error = 'MoviePilot 未配置，且无法恢复已有任务'
+            else:
+                try:
+                    retry_title = task.torrent_name or movie_request.title
+                    mp_result = moviepilot_client.download_torrent(download_url, title=retry_title)
+                    if not mp_result or mp_result.get('success') is not True:
+                        raise RuntimeError((mp_result or {}).get('error') or 'MoviePilot 下载失败')
+
+                    # 等待 qB 接收种子后刷新 hash
+                    time.sleep(2)
+                    torrent_info = qbit_client.get_torrent_by_tag(qb_tag)
+                    if not torrent_info:
+                        all_torrents = qbit_client.get_torrents_info()
+                        if all_torrents:
+                            all_torrents.sort(key=lambda x: x.get('added_on', 0), reverse=True)
+                            recent = all_torrents[0]
+                            if time.time() - recent.get('added_on', 0) < 30:
+                                torrent_info = recent
+                    if torrent_info and torrent_info.get('hash'):
+                        task.torrent_hash = torrent_info.get('hash')
+
+                    retried = True
+                    app.logger.info(f'重试下载: 已通过 MoviePilot 重新下发 task_id={task.id}, request_id={movie_request.id}')
+                except Exception as exc:
+                    retry_error = f'重新下发失败: {exc}'
+                    app.logger.error(f'重试下载重新下发失败 task_id={task.id}: {exc}')
+
+    if not retried:
+        task.status = 'failed'
+        task.error_message = f'第 {retry_no} 次重试失败: {retry_error or "未知错误"}'
+        movie_request.status = 'failed'
+        db.session.commit()
+        return jsonify({
+            'success': False,
+            'error': task.error_message,
+            'retry_count': task.retry_count,
+            'max_retries': task.max_retries
+        }), 500
+
+    # 重置任务状态并启动监控
     task.status = 'queued'
     task.progress = 0.0
     task.download_speed = 0
     task.eta = -1
-    
-    # 重置求片状态
-    movie_request.status = 'approved'
-    
+    task.finished_at = None
+    task.error_message = f'第 {retry_no} 次重试已提交'
+    movie_request.status = 'downloading'
+
     try:
         db.session.commit()
-        app.logger.info(f'用户 {user.name} 重试下载任务 {task.id} (第{task.retry_count}次)')
-        
-        # TODO: 这里应该触发重新下载逻辑
-        # 可以通过 MoviePilot API 或 qBittorrent 重新添加种子
-        # 暂时只是重置状态，实际下载逻辑需要根据你的系统实现
-        
+        start_task_monitor(task.id, DOWNLOAD_POLL_INTERVAL)
+        app.logger.info(f'用户 {user.name} 重试下载任务 {task.id} 成功 (第{retry_no}次)')
         return jsonify({
             'success': True,
-            'message': f'已提交重试 (第{task.retry_count}/{task.max_retries}次)',
+            'message': f'已提交重试 (第{retry_no}/{task.max_retries}次)',
             'retry_count': task.retry_count,
             'max_retries': task.max_retries
         })
     except Exception as e:
         db.session.rollback()
-        app.logger.error(f'重试下载失败: {e}')
+        app.logger.error(f'重试下载提交失败: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -16641,7 +16731,7 @@ def retry_download(request_id):
 @admin_required
 def batch_update_status():
     """批量更新求片状态"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     
     request_ids = data.get('ids', [])
     status = data.get('status')
@@ -16723,7 +16813,7 @@ def batch_update_status():
 @admin_required
 def batch_delete_requests():
     """批量删除求片记录"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     
     request_ids = data.get('ids', [])
     
@@ -16935,7 +17025,7 @@ def import_users_to_emby():
 @admin_required
 def batch_users():
     """批量用户操作：禁用/解禁/删除/赠送订阅/设白名单"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     ids = data.get('ids', [])
     action = data.get('action', '')
     days = data.get('days', 30)  # 赠送天数
@@ -17156,7 +17246,7 @@ def batch_users():
 @admin_required
 def batch_orders():
     """批量订单操作：取消/删除"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     order_nos = data.get('order_nos', [])
     action = data.get('action', '')
     
@@ -17197,7 +17287,7 @@ def batch_orders():
 @admin_required
 def batch_tickets():
     """批量工单操作：关闭/删除"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     ids = data.get('ids', [])
     action = data.get('action', '')
     
@@ -17237,7 +17327,7 @@ def batch_tickets():
 @admin_required
 def batch_subscriptions():
     """批量订阅操作：删除/延期（基于用户tg ID）"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     ids = data.get('ids', [])
     action = data.get('action', '')
     days = data.get('days', 30)
@@ -17305,7 +17395,7 @@ def batch_subscriptions():
 @admin_required
 def batch_devices():
     """批量设备操作：删除/禁用/解禁"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     ids = data.get('ids', [])
     action = data.get('action', '')
     
@@ -17347,7 +17437,7 @@ def batch_devices():
 @admin_required
 def batch_history():
     """批量播放记录操作：删除"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     ids = data.get('ids', [])
     action = data.get('action', '')
     
@@ -17382,7 +17472,7 @@ def batch_history():
 @admin_required
 def batch_blacklist():
     """批量黑名单操作：删除"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     ids = data.get('ids', [])
     action = data.get('action', '')
     
@@ -25653,8 +25743,8 @@ last_ticket_check_time = None
 
 def bootstrap_background_tasks():
     """初始化数据库并启动下载监控"""
-    global download_monitor_started, last_ticket_check_time
-    if download_monitor_started:
+    global last_ticket_check_time
+    if download_monitor.thread and download_monitor.thread.is_alive():
         return
 
     try:
@@ -25667,7 +25757,6 @@ def bootstrap_background_tasks():
         should_start = os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
     if should_start:
         download_monitor.start()
-        download_monitor_started = True
         # 启动排行定时推送
         try:
             ranking_cfg = load_system_config().get('ranking', {})
@@ -25676,8 +25765,6 @@ def bootstrap_background_tasks():
         except Exception as e:
             print(f'[WARNING] 启动排行定时推送失败: {e}')
 
-
-download_monitor_started = False
 last_subscription_check_time = None
 last_expire_remind_time = None
 
@@ -26398,5 +26485,7 @@ else:
     secret_path = admin_config.get('admin', {}).get('secret_path')
     if secret_path:
         print(f"[INFO] 管理后台入口: /{secret_path}")
-    bootstrap_background_tasks()
+    # 在 Gunicorn 导入阶段不启动后台线程，避免 --preload 下线程在 master 进程提前启动。
+    # 后台任务会在 before_request 中按需启动。
+    app.logger.info('跳过 Gunicorn 导入阶段后台线程启动，等待首个请求后启动')
     app.logger.info(f'Emby Request v{APP_VERSION} (Gunicorn) 启动完成')
