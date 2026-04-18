@@ -497,6 +497,46 @@
     color: #4a4a4a;
 }
 
+.dashboard-hero-refined {
+    background:
+        radial-gradient(circle at 100% 0, rgba(59, 130, 246, 0.12) 0, rgba(59, 130, 246, 0) 40%),
+        linear-gradient(155deg, #ffffff 0%, #f8fbff 100%);
+    border-color: #dbe7ff;
+}
+
+.hero-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-left: auto;
+}
+
+.dashboard-hero-refined .hero-search-btn {
+    border: 1px solid transparent;
+}
+
+.hero-action-secondary {
+    background: #ffffff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe !important;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.16);
+}
+
+.hero-action-secondary:hover {
+    background: #eff6ff;
+    box-shadow: 0 6px 16px rgba(59, 130, 246, 0.2);
+}
+
+.dashboard-kpi-refined .stat-card-modern {
+    border-color: #dbe4f4;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+}
+
+.dashboard-kpi-refined .stat-card-modern:hover {
+    border-color: #bfdbfe;
+}
+
 /* ==================== 系统公告区域样式 ==================== */
 .announcements-container {
     background: #ffffff;
@@ -1455,6 +1495,21 @@
         grid-template-columns: 1fr;
         gap: 12px;
     }
+
+    .nav-section-title {
+        margin-top: 10px;
+    }
+
+    .nav-item-sub {
+        margin-left: 4px;
+        margin-right: 0;
+        padding: 10px;
+    }
+
+    .hero-actions {
+        width: 100%;
+        margin-left: 0;
+    }
     
     .quick-actions-grid {
         grid-template-columns: 1fr;
@@ -1809,6 +1864,69 @@
         .nav-item span {
             font-size: 14px;
             font-weight: 500;
+        }
+
+        .nav-section-title {
+            margin: 14px 10px 8px;
+            padding: 0 6px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            color: #94a3b8;
+            text-transform: uppercase;
+        }
+
+        .nav-item-sub {
+            margin-left: 8px;
+            margin-right: 4px;
+            padding: 10px 12px;
+            border: 1px solid transparent;
+            background: rgba(148, 163, 184, 0.08);
+        }
+
+        .nav-item-sub svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .nav-item-sub span {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .nav-item-sub:hover {
+            border-color: #dbeafe;
+            background: #eff6ff;
+            color: #1d4ed8;
+        }
+
+        .nav-item-sub.active {
+            border-left-width: 0;
+            border-color: #bfdbfe;
+            background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
+            box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.08);
+        }
+
+        .nav-item-support {
+            position: relative;
+        }
+
+        .nav-item-support .nav-unread-badge {
+            margin-left: auto;
+        }
+
+        .nav-unread-badge {
+            min-width: 18px;
+            height: 18px;
+            padding: 0 5px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 18px;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.28);
         }
         
         .sidebar-footer {
@@ -16860,6 +16978,11 @@
 }
 
 @media (max-width: 480px) {
+    .hero-actions {
+        flex-direction: column;
+        gap: 8px;
+    }
+
     #purchaseDialogOverlay .purchase-dialog-horizontal {
         width: 100vw;
         max-width: 100vw;

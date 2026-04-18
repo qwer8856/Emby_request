@@ -28,7 +28,7 @@
     <script>
     (function() {
         var hash = window.location.hash.slice(1);
-        var validSections = ['home','subscription','purchase','search','trending','requests',{% if invite_reward_enabled %}'invite',{% endif %}'playback','profile','activity-logs','docs','faq','support'];
+        var validSections = ['home','subscription','purchase','search','requests',{% if invite_reward_enabled %}'invite',{% endif %}'playback','profile','activity-logs','docs','faq','support'];
         if (!hash || hash === 'home' || validSections.indexOf(hash) === -1) {
             // 默认显示首页，直接移除预加载样式
             var style = document.getElementById('preload-style');
@@ -86,10 +86,10 @@
                 <svg viewBox="0 0 24 24"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
                 <span>搜索求片</span>
             </a>
-            <a href="#trending" class="nav-item" data-section="trending" onclick="switchSection('trending', event)">
+            <!-- <a href="#trending" class="nav-item" data-section="trending" onclick="switchSection('trending', event)">
                 <svg viewBox="0 0 24 24"><path d="M16,6L18.29,8.29L13.41,13.17L9.41,9.17L2,16.59L3.41,18L9.41,12L13.41,16L19.71,9.71L22,12V6H16Z"/></svg>
                 <span>热门推荐</span>
-            </a>
+            </a> -->
             <a href="#requests" class="nav-item" data-section="requests" onclick="switchSection('requests', event)">
                 <svg viewBox="0 0 24 24"><path d="M19,3H14.82C14.4,1.84 13.3,1 12,1C10.7,1 9.6,1.84 9.18,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M12,3A1,1 0 0,1 13,4A1,1 0 0,1 12,5A1,1 0 0,1 11,4A1,1 0 0,1 12,3Z"/></svg>
                 <span>求片管理</span>
@@ -112,7 +112,20 @@
                 <svg viewBox="0 0 24 24"><path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20M9,13V19H7V13H9M15,15V19H13V15H15M11,11V19H9V11H11M17,13V19H15V13H17Z"/></svg>
                 <span>操作日志</span>
             </a>
-            <!-- 使用文档、常见问题、技术支持 通过首页快捷入口访问 -->
+            <div class="nav-section-title">帮助中心</div>
+            <a href="#docs" class="nav-item nav-item-sub" data-section="docs" onclick="switchSection('docs', event)">
+                <svg viewBox="0 0 24 24"><path d="M18,2C19.1,2 20,2.9 20,4V20C20,21.1 19.1,22 18,22H6C4.9,22 4,21.1 4,20V4C4,2.9 4.9,2 6,2H18M6,4V10H18V4H6M6,12V20H11V12H6M13,12V14H18V12H13M13,16V18H18V16H13Z"/></svg>
+                <span>使用文档</span>
+            </a>
+            <a href="#faq" class="nav-item nav-item-sub" data-section="faq" onclick="switchSection('faq', event)">
+                <svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M11,17H13V15H11V17M12,7A3,3 0 0,0 9,10H11A1,1 0 0,1 12,9A1,1 0 0,1 13,10C13,11 11.5,11.75 11.5,13.5H13.5C13.5,12.5 15,11.75 15,10A3,3 0 0,0 12,7Z"/></svg>
+                <span>常见问题</span>
+            </a>
+            <a href="#support" class="nav-item nav-item-sub nav-item-support" data-section="support" onclick="switchSection('support', event)">
+                <svg viewBox="0 0 24 24"><path d="M12,3C6.5,3 2,6.58 2,11C2,13.39 3.34,15.5 5.5,16.81V21L9.72,18.68C10.45,18.88 11.21,19 12,19C17.5,19 22,15.42 22,11C22,6.58 17.5,3 12,3M7.5,12A1.5,1.5 0 0,1 6,10.5A1.5,1.5 0 0,1 7.5,9A1.5,1.5 0 0,1 9,10.5A1.5,1.5 0 0,1 7.5,12M12,12A1.5,1.5 0 0,1 10.5,10.5A1.5,1.5 0 0,1 12,9A1.5,1.5 0 0,1 13.5,10.5A1.5,1.5 0 0,1 12,12M16.5,12A1.5,1.5 0 0,1 15,10.5A1.5,1.5 0 0,1 16.5,9A1.5,1.5 0 0,1 18,10.5A1.5,1.5 0 0,1 16.5,12Z"/></svg>
+                <span>技术支持</span>
+                <span class="nav-unread-badge" id="supportUnreadBadge" style="display: none;"></span>
+            </a>
         </nav>
         
         <div class="sidebar-footer">
@@ -220,34 +233,74 @@
                     <!-- 公告列表将通过JS动态加载 -->
                 </div>
             </div>
-            
-            <!-- 快捷入口卡片 -->
-            <div class="quick-actions-modern">
-                <a href="#docs" class="quick-action-item" onclick="switchSection('docs')">
-                    <div class="action-icon-wrapper docs">
-                        <span>📖</span>
+
+            <div class="dashboard-hero dashboard-hero-refined">
+                <div class="hero-content-main">
+                    <div class="hero-greeting">
+                        <span class="greeting-emoji">👋</span>
+                        <div class="greeting-text">
+                            <h1>欢迎回来，<span class="user-name-highlight">{{ user.name or '用户' }}</span></h1>
+                            <p class="greeting-time">今日可在此查看订阅、线路、签到和邀请返利等核心信息。</p>
+                        </div>
                     </div>
-                    <span class="action-title">使用文档</span>
-                </a>
-                <a href="#faq" class="quick-action-item" onclick="switchSection('faq')">
-                    <div class="action-icon-wrapper faq">
-                        <span>❓</span>
+                    <div class="hero-actions">
+                        <a href="#search" class="hero-search-btn" onclick="switchSection('search')">
+                            <span class="btn-icon">🔍</span>
+                            <span>去搜索求片</span>
+                        </a>
+                        <a href="#purchase" class="hero-search-btn hero-action-secondary" onclick="switchSection('purchase')">
+                            <span class="btn-icon">🛒</span>
+                            <span>购买套餐</span>
+                        </a>
                     </div>
-                    <span class="action-title">常见问题</span>
-                </a>
-                <a href="#support" class="quick-action-item" onclick="switchSection('support')" id="supportQuickAction">
-                    <div class="action-icon-wrapper support">
-                        <span>💬</span>
-                        <span class="unread-badge" id="supportUnreadBadge" style="display: none;"></span>
+                </div>
+            </div>
+
+            <div class="stats-grid-modern dashboard-kpi-refined">
+                <div class="stat-card-modern stat-primary">
+                    <div class="stat-card-inner">
+                        <div class="stat-icon-modern">
+                            <svg viewBox="0 0 24 24"><path d="M12,3L13.9,8.26L19.5,8.27L14.96,11.74L16.81,17L12,13.68L7.19,17L9.04,11.74L4.5,8.27L10.1,8.26L12,3Z"/></svg>
+                        </div>
+                        <div class="stat-content-modern">
+                            <div class="stat-value-modern">{{ level_name }}</div>
+                            <div class="stat-label-modern">当前账号等级</div>
+                        </div>
                     </div>
-                    <span class="action-title">技术支持</span>
-                </a>
-                <a href="#trending" class="quick-action-item" onclick="switchSection('trending')">
-                    <div class="action-icon-wrapper trending">
-                        <span>🔥</span>
+                </div>
+                <div class="stat-card-modern stat-info">
+                    <div class="stat-card-inner">
+                        <div class="stat-icon-modern">
+                            <svg viewBox="0 0 24 24"><path d="M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M13,7H11V13L16.25,16.15L17,14.92L13,12.55V7Z"/></svg>
+                        </div>
+                        <div class="stat-content-modern">
+                            <div class="stat-value-modern">{% if is_whitelist %}永久{% elif user.ex %}{{ user.ex.strftime('%Y-%m-%d') }}{% else %}未开通{% endif %}</div>
+                            <div class="stat-label-modern">订阅有效期</div>
+                        </div>
                     </div>
-                    <span class="action-title">热门推荐</span>
-                </a>
+                </div>
+                <div class="stat-card-modern stat-warning">
+                    <div class="stat-card-inner">
+                        <div class="stat-icon-modern">
+                            <svg viewBox="0 0 24 24"><path d="M4,6H20V8H4V6M4,11H20V13H4V11M4,16H14V18H4V16Z"/></svg>
+                        </div>
+                        <div class="stat-content-modern">
+                            <div class="stat-value-modern">{{ today_count }} / {{ max_daily }}</div>
+                            <div class="stat-label-modern">今日求片配额</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="stat-card-modern stat-success">
+                    <div class="stat-card-inner">
+                        <div class="stat-icon-modern">
+                            <svg viewBox="0 0 24 24"><path d="M3,13H11V3H3V13M3,21H11V15H3V21M13,21H21V11H13V21M13,3V9H21V3H13Z"/></svg>
+                        </div>
+                        <div class="stat-content-modern">
+                            <div class="stat-value-modern">{{ total_requests }}</div>
+                            <div class="stat-label-modern">累计求片次数</div>
+                        </div>
+                    </div>
+                </div>
             </div>
             
             <!-- 订阅与线路信息（整合） -->
@@ -433,7 +486,7 @@
         </section>
         
         <!-- 热门推荐页面 -->
-        <section class="content-section" id="section-trending">
+        <!-- <section class="content-section" id="section-trending">
             <div class="section-header">
                 <h1>🔥 热门推荐</h1>
                 <p>近年热度最高的电影和剧集</p>
@@ -460,7 +513,7 @@
                     </div>
                 </div>
             </div>
-        </section>
+        </section> -->
         
         <!-- 求片管理页面 -->
         <section class="content-section" id="section-requests">
@@ -3142,9 +3195,9 @@
             ]
         }
     </script>
-    <script src="{{ url_for('static', filename='js/common.js') }}?v=23"></script>
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=44"></script>
-    <script src="{{ url_for('static', filename='js/checkin.js') }}?v=5"></script>
+    <script src="{{ url_for('static', filename='js/common.js') }}?v={{ app_version }}"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ app_version }}"></script>
+    <script src="{{ url_for('static', filename='js/checkin.js') }}?v={{ app_version }}"></script>
     {% if site_config.custom_js %}
     <script>{{ site_config.custom_js | safe }}</script>
     {% endif %}
