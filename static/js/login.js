@@ -100,7 +100,14 @@
                         data = JSON.parse(responseText);
                     } catch (parseError) {
                         console.error('JSON解析失败:', parseError, '原始文本:', responseText.substring(0, 100));
-                        throw new Error('服务器返回格式错误');
+                        // 某些代理/网关可能返回重定向后的 HTML，尝试直接跟随跳转
+                        if (response.redirected && response.url) {
+                            window.location.href = response.url;
+                            return;
+                        }
+                        const formatError = new Error(`服务器返回格式错误（HTTP ${response.status}）`);
+                        formatError.name = 'ResponseFormatError';
+                        throw formatError;
                     }
                     
                     // 检查 HTTP 状态码
@@ -148,7 +155,7 @@
                     console.error('登录错误 (尝试 ' + (retryCount + 1) + '/' + (maxRetries + 1) + '):', error);
                     
                     // 如果是超时或网络错误，且还有重试机会，则自动重试
-                    if ((error.name === 'AbortError' || error.name === 'TypeError') && retryCount < maxRetries) {
+                    if ((error.name === 'AbortError' || error.name === 'TypeError' || error.name === 'ResponseFormatError') && retryCount < maxRetries) {
                         retryCount++;
                         // 按钮继续显示“登录中...”，不显示重试进度
                         
@@ -162,6 +169,8 @@
                         showToast('请求超时', '网络响应过慢，请稍后重试', 'error');
                     } else if (error.name === 'TypeError') {
                         showToast('网络错误', '无法连接到服务器，请检查网络', 'error');
+                    } else if (error.name === 'ResponseFormatError') {
+                        showToast('登录失败', error.message || '服务器返回格式错误', 'error');
                     } else {
                         showToast('登录失败', error.message || '发生未知错误', 'error');
                     }

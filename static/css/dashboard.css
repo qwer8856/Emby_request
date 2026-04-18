@@ -537,6 +537,16 @@
     border-color: #bfdbfe;
 }
 
+.dashboard-kpi-refined .stat-value-modern {
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.dashboard-kpi-refined .stat-label-modern {
+    font-weight: 450;
+    color: #64748b;
+}
+
 /* ==================== 系统公告区域样式 ==================== */
 .announcements-container {
     background: #ffffff;
@@ -1874,6 +1884,46 @@
             letter-spacing: 0.08em;
             color: #94a3b8;
             text-transform: uppercase;
+        }
+
+        .help-center-menu {
+            margin-top: 4px;
+        }
+
+        .nav-section-toggle {
+            width: calc(100% - 20px);
+            margin-left: 10px;
+            margin-right: 10px;
+            padding: 8px 6px;
+            background: transparent;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .nav-section-arrow {
+            width: 18px;
+            height: 18px;
+            fill: currentColor;
+            opacity: 0.8;
+            transition: transform 0.2s ease;
+        }
+
+        .help-center-list {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.25s ease;
+        }
+
+        .help-center-menu.open .help-center-list {
+            max-height: 240px;
+        }
+
+        .help-center-menu.open .nav-section-arrow {
+            transform: rotate(180deg);
         }
 
         .nav-item-sub {

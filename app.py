@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.25'
+APP_VERSION = '2.2.29'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -4594,6 +4594,34 @@ def log_response(response):
 
 
 # 全局错误处理
+def _expects_json_error() -> bool:
+    """判断当前请求是否应返回 JSON 错误响应。"""
+    if request.path.startswith('/api/'):
+        return True
+    if request.is_json:
+        return True
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return True
+    accept = (request.headers.get('Accept') or '').lower()
+    return 'application/json' in accept
+
+
+@app.errorhandler(400)
+def bad_request_error(error):
+    app.logger.warning(f'400 错误: {error}')
+    if _expects_json_error():
+        return jsonify({'success': False, 'error': '请求格式错误，请检查输入后重试'}), 400
+    return jsonify({'error': '请求格式错误'}), 400
+
+
+@app.errorhandler(415)
+def unsupported_media_type_error(error):
+    app.logger.warning(f'415 错误: {error}')
+    if _expects_json_error():
+        return jsonify({'success': False, 'error': '请求内容类型不正确，请重试'}), 415
+    return jsonify({'error': '不支持的请求内容类型'}), 415
+
+
 @app.errorhandler(404)
 def not_found(error):
     # 静默忽略浏览器/旧SW缓存自动请求的资源文件
@@ -7535,7 +7563,7 @@ def send_register_email_code():
         if not email_cfg.get('enabled'):
             return jsonify({'success': False, 'error': '邮件功能未启用'}), 400
         
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         email_addr = data.get('email', '').strip().lower()
         
         import re
@@ -7593,7 +7621,7 @@ def register():
         site_config = get_site_config()
         register_mode = site_config.get('register_mode', 'open')
         
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         username = data.get('username', '').strip()
         password = data.get('password', '')
         invite_code = data.get('invite_code', '').strip()
@@ -7747,9 +7775,22 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        data = request.get_json()
-        username = data.get('username')
+        try:
+            data = request.get_json(silent=True) or {}
+            # 兼容 form 提交，避免偶发代理/浏览器行为导致 JSON 解析失败
+            if not data and request.form:
+                data = request.form.to_dict(flat=True)
+        except Exception as e:
+            app.logger.warning(f'登录请求解析失败: {e}')
+            return jsonify({'success': False, 'error': '请求格式错误，请重试'}), 400
+
+        username = (data.get('username') or '').strip()
         password = data.get('password', '') or ''  # 允许空密码
+        if not isinstance(password, str):
+            password = str(password)
+
+        if not username:
+            return jsonify({'success': False, 'error': '请输入用户名'}), 400
         
         # ===== 暴力破解防护：检查IP是否被锁定 =====
         locked, remaining = login_limiter.is_locked(extra_key='user')
@@ -7855,7 +7896,7 @@ def forgot_password_page():
 def change_password():
     """修改用户密码"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         current_password = data.get('current_password', '') or ''
         new_password = data.get('new_password', '') or ''
         
@@ -7897,7 +7938,7 @@ def change_password():
 def forgot_password():
     """忘记密码 - 发送验证码到用户绑定的 Telegram"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         username = data.get('username', '').strip()
         
         if not username:
@@ -7985,7 +8026,7 @@ def forgot_password():
 def verify_reset_code():
     """预验证密码重置验证码（步骤1校验，不消耗验证码）"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         username = data.get('username', '').strip()
         code = data.get('code', '').strip()
         
@@ -8027,7 +8068,7 @@ def verify_reset_code():
 def reset_password():
     """重置密码 - 验证验证码并设置新密码"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         username = data.get('username', '').strip()
         code = data.get('code', '').strip()
         new_password = data.get('new_password', '').strip()
@@ -8275,7 +8316,7 @@ def bind_email_send_code():
         if not email_cfg.get('enabled'):
             return jsonify({'success': False, 'error': '邮件功能未启用，请联系管理员'}), 400
         
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         email_addr = data.get('email', '').strip().lower()
         
         if not email_addr or not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email_addr):
@@ -8334,7 +8375,7 @@ def bind_email_send_code():
 def verify_email_bind():
     """验证邮箱验证码并完成绑定"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         code = data.get('code', '').strip()
         
         if not code:
@@ -8417,7 +8458,7 @@ def forgot_password_email():
         if not email_cfg.get('enabled'):
             return jsonify({'success': False, 'error': '邮件功能未启用'}), 400
         
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         email_addr = data.get('email', '').strip().lower()
         
         if not email_addr:
@@ -8474,7 +8515,7 @@ def forgot_password_email():
 def reset_password_email():
     """通过邮箱验证码重置密码"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         email_addr = data.get('email', '').strip().lower()
         code = data.get('code', '').strip()
         new_password = data.get('new_password', '').strip()
@@ -8532,7 +8573,7 @@ def reset_password_email():
 def change_emby_password():
     """修改 Emby 账号密码（独立于网站登录密码）"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         current_password = data.get('current_password', '').strip()
         new_password = data.get('new_password', '').strip()
         
@@ -8635,7 +8676,7 @@ def check_emby_bindable():
 def check_emby_username():
     """检查 Emby 用户名是否可用"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         username = data.get('username', '').strip()
         
         if not username:
@@ -8681,7 +8722,7 @@ def check_emby_username():
 def bind_emby_account():
     """绑定现有的 Emby 账号（需要验证密码）- 任何用户都可以绑定"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         username = data.get('username', '').strip()
         password = data.get('password', '').strip()
         
@@ -8877,7 +8918,7 @@ def bind_emby_account():
 def unbind_emby_account():
     """解绑 Emby 账号（仅解除关联，不删除 Emby 账号）"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         password = data.get('password', '').strip()
         
         if not password:
@@ -8931,7 +8972,7 @@ def create_emby_account():
         if not _v:
             return jsonify({'success': False, 'error': '系统授权异常，请联系管理员'}), 503
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         username = data.get('username', '').strip()
         password = data.get('password', '').strip()
         
@@ -9798,7 +9839,7 @@ def block_user_device(device_id):
     if not device:
         return jsonify({'success': False, 'error': '设备不存在'}), 404
     
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     block = data.get('block', True)
     
     try:
@@ -10983,7 +11024,7 @@ def admin_block_device(device_id):
     if not device:
         return jsonify({'success': False, 'error': '设备不存在'}), 404
     
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     block = data.get('block', True)
     
     try:
@@ -11352,7 +11393,7 @@ def admin_login_api():
         app.logger.warning(f'管理员登录被限流: IP已锁定，剩余 {remaining}秒')
         return jsonify({'success': False, 'error': f'登录尝试过多，请 {minutes} 分钟后再试'}), 429
     
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     username = data.get('username', '').strip()
     password = data.get('password', '').strip()
     
@@ -11542,7 +11583,7 @@ def admin_setup_page():
 @admin_required
 def admin_setup_api():
     """保存首次配置"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     
     new_username = data.get('username', '').strip()
     new_password = data.get('password', '').strip()
@@ -11599,7 +11640,7 @@ def admin_setup_api():
 @admin_required
 def admin_change_credentials():
     """修改管理员账号密码（已初始化后使用）"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     
     current_password = data.get('current_password', '').strip()
     new_username = data.get('new_username', '').strip()
@@ -11688,7 +11729,7 @@ def create_admin():
     if not current_admin or not current_admin.is_super:
         return jsonify({'error': '仅超级管理员可创建管理员'}), 403
     
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     username = data.get('username', '').strip()
     password = data.get('password', '').strip()
     permissions = data.get('permissions', [])
@@ -11749,7 +11790,7 @@ def update_admin(admin_id):
     
     # 不能修改自己的超级管理员状态
     if admin_user.is_super and admin_user.username == current_admin.username:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         # 超级管理员只能改密码
         new_password = data.get('password', '').strip()
         if new_password and len(new_password) >= 6:
@@ -11762,7 +11803,7 @@ def update_admin(admin_id):
             return jsonify({'success': True, 'admin': admin_user.to_dict(), 'message': '密码已更新'})
         return jsonify({'error': '超级管理员只能在此处修改密码'}), 400
     
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     
     # 更新用户名
     new_username = data.get('username', '').strip()
@@ -11867,7 +11908,7 @@ def admin_change_my_password():
     if not current_admin:
         return jsonify({'error': '未登录'}), 401
     
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     old_password = data.get('old_password', '').strip()
     new_password = data.get('new_password', '').strip()
     
@@ -12050,7 +12091,7 @@ def admin_panel():
 @admin_required
 def update_request_status(request_id):
     movie_request = MovieRequest.query.get_or_404(request_id)
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     
     status = data.get('status')
     admin_note = data.get('admin_note', '')
@@ -12314,7 +12355,7 @@ def pt_push_to_qb():
     if not qbit_client.is_enabled():
         return jsonify({'success': False, 'error': 'qBittorrent 未配置'}), 400
 
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     request_id = data.get('request_id')
     if not request_id:
         return jsonify({'success': False, 'error': '缺少 request_id'}), 400
@@ -21192,7 +21233,7 @@ def admin_get_announcements():
 def admin_create_announcement():
     """创建新公告"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         
         title = data.get('title', '').strip()
         content = data.get('content', '').strip()
@@ -21234,7 +21275,7 @@ def admin_update_announcement(id):
         if not announcement:
             return jsonify({'success': False, 'error': '公告不存在'}), 404
         
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         
         if 'title' in data:
             announcement.title = data['title'].strip()
@@ -21335,7 +21376,7 @@ def admin_get_knowledge():
 def admin_save_knowledge():
     """保存知识库（完整替换）"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         items = data.get('items', [])
         
         # 验证数据格式
@@ -21364,7 +21405,7 @@ def admin_save_knowledge():
 def admin_add_knowledge_item():
     """添加单条知识库条目"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         
         question = data.get('question', '').strip()
         answer = data.get('answer', '').strip()
@@ -21402,7 +21443,7 @@ def admin_add_knowledge_item():
 def admin_update_knowledge_item(item_id):
     """更新单条知识库条目"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         knowledge_list = get_db_config('knowledge_base', [])
         
         # 查找条目
@@ -21489,7 +21530,7 @@ def admin_get_knowledge_categories():
 def admin_save_knowledge_categories():
     """保存知识库分类"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         categories = data.get('categories', [])
         
         set_db_config('knowledge_categories', categories, '知识库分类配置')
@@ -23443,7 +23484,7 @@ def admin_get_lines():
 def admin_add_line():
     """管理员添加线路"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         
         name = data.get('name', '').strip()
         server_url = data.get('server_url', '').strip()
@@ -23502,7 +23543,7 @@ def admin_update_line(line_id):
         if not line:
             return jsonify({'success': False, 'error': '线路不存在'}), 404
         
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         
         if 'name' in data:
             line.name = data['name'].strip()
@@ -24114,7 +24155,7 @@ def admin_cleanup_audit_logs():
         if admin and not admin.is_super:
             return jsonify({'success': False, 'error': '仅超级管理员可执行此操作'}), 403
         
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         keep_days = data.get('keep_days', 90)
         keep_days = max(7, min(keep_days, 365))  # 最少保留7天，最多365天
         
@@ -24153,7 +24194,7 @@ def admin_toggle_user_role(user_id):
         if not user:
             return jsonify({'success': False, 'error': '用户不存在'}), 404
         
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         new_level = data.get('level')
         
         level_names = {'a': '白名单', 'b': '普通用户', 'c': '已禁用', 'd': '无账号'}
@@ -24243,7 +24284,7 @@ def admin_ban_emby(user_id):
         if user.ban_reason:
             return jsonify({'success': False, 'error': 'Emby 已处于封禁状态'}), 400
         
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         reason = data.get('reason', '管理员手动封禁Emby')
         
         # 保存封禁前状态
@@ -24345,7 +24386,7 @@ def admin_set_user_type(user_id):
         if not user:
             return jsonify({'success': False, 'error': '用户不存在'}), 404
         
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         user_type = data.get('user_type')
         subscription_days = data.get('subscription_days', 30)  # 默认30天
         now = datetime.now()
@@ -24517,7 +24558,7 @@ def admin_unban_user(user_id):
         if not user:
             return jsonify({'success': False, 'error': '用户不存在'}), 404
         
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         restore_original = data.get('restore_original', True)  # 默认恢复原先状态
         
         old_level = user.lv
@@ -24628,8 +24669,13 @@ def admin_reset_user_password(user_id):
         if not user:
             return jsonify({'success': False, 'error': '用户不存在'}), 404
         
-        data = request.get_json() or {}
-        new_password = data.get('password', '')
+        data = request.get_json(silent=True) or {}
+        raw_password = data.get('password', '')
+        if raw_password is None:
+            raw_password = ''
+        if not isinstance(raw_password, str):
+            raw_password = str(raw_password)
+        new_password = raw_password.strip()
         
         # 如果没有提供密码，生成随机密码
         if not new_password:
@@ -25364,7 +25410,7 @@ def admin_gift_subscription(user_id):
 def admin_reduce_subscription(user_id):
     """管理员减少订阅时间"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         duration_days = data.get('duration_days', 0)
         
         if not duration_days or int(duration_days) <= 0:
@@ -25426,7 +25472,7 @@ def admin_reduce_subscription(user_id):
 def admin_adjust_coins(user_id):
     """管理员调整用户积分"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         adjust_type = data.get('action')  # 'add' or 'reduce'
         amount = data.get('amount', 0)
         reason = data.get('reason', '')

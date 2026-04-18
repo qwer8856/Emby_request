@@ -112,20 +112,27 @@
                 <svg viewBox="0 0 24 24"><path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20M9,13V19H7V13H9M15,15V19H13V15H15M11,11V19H9V11H11M17,13V19H15V13H17Z"/></svg>
                 <span>操作日志</span>
             </a>
-            <div class="nav-section-title">帮助中心</div>
-            <a href="#docs" class="nav-item nav-item-sub" data-section="docs" onclick="switchSection('docs', event)">
-                <svg viewBox="0 0 24 24"><path d="M18,2C19.1,2 20,2.9 20,4V20C20,21.1 19.1,22 18,22H6C4.9,22 4,21.1 4,20V4C4,2.9 4.9,2 6,2H18M6,4V10H18V4H6M6,12V20H11V12H6M13,12V14H18V12H13M13,16V18H18V16H13Z"/></svg>
-                <span>使用文档</span>
-            </a>
-            <a href="#faq" class="nav-item nav-item-sub" data-section="faq" onclick="switchSection('faq', event)">
-                <svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M11,17H13V15H11V17M12,7A3,3 0 0,0 9,10H11A1,1 0 0,1 12,9A1,1 0 0,1 13,10C13,11 11.5,11.75 11.5,13.5H13.5C13.5,12.5 15,11.75 15,10A3,3 0 0,0 12,7Z"/></svg>
-                <span>常见问题</span>
-            </a>
-            <a href="#support" class="nav-item nav-item-sub nav-item-support" data-section="support" onclick="switchSection('support', event)">
-                <svg viewBox="0 0 24 24"><path d="M12,3C6.5,3 2,6.58 2,11C2,13.39 3.34,15.5 5.5,16.81V21L9.72,18.68C10.45,18.88 11.21,19 12,19C17.5,19 22,15.42 22,11C22,6.58 17.5,3 12,3M7.5,12A1.5,1.5 0 0,1 6,10.5A1.5,1.5 0 0,1 7.5,9A1.5,1.5 0 0,1 9,10.5A1.5,1.5 0 0,1 7.5,12M12,12A1.5,1.5 0 0,1 10.5,10.5A1.5,1.5 0 0,1 12,9A1.5,1.5 0 0,1 13.5,10.5A1.5,1.5 0 0,1 12,12M16.5,12A1.5,1.5 0 0,1 15,10.5A1.5,1.5 0 0,1 16.5,9A1.5,1.5 0 0,1 18,10.5A1.5,1.5 0 0,1 16.5,12Z"/></svg>
-                <span>技术支持</span>
-                <span class="nav-unread-badge" id="supportUnreadBadge" style="display: none;"></span>
-            </a>
+            <div class="help-center-menu" id="helpCenterMenu" aria-expanded="false">
+                <button type="button" class="nav-section-title nav-section-toggle" onclick="toggleHelpCenterMenu(event)">
+                    <span>帮助中心</span>
+                    <svg class="nav-section-arrow" viewBox="0 0 24 24"><path d="M7,10L12,15L17,10H7Z"/></svg>
+                </button>
+                <div class="help-center-list">
+                    <a href="#docs" class="nav-item nav-item-sub" data-section="docs" onclick="switchSection('docs', event)">
+                        <svg viewBox="0 0 24 24"><path d="M18,2C19.1,2 20,2.9 20,4V20C20,21.1 19.1,22 18,22H6C4.9,22 4,21.1 4,20V4C4,2.9 4.9,2 6,2H18M6,4V10H18V4H6M6,12V20H11V12H6M13,12V14H18V12H13M13,16V18H18V16H13Z"/></svg>
+                        <span>使用文档</span>
+                    </a>
+                    <a href="#faq" class="nav-item nav-item-sub" data-section="faq" onclick="switchSection('faq', event)">
+                        <svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M11,17H13V15H11V17M12,7A3,3 0 0,0 9,10H11A1,1 0 0,1 12,9A1,1 0 0,1 13,10C13,11 11.5,11.75 11.5,13.5H13.5C13.5,12.5 15,11.75 15,10A3,3 0 0,0 12,7Z"/></svg>
+                        <span>常见问题</span>
+                    </a>
+                    <a href="#support" class="nav-item nav-item-sub nav-item-support" data-section="support" onclick="switchSection('support', event)">
+                        <svg viewBox="0 0 24 24"><path d="M12,3C6.5,3 2,6.58 2,11C2,13.39 3.34,15.5 5.5,16.81V21L9.72,18.68C10.45,18.88 11.21,19 12,19C17.5,19 22,15.42 22,11C22,6.58 17.5,3 12,3M7.5,12A1.5,1.5 0 0,1 6,10.5A1.5,1.5 0 0,1 7.5,9A1.5,1.5 0 0,1 9,10.5A1.5,1.5 0 0,1 7.5,12M12,12A1.5,1.5 0 0,1 10.5,10.5A1.5,1.5 0 0,1 12,9A1.5,1.5 0 0,1 13.5,10.5A1.5,1.5 0 0,1 12,12M16.5,12A1.5,1.5 0 0,1 15,10.5A1.5,1.5 0 0,1 16.5,9A1.5,1.5 0 0,1 18,10.5A1.5,1.5 0 0,1 16.5,12Z"/></svg>
+                        <span>技术支持</span>
+                        <span class="nav-unread-badge" id="supportUnreadBadge" style="display: none;"></span>
+                    </a>
+                </div>
+            </div>
         </nav>
         
         <div class="sidebar-footer">
@@ -244,9 +251,9 @@
                         </div>
                     </div>
                     <div class="hero-actions">
-                        <a href="#search" class="hero-search-btn" onclick="switchSection('search')">
-                            <span class="btn-icon">🔍</span>
-                            <span>去搜索求片</span>
+                        <a href="#purchase" class="hero-search-btn" onclick="switchSection('purchase')">
+                            <span class="btn-icon">🎟️</span>
+                            <span>兑换套餐</span>
                         </a>
                         <a href="#purchase" class="hero-search-btn hero-action-secondary" onclick="switchSection('purchase')">
                             <span class="btn-icon">🛒</span>

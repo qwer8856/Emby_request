@@ -1145,6 +1145,21 @@ async function unbindTelegramId() {
         }
 
 // ==================== 左侧边栏导航 ====================
+        function setHelpCenterMenuOpen(forceOpen) {
+            const menu = document.getElementById('helpCenterMenu');
+            if (!menu) return;
+            const isOpen = typeof forceOpen === 'boolean' ? forceOpen : !menu.classList.contains('open');
+            menu.classList.toggle('open', isOpen);
+            menu.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        }
+
+        function toggleHelpCenterMenu(event) {
+            if (event) event.preventDefault();
+            setHelpCenterMenuOpen();
+        }
+
+        window.toggleHelpCenterMenu = toggleHelpCenterMenu;
+
         function switchSection(sectionName, event, updateHash = true) {
             // 阻止默认跳转行为，防止闪屏
             if (event) event.preventDefault();
@@ -1182,6 +1197,9 @@ async function unbindTelegramId() {
             if (activeNav) {
                 activeNav.classList.add('active');
             }
+
+            const isHelpSection = ['docs', 'faq', 'support'].includes(sectionName);
+            setHelpCenterMenuOpen(isHelpSection);
             
             // 更新URL hash（记住当前页面）
             if (updateHash) {
