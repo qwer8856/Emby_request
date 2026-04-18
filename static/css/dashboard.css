@@ -7501,6 +7501,428 @@
     }
 }
 
+/* ============================================
+   订阅页面 UI 重构（作用域：#section-subscription）
+   ============================================ */
+#section-subscription {
+    --sub-accent: #2563eb;
+    --sub-accent-strong: #1d4ed8;
+    --sub-accent-soft: #dbeafe;
+    --sub-text: #0f172a;
+    --sub-muted: #64748b;
+    --sub-border: #dbe3ef;
+}
+
+#section-subscription .subscription-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 20px;
+    padding: 24px 26px;
+    border-radius: 20px;
+    border: 1px solid var(--sub-border);
+    background:
+        radial-gradient(circle at 92% 14%, rgba(37, 99, 235, 0.16) 0, rgba(37, 99, 235, 0) 42%),
+        linear-gradient(140deg, #ffffff 0%, #f7fbff 100%);
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+}
+
+#section-subscription .subscription-header-main h1 {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-size: 31px;
+    color: var(--sub-text);
+    letter-spacing: 0.2px;
+}
+
+#section-subscription .subscription-header-icon {
+    width: 42px;
+    height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: linear-gradient(145deg, #2563eb 0%, #1e40af 100%);
+    color: #fff;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.25);
+}
+
+#section-subscription .subscription-header-main p {
+    margin: 0;
+    color: #475569;
+    font-size: 14px;
+}
+
+#section-subscription .subscription-header-meta {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+#section-subscription .subscription-header-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid #c8dcff;
+    background: rgba(255, 255, 255, 0.82);
+    color: #1e3a8a;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+#section-subscription .subscription-page-container {
+    gap: 20px;
+}
+
+#section-subscription .subscription-hero-card {
+    border-radius: 22px;
+    border: 1px solid #cfe0fb;
+    background: linear-gradient(140deg, #f7fbff 0%, #eef5ff 52%, #ffffff 100%);
+    box-shadow: 0 12px 30px rgba(37, 99, 235, 0.08);
+    padding: 30px;
+}
+
+#section-subscription .subscription-hero-bg {
+    background:
+        radial-gradient(circle at 90% 18%, rgba(37, 99, 235, 0.2) 0, rgba(37, 99, 235, 0) 42%),
+        radial-gradient(circle at 18% 80%, rgba(59, 130, 246, 0.12) 0, rgba(59, 130, 246, 0) 36%);
+}
+
+#section-subscription .subscription-hero-content {
+    position: relative;
+    gap: 26px;
+}
+
+#section-subscription .hero-badge {
+    margin-bottom: 14px;
+    background: #ffffff;
+    border: 1px solid #d1e1fb;
+    color: #1d4ed8;
+    box-shadow: 0 6px 14px rgba(37, 99, 235, 0.1);
+}
+
+#section-subscription .badge-icon {
+    color: #f59e0b;
+}
+
+#section-subscription .hero-title h2 {
+    font-size: 30px;
+    margin-bottom: 4px;
+    color: var(--sub-text);
+}
+
+#section-subscription .hero-level {
+    color: #1d4ed8;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+#section-subscription .hero-subtitle {
+    margin: 10px 0 0;
+    color: #5b6b83;
+    font-size: 14px;
+    line-height: 1.6;
+    max-width: 540px;
+}
+
+#section-subscription .hero-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+#section-subscription .hero-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 11px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #1e3a8a;
+    background: rgba(219, 234, 254, 0.9);
+    border: 1px solid #bfd7ff;
+}
+
+#section-subscription .hero-countdown {
+    width: 148px;
+    height: 148px;
+}
+
+#section-subscription .countdown-bg {
+    stroke: #d8e7ff;
+}
+
+#section-subscription .countdown-progress {
+    stroke: #2563eb;
+}
+
+#section-subscription .countdown-days {
+    color: #0f172a;
+}
+
+#section-subscription .countdown-label {
+    color: #475569;
+}
+
+#section-subscription .subscription-details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+}
+
+#section-subscription .detail-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 128px;
+    padding: 16px 18px;
+    border-radius: 16px;
+    border: 1px solid #d8e3f2;
+    background: linear-gradient(170deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04);
+    transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+
+#section-subscription .detail-card::before {
+    display: none;
+}
+
+#section-subscription .detail-card:hover {
+    transform: translateY(-3px);
+    border-color: #b7d2ff;
+    box-shadow: 0 10px 22px rgba(37, 99, 235, 0.11);
+}
+
+#section-subscription .detail-card-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#section-subscription .detail-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    border: 1px solid #d4e3ff;
+    background: #ecf4ff;
+    font-size: 20px;
+}
+
+#section-subscription .detail-label {
+    color: #4b5f7c;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+#section-subscription .detail-value {
+    font-size: 26px;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.2;
+}
+
+#section-subscription .detail-card:nth-child(2) .detail-icon {
+    background: #edf7ff;
+    border-color: #cde7ff;
+}
+
+#section-subscription .detail-card:nth-child(3) .detail-icon {
+    background: #effcf6;
+    border-color: #c8efd9;
+}
+
+#section-subscription .detail-card:nth-child(4) .detail-icon {
+    background: #f4f1ff;
+    border-color: #ddd4ff;
+}
+
+#section-subscription .retention-card,
+#section-subscription .subscription-history-section,
+#section-subscription .subscription-benefits {
+    border: 1px solid #d9e4f4;
+    border-radius: 18px;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+}
+
+#section-subscription .subscription-action-group {
+    gap: 14px;
+}
+
+#section-subscription .sub-action-btn {
+    min-width: 0;
+    border-radius: 16px;
+    padding: 18px 20px;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+}
+
+#section-subscription .sub-action-btn::before {
+    display: none;
+}
+
+#section-subscription .sub-action-btn.primary {
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+}
+
+#section-subscription .sub-action-btn.primary:hover {
+    background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%);
+}
+
+#section-subscription .sub-action-btn.secondary {
+    background: #fff;
+    border: 1px solid #d4e2f6;
+}
+
+#section-subscription .sub-action-btn .btn-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 11px;
+}
+
+#section-subscription .subscription-history-section {
+    padding: 24px;
+}
+
+#section-subscription .history-header h3,
+#section-subscription .subscription-benefits h3 {
+    color: #0f172a;
+}
+
+#section-subscription .history-count {
+    background: #eef4ff;
+    border-color: #d2e2ff;
+    color: #1d4ed8;
+}
+
+#section-subscription .history-item-new {
+    border: 1px solid transparent;
+}
+
+#section-subscription .history-item-new:hover {
+    border-color: #d8e5fb;
+}
+
+#section-subscription .subscription-benefits {
+    padding: 24px;
+}
+
+#section-subscription .benefits-grid {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px;
+}
+
+#section-subscription .benefit-item {
+    padding: 14px 14px;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #f8fbff 0%, #f1f6ff 100%);
+    border-color: #d9e5f7;
+}
+
+#section-subscription .benefit-item:hover {
+    border-color: #bfd7ff;
+}
+
+#section-subscription .benefit-icon {
+    width: 42px;
+    height: 42px;
+    font-size: 21px;
+}
+
+@media (max-width: 1024px) {
+    #section-subscription .subscription-section-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    #section-subscription .subscription-header-meta {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 768px) {
+    #section-subscription .subscription-section-header {
+        padding: 18px 16px;
+        border-radius: 16px;
+    }
+
+    #section-subscription .subscription-header-main h1 {
+        font-size: 24px;
+        gap: 10px;
+    }
+
+    #section-subscription .subscription-header-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+    }
+
+    #section-subscription .subscription-header-main p {
+        font-size: 13px;
+    }
+
+    #section-subscription .subscription-header-chip {
+        font-size: 11px;
+        padding: 7px 10px;
+    }
+
+    #section-subscription .subscription-hero-card {
+        padding: 22px 18px;
+        border-radius: 18px;
+    }
+
+    #section-subscription .hero-title h2 {
+        font-size: 24px;
+    }
+
+    #section-subscription .hero-subtitle {
+        font-size: 13px;
+    }
+
+    #section-subscription .hero-countdown {
+        width: 128px;
+        height: 128px;
+    }
+
+    #section-subscription .subscription-details-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    #section-subscription .detail-card {
+        min-height: 112px;
+        padding: 14px;
+    }
+
+    #section-subscription .detail-value {
+        font-size: 22px;
+    }
+
+    #section-subscription .sub-action-btn {
+        padding: 16px 16px;
+    }
+}
+
+@media (max-width: 480px) {
+    #section-subscription .subscription-details-grid {
+        grid-template-columns: 1fr;
+    }
+
+    #section-subscription .subscription-history-section,
+    #section-subscription .subscription-benefits {
+        padding: 18px 14px;
+    }
+
+    #section-subscription .benefits-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+}
+
 .action-btn.primary:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);

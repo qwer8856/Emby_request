@@ -1089,9 +1089,16 @@
         
         <!-- 我的订阅页面 -->
         <section class="content-section" id="section-subscription">
-            <div class="section-header">
-                <h1>💳 我的订阅</h1>
-                <p>查看和管理您的订阅信息</p>
+            <div class="section-header subscription-section-header">
+                <div class="subscription-header-main">
+                    <h1><span class="subscription-header-icon">💳</span><span>我的订阅</span></h1>
+                    <p>集中查看套餐状态、有效期和权益信息，数据会随系统状态自动更新</p>
+                </div>
+                <div class="subscription-header-meta">
+                    <span class="subscription-header-chip">⚡ 实时状态</span>
+                    <span class="subscription-header-chip">🔁 支持续费与兑换</span>
+                    <span class="subscription-header-chip">🛡️ 记录完整可追溯</span>
+                </div>
             </div>
             
             <div class="subscription-page-container">
@@ -1107,6 +1114,11 @@
                             <div class="hero-title">
                                 <h2 id="subscriptionUserName">{{ user.name or '用户' }}</h2>
                                 <span class="hero-level" id="subscriptionLevelName">{{ level_name }}</span>
+                                <p class="hero-subtitle">当前状态与到期时间会在本页自动同步，可直接续费或手动刷新。</p>
+                            </div>
+                            <div class="hero-tags">
+                                <span class="hero-tag">🔔 过期提醒</span>
+                                <span class="hero-tag">📈 数据同步</span>
                             </div>
                         </div>
                         <div class="hero-right">
@@ -1129,32 +1141,32 @@
                 <!-- 订阅详情网格 -->
                 <div class="subscription-details-grid">
                     <div class="detail-card">
-                        <div class="detail-icon">📅</div>
-                        <div class="detail-info">
+                        <div class="detail-card-head">
+                            <div class="detail-icon">📅</div>
                             <span class="detail-label">开始日期</span>
-                            <span class="detail-value" id="subscriptionStartDate">--</span>
                         </div>
+                        <span class="detail-value" id="subscriptionStartDate">--</span>
                     </div>
                     <div class="detail-card">
-                        <div class="detail-icon">⏰</div>
-                        <div class="detail-info">
+                        <div class="detail-card-head">
+                            <div class="detail-icon">⏰</div>
                             <span class="detail-label">到期日期</span>
-                            <span class="detail-value" id="subscriptionEndDate">--</span>
                         </div>
+                        <span class="detail-value" id="subscriptionEndDate">--</span>
                     </div>
                     <div class="detail-card">
-                        <div class="detail-icon">🎬</div>
-                        <div class="detail-info">
+                        <div class="detail-card-head">
+                            <div class="detail-icon">🎬</div>
                             <span class="detail-label">每日求片限额</span>
-                            <span class="detail-value" id="subscriptionDailyLimit">{{ max_daily }}</span>
                         </div>
+                        <span class="detail-value" id="subscriptionDailyLimit">{{ max_daily }}</span>
                     </div>
                     <div class="detail-card">
-                        <div class="detail-icon">📊</div>
-                        <div class="detail-info">
+                        <div class="detail-card-head">
+                            <div class="detail-icon">📊</div>
                             <span class="detail-label">累计求片</span>
-                            <span class="detail-value" id="subscriptionTotalRequests">{{ total_requests }}</span>
                         </div>
+                        <span class="detail-value" id="subscriptionTotalRequests">{{ total_requests }}</span>
                     </div>
                 </div>
                 
@@ -1665,9 +1677,6 @@
             </div>
             
             <!-- Emby库状态信息 -->
-            <div id="embyStatusInfo" style="display: none; margin-bottom: 15px;"></div>
-            
-            <!-- 剧集季/集选择 -->
             <div id="embyStatusInfo" style="display: none; margin-bottom: 15px;"></div>
             
             <!-- 电视剧季/集选择区域 -->
