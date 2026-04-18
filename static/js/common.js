@@ -294,8 +294,47 @@
             const refreshBtn = modal.querySelector('.captcha-refresh-btn');
             const retryBtn = modal.querySelector('.captcha-retry-btn');
             let isRefreshing = false;
+            let isCaptchaLoading = false;
+            let refreshCooldown = 0;
+            let refreshCooldownTimer = null;
+            const CAPTCHA_REFRESH_COOLDOWN = 2;
+
+            function updateRefreshBtnState() {
+                if (!refreshBtn) return;
+                refreshBtn.textContent = refreshCooldown > 0 ? `换一张 (${refreshCooldown}s)` : '换一张';
+                refreshBtn.disabled = isCaptchaLoading || refreshCooldown > 0;
+            }
+
+            function stopRefreshCooldown() {
+                if (refreshCooldownTimer) {
+                    clearInterval(refreshCooldownTimer);
+                    refreshCooldownTimer = null;
+                }
+                refreshCooldown = 0;
+                updateRefreshBtnState();
+            }
+
+            function startRefreshCooldown(seconds = CAPTCHA_REFRESH_COOLDOWN) {
+                if (!refreshBtn) return;
+                if (refreshCooldownTimer) {
+                    clearInterval(refreshCooldownTimer);
+                    refreshCooldownTimer = null;
+                }
+                refreshCooldown = Math.max(0, Number(seconds) || 0);
+                updateRefreshBtnState();
+                if (refreshCooldown <= 0) return;
+                refreshCooldownTimer = setInterval(() => {
+                    refreshCooldown = Math.max(0, refreshCooldown - 1);
+                    updateRefreshBtnState();
+                    if (refreshCooldown <= 0 && refreshCooldownTimer) {
+                        clearInterval(refreshCooldownTimer);
+                        refreshCooldownTimer = null;
+                    }
+                }, 1000);
+            }
 
             function setLoading(loading, text = '正在加载验证码...') {
+                isCaptchaLoading = !!loading;
                 if (captchaLoading) {
                     captchaLoading.style.display = loading ? 'flex' : 'none';
                     captchaLoading.textContent = text;
@@ -303,11 +342,12 @@
                 if (captchaImg && loading) {
                     captchaImg.style.display = 'none';
                 }
-                if (refreshBtn) refreshBtn.disabled = loading;
                 if (retryBtn && loading) retryBtn.style.display = 'none';
+                updateRefreshBtnState();
             }
 
             function setLoadFailed(text) {
+                isCaptchaLoading = false;
                 if (captchaLoading) {
                     captchaLoading.style.display = 'flex';
                     captchaLoading.textContent = text || '验证码加载失败';
@@ -315,8 +355,8 @@
                 if (captchaImg) {
                     captchaImg.style.display = 'none';
                 }
-                if (refreshBtn) refreshBtn.disabled = false;
                 if (retryBtn) retryBtn.style.display = '';
+                updateRefreshBtnState();
             }
 
             function applyCaptchaImage(src) {
@@ -325,6 +365,7 @@
                     setLoading(false);
                     captchaImg.style.display = 'inline-block';
                     if (retryBtn) retryBtn.style.display = 'none';
+                    startRefreshCooldown(CAPTCHA_REFRESH_COOLDOWN);
                 };
                 captchaImg.onerror = () => {
                     setLoadFailed('验证码加载失败，请重试');
@@ -350,6 +391,9 @@
                     if (!res.ok || !data || !data.success || !data.image) {
                         const msg = (data && (data.error || data.message)) || `验证码加载失败（HTTP ${res.status}）`;
                         setLoadFailed(msg);
+                        if (res.status === 429 || /频繁|稍后|429/i.test(String(msg || ''))) {
+                            startRefreshCooldown(CAPTCHA_REFRESH_COOLDOWN);
+                        }
                         return;
                     }
                     applyCaptchaImage(data.image);
@@ -389,6 +433,7 @@
             const cancelBtn = modal.querySelector('.global-confirm-btn.cancel');
 
             function close(result) {
+                stopRefreshCooldown();
                 modal.classList.remove('show');
                 setTimeout(() => { modal.remove(); resolve(result); }, 200);
             }

@@ -9174,6 +9174,16 @@ select.custom-select:focus,
     border-top: 1px solid #f1f5f9;
 }
 
+.dash-panel-header-compact {
+    margin-bottom: 16px;
+}
+
+.dash-panel-title-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
 /* 浠〃鐩樺搷搴斿紡 */
 @media (max-width: 1200px) {
     .dashboard-highlights {
@@ -9206,6 +9216,72 @@ select.custom-select:focus,
 }
 
 /* ==================== 浠〃鐩樼幆褰㈠浘缁熻 ==================== */
+.dash-analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.dash-media-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.analytics-card,
+.media-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #f8fafc 0%, #ffffff 72%);
+    padding: 14px 14px 12px;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
+}
+
+.analytics-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.analytics-card-head h4 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1e293b;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.analytics-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #eff6ff;
+    border: 1px solid #dbeafe;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.analytics-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 9px;
+    border-radius: 999px;
+    background: #eef2ff;
+    border: 1px solid #e0e7ff;
+    color: #4f46e5;
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
 .dash-donut-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -9267,7 +9343,7 @@ select.custom-select:focus,
     gap: 8px 14px;
     font-size: 12px;
     color: #64748b;
-    max-width: 260px;
+    max-width: 100%;
 }
 .donut-legend-item {
     display: inline-flex;
@@ -9320,6 +9396,14 @@ select.custom-select:focus,
 }
 /* 鍝嶅簲寮?*/
 @media (max-width: 900px) {
+    .dash-analytics-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+    .dash-media-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
     .dash-donut-row {
         grid-template-columns: 1fr 1fr;
         gap: 16px;
@@ -9329,6 +9413,26 @@ select.custom-select:focus,
     }
 }
 @media (max-width: 600px) {
+    .dash-analytics-grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+    .analytics-card,
+    .media-card {
+        padding: 12px;
+    }
+    .analytics-card-head h4 {
+        font-size: 13px;
+    }
+    .analytics-icon {
+        width: 22px;
+        height: 22px;
+    }
+    .analytics-badge {
+        font-size: 10px;
+        height: 20px;
+        padding: 0 8px;
+    }
     .dash-donut-row {
         grid-template-columns: 1fr;
         gap: 12px;
