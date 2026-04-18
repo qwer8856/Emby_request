@@ -3440,8 +3440,10 @@ async function loadSystemConfig() {
             
             // 填充 Telegram 通知模板配置
             if (config.telegram.templates) {
-                document.getElementById('tgRequestTemplate').value = config.telegram.templates.request || '';
-                document.getElementById('tgCompletionTemplate').value = config.telegram.templates.completion || '';
+                const requestTemplateEl = document.getElementById('tgRequestTemplate');
+                const completionTemplateEl = document.getElementById('tgCompletionTemplate');
+                if (requestTemplateEl) requestTemplateEl.value = config.telegram.templates.request || '';
+                if (completionTemplateEl) completionTemplateEl.value = config.telegram.templates.completion || '';
             }
             
             // 填充求片通知配置（入库通知 - 求片Tab）
@@ -4251,8 +4253,14 @@ async function checkTelegramMode() {
 
 // Telegram 通知模板配置
 async function saveTelegramTemplates() {
-    const requestTemplate = document.getElementById('tgRequestTemplate').value;
-    const completionTemplate = document.getElementById('tgCompletionTemplate').value;
+    const requestTemplateEl = document.getElementById('tgRequestTemplate');
+    const completionTemplateEl = document.getElementById('tgCompletionTemplate');
+    if (!requestTemplateEl || !completionTemplateEl) {
+        showToast('错误', '通知模板表单未加载', 'error');
+        return;
+    }
+    const requestTemplate = requestTemplateEl.value;
+    const completionTemplate = completionTemplateEl.value;
     
     try {
         const response = await fetch('/api/admin/system-config', {
@@ -4291,8 +4299,14 @@ async function resetTelegramTemplates() {
     });
     if (!confirmed) return;
     
-    document.getElementById('tgRequestTemplate').value = '';
-    document.getElementById('tgCompletionTemplate').value = '';
+    const requestTemplateEl = document.getElementById('tgRequestTemplate');
+    const completionTemplateEl = document.getElementById('tgCompletionTemplate');
+    if (!requestTemplateEl || !completionTemplateEl) {
+        showToast('错误', '通知模板表单未加载', 'error');
+        return;
+    }
+    requestTemplateEl.value = '';
+    completionTemplateEl.value = '';
     
     // 自动保存
     saveTelegramTemplates();
@@ -4322,6 +4336,7 @@ async function saveLibraryNotificationConfig() {
     const requestSendTo = document.querySelector('input[name="requestSendTo"]:checked').value;
     const requestShowOverview = document.getElementById('requestShowOverview').checked;
     const requestShowPoster = document.getElementById('requestShowPoster').checked;
+    const requestCustomMessage = document.getElementById('requestCustomMessage')?.value?.trim() || '';
     
     // 通用入库通知配置
     const generalEnabled = document.getElementById('generalLibraryEnabled').checked;
@@ -4336,7 +4351,8 @@ async function saveLibraryNotificationConfig() {
                     enabled: true,
                     send_to: requestSendTo,
                     show_overview: requestShowOverview,
-                    show_poster: requestShowPoster
+                    show_poster: requestShowPoster,
+                    custom_message: requestCustomMessage
                 },
                 library_notification: {
                     enabled: generalEnabled,

@@ -3091,6 +3091,27 @@
                                         </label>
                                         <span class="form-hint">通知中附带影片海报图片</span>
                                     </div>
+
+                                    <div class="form-group">
+                                        <label for="requestCustomMessage">自定义求片通知文案</label>
+                                        <textarea id="requestCustomMessage" class="form-input" rows="6"
+                                            placeholder="留空则使用默认文案"></textarea>
+                                        <span class="form-hint">支持变量：{title}、{year}、{user}、{admin}、{overview}、{poster}</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="tgRequestTemplate">求片通知模板</label>
+                                        <textarea id="tgRequestTemplate" class="form-input" rows="6"
+                                            placeholder="留空则使用默认模板"></textarea>
+                                        <span class="form-hint">支持变量：{title}、{year}、{user}、{admin}、{overview}、{poster}</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="tgCompletionTemplate">入库完成模板</label>
+                                        <textarea id="tgCompletionTemplate" class="form-input" rows="6"
+                                            placeholder="留空则使用默认模板"></textarea>
+                                        <span class="form-hint">支持变量：{title}、{year}、{user}、{admin}、{overview}、{poster}</span>
+                                    </div>
                                 </div>
                             </div>
 
