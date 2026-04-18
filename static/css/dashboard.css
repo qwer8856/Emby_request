@@ -3336,6 +3336,11 @@
             background: #fef3c7;
             color: #d97706;
         }
+
+        .feature-badge.danger {
+            background: #fee2e2;
+            color: #dc2626;
+        }
         
         .feature-card-content-v2 {
             padding: 20px;
@@ -3378,6 +3383,79 @@
             border-radius: 10px;
             margin: 0;
             line-height: 1.5;
+        }
+
+        /* Emby 账号信息卡 */
+        .emby-meta-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .emby-meta-item {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 12px 14px;
+            min-height: 88px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .emby-meta-item-wide {
+            grid-column: 1 / -1;
+        }
+
+        .emby-meta-status.bound {
+            background: linear-gradient(135deg, #ecfdf5 0%, #dcfce7 100%);
+            border-color: #86efac;
+        }
+
+        .emby-meta-status.disabled {
+            background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+            border-color: #fca5a5;
+        }
+
+        .emby-meta-status.unbound {
+            background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+            border-color: #fcd34d;
+        }
+
+        .emby-meta-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .emby-meta-icon {
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .emby-meta-label {
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 500;
+        }
+
+        .emby-meta-value {
+            font-size: 15px;
+            color: #0f172a;
+            font-weight: 700;
+            word-break: break-word;
+        }
+
+        @media (max-width: 768px) {
+            .emby-meta-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .emby-meta-item-wide {
+                grid-column: 1;
+            }
         }
         
         /* Emby 信息列表 */

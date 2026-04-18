@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.11'
+APP_VERSION = '2.2.12'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -2369,6 +2369,9 @@ class EmbyClient:
         # TMDB ID 查询缓存（10分钟）
         self._tmdb_cache = {}
         self._tmdb_cache_ttl = 600  # 10分钟
+        # 用户账号概览缓存（5分钟）
+        self._user_overview_cache = {}
+        self._user_overview_cache_ttl = 300
 
     def is_enabled(self) -> bool:
         return bool(self.base_url and self.api_key)
@@ -2526,6 +2529,82 @@ class EmbyClient:
             if self._library_counts_cache:
                 return self._library_counts_cache
             return {'movies': 0, 'series': 0, 'episodes': 0, 'total': 0}
+
+    def get_user_account_overview(self, emby_user_id: str) -> dict:
+        """获取用户账号概览信息（用于仪表盘展示）"""
+        result = {
+            'verified': False,
+            'verified_at': None,
+            'server_name': '',
+            'account_type': '',
+            'accessible_libraries': None,
+        }
+
+        if not self.is_enabled() or not emby_user_id:
+            return result
+
+        cache_key = str(emby_user_id)
+        now_ts = time.time()
+        cached = self._user_overview_cache.get(cache_key)
+        if cached and (now_ts - cached.get('ts', 0) < self._user_overview_cache_ttl):
+            return cached.get('data', result)
+
+        # 先给一个 URL 主机名兜底，避免服务器名称为空
+        try:
+            host = urlparse(self.base_url).hostname
+            if host:
+                result['server_name'] = host
+        except Exception:
+            pass
+
+        # 服务器名称
+        try:
+            server_resp = self.session.get(
+                f"{self.base_url}/System/Info/Public",
+                params={'api_key': self.api_key},
+                timeout=5
+            )
+            if server_resp.status_code == 200:
+                server_info = server_resp.json() or {}
+                server_name = (server_info.get('ServerName') or '').strip()
+                if server_name:
+                    result['server_name'] = server_name
+        except Exception as e:
+            app.logger.debug(f'获取Emby服务器名称失败: {e}')
+
+        # 用户校验 + 账号类型
+        try:
+            user_resp = self.session.get(
+                f"{self.base_url}/Users/{emby_user_id}",
+                params={'api_key': self.api_key},
+                timeout=6
+            )
+            if user_resp.status_code == 200:
+                user_data = user_resp.json() or {}
+                policy = user_data.get('Policy') or {}
+                result['verified'] = True
+                result['verified_at'] = datetime.now().strftime('%Y-%m-%d %H:%M')
+                result['account_type'] = '管理员' if policy.get('IsAdministrator') else '普通用户'
+        except Exception as e:
+            app.logger.debug(f'校验Emby用户失败: {emby_user_id}, error={e}')
+
+        # 可访问媒体库数量
+        try:
+            views_resp = self.session.get(
+                f"{self.base_url}/Users/{emby_user_id}/Views",
+                params={'api_key': self.api_key},
+                timeout=6
+            )
+            if views_resp.status_code == 200:
+                views_data = views_resp.json() or {}
+                items = views_data.get('Items')
+                if isinstance(items, list):
+                    result['accessible_libraries'] = len(items)
+        except Exception as e:
+            app.logger.debug(f'获取用户可访问媒体库失败: {emby_user_id}, error={e}')
+
+        self._user_overview_cache[cache_key] = {'ts': now_ts, 'data': result}
+        return result
     
     def check_exists(self, tmdb_id: Optional[str], name: str, year: Optional[str] = None, media_type: str = 'movie') -> dict:
         """检查媒体是否存在于 Emby 库中"""
@@ -9092,6 +9171,47 @@ def dashboard():
         
         # 获取Emby媒体库数量统计
         library_counts = emby_client.get_library_counts() if emby_client.is_enabled() else {'movies': 0, 'series': 0, 'episodes': 0, 'total': 0}
+
+        # Emby 账号概览（我的信息卡片）
+        emby_account_info = {
+            'status_text': '未绑定',
+            'status_class': 'unbound',
+            'last_verified_time': '未验证',
+            'server_name': '未配置',
+            'account_type': '-',
+            'accessible_libraries': '--',
+        }
+        if user.embyid:
+            emby_account_info['status_text'] = '已绑定'
+            emby_account_info['status_class'] = 'bound'
+            emby_account_info['server_name'] = '未知服务器'
+
+            # 黑名单禁用/全封禁优先展示为禁用状态
+            if is_banned or emby_disabled_by_blacklist:
+                emby_account_info['status_text'] = '已禁用'
+                emby_account_info['status_class'] = 'disabled'
+
+            if emby_client.is_enabled():
+                overview = emby_client.get_user_account_overview(user.embyid)
+                if overview.get('verified'):
+                    emby_account_info['last_verified_time'] = overview.get('verified_at') or '刚刚'
+                else:
+                    emby_account_info['last_verified_time'] = '验证失败'
+
+                server_name = (overview.get('server_name') or '').strip()
+                if server_name:
+                    emby_account_info['server_name'] = server_name
+
+                account_type = (overview.get('account_type') or '').strip()
+                if account_type:
+                    emby_account_info['account_type'] = account_type
+
+                lib_count = overview.get('accessible_libraries')
+                if isinstance(lib_count, int):
+                    emby_account_info['accessible_libraries'] = str(lib_count)
+            else:
+                emby_account_info['last_verified_time'] = 'Emby未配置'
+                emby_account_info['server_name'] = 'Emby未配置'
         
         # 加载前端配置
         site_config = get_site_config()
@@ -9134,6 +9254,7 @@ def dashboard():
                              user_has_bot=user_has_bot,
                              bot_username=bot_username,
                              library_counts=library_counts,
+                             emby_account_info=emby_account_info,
                              is_banned=is_banned,
                              is_whitelist=is_whitelist,
                              emby_disabled_by_blacklist=emby_disabled_by_blacklist,
