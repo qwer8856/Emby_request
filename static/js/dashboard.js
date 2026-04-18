@@ -2100,9 +2100,6 @@ async function unbindTelegramId() {
             // 初始化邮箱绑定侧边栏状态
             updateEmailBindSidebar();
             
-            // 加载订阅权益配置
-            loadSubscriptionBenefits();
-            
             // 检查未读工单消息（显示红点）
             checkUnreadTickets();
             
@@ -3837,30 +3834,6 @@ async function unbindTelegramId() {
 
         // ==================== 订阅信息功能 ====================
         
-        // 从后台加载并显示订阅权益
-        async function loadSubscriptionBenefits() {
-            const benefitsGrid = document.getElementById('benefitsGrid');
-            if (!benefitsGrid) return;
-            
-            try {
-                const response = await fetch('/api/subscription/benefits');
-                const data = await response.json();
-                
-                if (data.success && data.benefits && data.benefits.length > 0) {
-                    const benefits = data.benefits;
-                    
-                    benefitsGrid.innerHTML = benefits.map(benefit => `
-                        <div class="benefit-item${benefit.highlight ? ' highlight' : ''}">
-                            <div class="benefit-icon">${benefit.icon || '✨'}</div>
-                            <span class="benefit-text">${benefit.text || ''}</span>
-                        </div>
-                    `).join('');
-                }
-            } catch (error) {
-                console.error('加载订阅权益失败:', error);
-            }
-        }
-        
         async function loadSubscriptionInfo() {
             const historyList = document.getElementById('subscriptionHistory');
             const countdownProgress = document.getElementById('countdownProgress');
@@ -4549,10 +4522,10 @@ async function unbindTelegramId() {
             plansGrid.innerHTML = finalPlans.map(plan => {
                 const planId = plan.id || plan.type || '';
                 const isPopular = plan.popular;
-                const cardClass = isPopular ? 'popular' : '';
                 const durationDays = plan.duration_days || 30;
                 const isPermanent = durationDays >= 999;
                 const isShortTerm = !isPermanent && durationDays < 30;
+                const cardClass = [isPopular ? 'popular' : '', isPermanent ? 'ultimate' : ''].filter(Boolean).join(' ');
                 
                 // 判断是否有任何可购买的价格
                 const priceOnce = plan.price_once || 0;
@@ -4571,38 +4544,63 @@ async function unbindTelegramId() {
                     displayPrice = monthlyPrice;
                     pricePeriod = isShortTerm ? `/${durationDays}天` : '/月起';
                 }
+
+                const displayPriceText = Number.isInteger(displayPrice)
+                    ? String(displayPrice)
+                    : String(displayPrice.toFixed(2)).replace(/\.00$/, '');
+
+                const planTitle = plan.name || '套餐';
+                const planSubtitle = plan.description || (isPermanent ? '一次开通，长期稳定可用' : '按需续费，灵活管理开通周期');
+                const featureList = Array.isArray(plan.features) && plan.features.length > 0
+                    ? plan.features.slice(0, 5)
+                    : [
+                        isPermanent ? '长期可用权限' : '订阅权限自动生效',
+                        '账号状态同步更新',
+                        '支持在线支付开通',
+                        '支持续费与扩展'
+                    ];
+                const pricingTypeText = useOnceMode ? '一次性计费' : '周期计费';
+                const durationText = isPermanent ? '永久有效' : `有效期 ${durationDays} 天`;
                 
                 return `
                     <div class="plan-card-new ${cardClass}" data-plan-type="${planId}">
-                        ${isPopular ? '<div class="popular-badge">🔥 最受欢迎</div>' : ''}
-                        ${isPermanent ? '<div class="ultimate-badge">♾️ 永久</div>' : ''}
-                        
+                        <div class="plan-topline">
+                            <span class="plan-ribbon ${isPopular ? 'popular' : 'normal'}">${isPopular ? '🔥 最受欢迎' : '✨ 推荐套餐'}</span>
+                            ${isPermanent ? '<span class="plan-ribbon ultimate">♾️ 永久</span>' : ''}
+                        </div>
                         <div class="plan-header-new">
-                            <span class="plan-icon">${plan.icon || '📦'}</span>
-                            <h3 class="plan-name-new">${plan.name || '套餐'}</h3>
+                            <span class="plan-icon-wrap"><span class="plan-icon">${plan.icon || '📦'}</span></span>
+                            <div class="plan-title-group">
+                                <h3 class="plan-name-new">${planTitle}</h3>
+                                <p class="plan-subtitle">${planSubtitle}</p>
+                            </div>
                         </div>
                         
                         ${hasAnyPrice ? `
                         <div class="plan-price-display">
                             <span class="price-currency">¥</span>
-                            <span class="price-amount">${displayPrice}</span>
+                            <span class="price-amount">${displayPriceText}</span>
                             <span class="price-period">${pricePeriod}</span>
                         </div>
                         ` : `
-                        <div class="plan-price-display">
-                            <span class="price-amount" style="font-size:18px;color:#999;">仅限管理员分配</span>
+                        <div class="plan-price-display no-price">
+                            <span class="price-empty">仅限管理员分配</span>
                         </div>
                         `}
                         
-                        <p class="plan-description">${plan.description || ''}</p>
+                        <div class="plan-meta-row">
+                            <span class="plan-meta-chip">⏱ ${durationText}</span>
+                            <span class="plan-meta-chip">💳 ${pricingTypeText}</span>
+                        </div>
                         
                         <ul class="plan-features-new">
-                            ${(plan.features || []).map(f => `<li><span class="check-icon">✓</span> ${f}</li>`).join('')}
+                            ${featureList.map(f => `<li><span class="check-icon">✓</span>${f}</li>`).join('')}
                         </ul>
                         
                         ${hasAnyPrice ? `
                         <button class="plan-buy-btn ${cardClass}" onclick="openPurchaseDialog('${planId}')">
-                            立即购买
+                            <span>立即购买</span>
+                            <span class="buy-btn-arrow">→</span>
                         </button>
                         ` : ''}
                     </div>

@@ -16161,3 +16161,314 @@
         padding-bottom: env(safe-area-inset-bottom);
     }
 }
+
+/* ============================================
+   购买套餐卡片重构（作用域：#section-purchase）
+   ============================================ */
+#section-purchase {
+    --plan-primary: #2563eb;
+    --plan-primary-soft: #dbeafe;
+    --plan-border: #dce5f2;
+    --plan-text: #0f172a;
+    --plan-muted: #64748b;
+}
+
+#section-purchase .plans-grid-new {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 18px;
+    margin-bottom: 26px;
+    align-items: stretch;
+}
+
+#section-purchase .plan-card-new {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 330px;
+    padding: 20px 20px 18px;
+    border-radius: 18px;
+    border: 1px solid var(--plan-border);
+    background:
+        radial-gradient(circle at 100% 0, rgba(37, 99, 235, 0.09) 0, rgba(37, 99, 235, 0) 35%),
+        linear-gradient(165deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+    overflow: hidden;
+    transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+
+#section-purchase .plan-card-new::before {
+    display: none;
+}
+
+#section-purchase .plan-card-new.popular,
+#section-purchase .plan-card-new.ultimate {
+    padding-top: 20px;
+}
+
+#section-purchase .plan-card-new:hover {
+    transform: translateY(-4px);
+    border-color: #bed1ef;
+    box-shadow: 0 16px 30px rgba(37, 99, 235, 0.13);
+}
+
+#section-purchase .plan-card-new.popular {
+    border-color: #a7c6ff;
+    box-shadow: 0 14px 30px rgba(37, 99, 235, 0.16);
+}
+
+#section-purchase .plan-card-new.ultimate {
+    border-color: #f5d28d;
+    background:
+        radial-gradient(circle at 100% 0, rgba(245, 158, 11, 0.15) 0, rgba(245, 158, 11, 0) 36%),
+        linear-gradient(165deg, #fffef9 0%, #fff7e8 100%);
+}
+
+#section-purchase .plan-topline {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+#section-purchase .plan-ribbon {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+#section-purchase .plan-ribbon.normal {
+    color: #1d4ed8;
+    background: #eaf2ff;
+    border: 1px solid #cddffe;
+}
+
+#section-purchase .plan-ribbon.popular {
+    color: #fff;
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+}
+
+#section-purchase .plan-ribbon.ultimate {
+    color: #92400e;
+    background: #ffedd5;
+    border: 1px solid #fed7aa;
+}
+
+#section-purchase .plan-header-new {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 0;
+}
+
+#section-purchase .plan-icon-wrap {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: #edf4ff;
+    border: 1px solid #d4e3fb;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+#section-purchase .plan-card-new.ultimate .plan-icon-wrap {
+    background: #fff4e0;
+    border-color: #f8d7a2;
+}
+
+#section-purchase .plan-icon {
+    font-size: 23px;
+}
+
+#section-purchase .plan-title-group {
+    min-width: 0;
+}
+
+#section-purchase .plan-name-new {
+    margin: 0 0 4px;
+    font-size: 21px;
+    color: var(--plan-text);
+    letter-spacing: 0.2px;
+}
+
+#section-purchase .plan-subtitle {
+    margin: 0;
+    font-size: 13px;
+    color: #5f7086;
+    line-height: 1.45;
+}
+
+#section-purchase .plan-price-display {
+    margin: 4px 0 0;
+    padding: 14px 0;
+    border-top: 1px solid #e5edf8;
+    border-bottom: 1px solid #e5edf8;
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 3px;
+}
+
+#section-purchase .price-currency {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--plan-primary);
+}
+
+#section-purchase .price-amount {
+    font-size: 43px;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--plan-primary);
+}
+
+#section-purchase .price-period {
+    font-size: 13px;
+    font-weight: 600;
+    color: #6b7e99;
+}
+
+#section-purchase .plan-price-display.no-price {
+    justify-content: center;
+}
+
+#section-purchase .price-empty {
+    font-size: 15px;
+    font-weight: 600;
+    color: #94a3b8;
+}
+
+#section-purchase .plan-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+#section-purchase .plan-meta-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #3b4f6d;
+    background: #f1f6ff;
+    border: 1px solid #d9e6fa;
+}
+
+#section-purchase .plan-features-new {
+    list-style: none;
+    margin: 2px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+    flex: 1;
+}
+
+#section-purchase .plan-features-new li {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: #334155;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+#section-purchase .plan-features-new .check-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    background: #e7f7ee;
+    border: 1px solid #c4e7d2;
+    color: #16a34a;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+#section-purchase .plan-buy-btn {
+    margin-top: auto;
+    border-radius: 12px;
+    border: none;
+    width: 100%;
+    padding: 13px 16px;
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 700;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+#section-purchase .plan-buy-btn:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.03);
+    box-shadow: 0 12px 20px rgba(30, 58, 138, 0.3);
+}
+
+#section-purchase .plan-buy-btn .buy-btn-arrow {
+    font-size: 16px;
+    line-height: 1;
+}
+
+#section-purchase .plan-buy-btn.popular {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+}
+
+#section-purchase .plan-buy-btn.popular:hover {
+    box-shadow: 0 12px 20px rgba(37, 99, 235, 0.32);
+}
+
+#section-purchase .plan-buy-btn.ultimate {
+    background: linear-gradient(135deg, #ea580c 0%, #d97706 100%);
+}
+
+#section-purchase .plan-buy-btn.ultimate:hover {
+    box-shadow: 0 12px 20px rgba(217, 119, 6, 0.35);
+}
+
+@media (max-width: 900px) {
+    #section-purchase .plans-grid-new {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+    }
+}
+
+@media (max-width: 768px) {
+    #section-purchase .plans-grid-new {
+        grid-template-columns: 1fr;
+        gap: 14px;
+    }
+
+    #section-purchase .plan-card-new {
+        min-height: 0;
+        padding: 16px 14px 14px;
+        border-radius: 16px;
+    }
+
+    #section-purchase .plan-card-new.popular,
+    #section-purchase .plan-card-new.ultimate {
+        padding-top: 16px;
+    }
+
+    #section-purchase .plan-name-new {
+        font-size: 18px;
+    }
+
+    #section-purchase .price-amount {
+        font-size: 35px;
+    }
+
+    #section-purchase .plan-subtitle {
+        font-size: 12px;
+    }
+}
