@@ -4672,16 +4672,24 @@ async function unbindTelegramId() {
                 }
             }
             
-            durationGridHTML = durationOptions.map(opt => `
+            durationGridHTML = durationOptions.map(opt => {
+                const optionPriceText = Number.isInteger(opt.price)
+                    ? String(opt.price)
+                    : String(opt.price.toFixed(2)).replace(/\.00$/, '');
+                return `
                 <label class="dur-card ${opt.active ? 'active' : ''}" data-duration="${opt.duration}">
                     <input type="radio" name="dur" value="${opt.duration}" ${opt.active ? 'checked' : ''} onchange="updateDuration(${opt.duration})">
                     <span class="dur-name">${opt.name}</span>
-                    <span class="dur-price">¥${opt.price}</span>
+                    <span class="dur-price">¥${optionPriceText}</span>
                     ${opt.tag ? `<span class="dur-tag ${opt.tag === '最划算' ? 'hot' : ''}">${opt.tag}</span>` : ''}
                 </label>
-            `).join('');
+            `;
+            }).join('');
             
             const initialPrice = prices[selectedDuration] || 0;
+            const initialPriceText = Number.isInteger(initialPrice)
+                ? String(initialPrice)
+                : String(initialPrice.toFixed(2)).replace(/\.00$/, '');
             const planSubtitle = isPermanent ? '永久服务' : (isShortTerm ? durationDays + '天体验' : '订阅服务');
             
             const overlay = document.createElement('div');
@@ -4694,6 +4702,7 @@ async function unbindTelegramId() {
                     
                     <!-- 左侧: 套餐信息 -->
                     <div class="dialog-left-panel">
+                        <div class="dialog-left-head">支付摘要</div>
                         <div class="selected-plan-info">
                             <span class="plan-icon-lg">${planIcon}</span>
                             <div class="plan-text">
@@ -4703,20 +4712,26 @@ async function unbindTelegramId() {
                         </div>
                         <div class="price-display-lg">
                             <span class="currency">¥</span>
-                            <span class="amount" id="dialogPriceAmount">${initialPrice}</span>
+                            <span class="amount" id="dialogPriceAmount">${initialPriceText}</span>
                         </div>
+                        <div class="dialog-pay-tip">支付后将自动激活，订单可在下方实时查看状态</div>
                         <div class="verify-section">
+                            <div class="verify-label">安全验证</div>
                             <div class="verify-row">
                                 <div class="verify-code-box" id="verifyCodeBox">${currentVerifyCode}</div>
                                 <button class="verify-refresh-btn" onclick="refreshVerifyCode()" title="刷新验证码">↻</button>
                             </div>
                             <input type="text" id="verifyCodeInput" class="verify-input" placeholder="输入验证码" maxlength="4" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
                         </div>
-                        <button class="confirm-pay-btn" onclick="confirmPurchase()">确认支付</button>
+                        <button class="confirm-pay-btn" onclick="confirmPurchase()"><span>确认支付</span><span class="pay-arrow">→</span></button>
                     </div>
                     
                     <!-- 右侧: 选择项 -->
                     <div class="dialog-right-panel">
+                        <div class="dialog-right-head">
+                            <h4>购买配置</h4>
+                            <p>请先选择时长，再确认支付方式</p>
+                        </div>
                         <!-- 时长选择 -->
                         <div class="option-group">
                             <div class="option-title">选择时长</div>
@@ -4734,14 +4749,20 @@ async function unbindTelegramId() {
                                     <div class="pay-icon alipay">
                                         <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M8.67,2C4.7,2 2,4.7 2,8.67V15.33C2,19.3 4.7,22 8.67,22H15.33C19.3,22 22,19.3 22,15.33V8.67C22,4.7 19.3,2 15.33,2H8.67M15.29,6C15.77,6 16.18,6.41 16.18,6.88V12.94C18,14.53 16.5,17.62 13.62,17.38L8.21,17.5C8.21,17.5 15.16,11.54 14.28,10.34C13.4,9.14 9.5,10.28 8.21,10.94L8.21,8.75L11.15,7.05L15.29,6Z"/></svg>
                                     </div>
-                                    <span>支付宝</span>
+                                    <div class="pay-meta">
+                                        <span class="pay-name">支付宝</span>
+                                        <span class="pay-desc">推荐，快速到账</span>
+                                    </div>
                                 </label>
                                 <label class="pay-card">
                                     <input type="radio" name="payMethod" value="wxpay" onchange="updatePaymentInDialog('wxpay')">
                                     <div class="pay-icon wechat">
                                         <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M9.5,4C5.36,4 2,6.69 2,10C2,11.89 3.08,13.56 4.78,14.66L4,17L6.5,15.5C7.39,15.81 8.37,16 9.41,16C9.15,15.37 9,14.7 9,14C9,10.69 12.13,8 16,8C16.19,8 16.38,8 16.56,8.03C15.54,5.69 12.78,4 9.5,4M6.5,6.5A1,1 0 0,1 7.5,7.5A1,1 0 0,1 6.5,8.5A1,1 0 0,1 5.5,7.5A1,1 0 0,1 6.5,6.5M11.5,6.5A1,1 0 0,1 12.5,7.5A1,1 0 0,1 11.5,8.5A1,1 0 0,1 10.5,7.5A1,1 0 0,1 11.5,6.5M16,9C12.69,9 10,11.24 10,14C10,16.76 12.69,19 16,19C16.67,19 17.31,18.92 17.91,18.75L20,20L19.38,18.13C20.95,17.22 22,15.71 22,14C22,11.24 19.31,9 16,9M14,11.5A1,1 0 0,1 15,12.5A1,1 0 0,1 14,13.5A1,1 0 0,1 13,12.5A1,1 0 0,1 14,11.5M18,11.5A1,1 0 0,1 19,12.5A1,1 0 0,1 18,13.5A1,1 0 0,1 17,12.5A1,1 0 0,1 18,11.5Z"/></svg>
                                     </div>
-                                    <span>微信支付</span>
+                                    <div class="pay-meta">
+                                        <span class="pay-name">微信支付</span>
+                                        <span class="pay-desc">便捷，扫码支付</span>
+                                    </div>
                                 </label>
                             </div>
                         </div>
@@ -4773,7 +4794,11 @@ async function unbindTelegramId() {
             const prices = plan ? getPlanPrices(plan) : { 0: 0, 1: 0, 3: 0, 6: 0, 12: 0 };
             const priceAmount = document.getElementById('dialogPriceAmount');
             if (priceAmount) {
-                priceAmount.textContent = prices[duration] || 0;
+                const price = prices[duration] || 0;
+                const priceText = Number.isInteger(price)
+                    ? String(price)
+                    : String(price.toFixed(2)).replace(/\.00$/, '');
+                priceAmount.textContent = priceText;
             }
         }
         

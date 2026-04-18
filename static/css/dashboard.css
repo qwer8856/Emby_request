@@ -16472,3 +16472,416 @@
         font-size: 12px;
     }
 }
+
+/* ============================================
+   购买支付弹窗重构（作用域：#purchaseDialogOverlay）
+   ============================================ */
+#purchaseDialogOverlay.confirm-overlay {
+    background: rgba(2, 6, 23, 0.62);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+#purchaseDialogOverlay .purchase-dialog-horizontal {
+    width: 860px;
+    max-width: 94vw;
+    min-height: 500px;
+    display: grid;
+    grid-template-columns: 310px 1fr;
+    border-radius: 22px;
+    overflow: hidden;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    box-shadow: 0 34px 80px rgba(2, 6, 23, 0.45);
+    background: linear-gradient(165deg, #ffffff 0%, #f7faff 100%);
+}
+
+#purchaseDialogOverlay .dialog-close-x {
+    top: 14px;
+    right: 14px;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: rgba(255, 255, 255, 0.8);
+    color: #334155;
+    font-size: 20px;
+    z-index: 20;
+}
+
+#purchaseDialogOverlay .dialog-close-x:hover {
+    background: #fff;
+    color: #0f172a;
+    border-color: rgba(59, 130, 246, 0.35);
+}
+
+#purchaseDialogOverlay .dialog-left-panel {
+    width: auto;
+    padding: 24px 22px 20px;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    background:
+        radial-gradient(circle at 85% 8%, rgba(96, 165, 250, 0.36) 0, rgba(96, 165, 250, 0) 38%),
+        linear-gradient(180deg, #0f172a 0%, #172554 58%, #1d4ed8 100%);
+    position: relative;
+}
+
+#purchaseDialogOverlay .dialog-left-panel::after {
+    content: "";
+    position: absolute;
+    inset: auto -40px -40px auto;
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    background: rgba(147, 197, 253, 0.16);
+    pointer-events: none;
+}
+
+#purchaseDialogOverlay .dialog-left-head {
+    display: inline-flex;
+    align-self: flex-start;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(191, 219, 254, 0.35);
+    background: rgba(30, 64, 175, 0.4);
+    color: #dbeafe;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+
+#purchaseDialogOverlay .selected-plan-info {
+    margin-bottom: 0;
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(15, 23, 42, 0.26);
+    border: 1px solid rgba(191, 219, 254, 0.2);
+}
+
+#purchaseDialogOverlay .plan-icon-lg {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08));
+    border: 1px solid rgba(191, 219, 254, 0.24);
+}
+
+#purchaseDialogOverlay .plan-text h3 {
+    font-size: 22px;
+    margin: 0 0 2px;
+    letter-spacing: 0.2px;
+}
+
+#purchaseDialogOverlay .plan-text p {
+    color: rgba(226, 232, 240, 0.88);
+    font-size: 13px;
+}
+
+#purchaseDialogOverlay .price-display-lg {
+    margin-bottom: 0;
+    padding: 16px 0 14px;
+    text-align: left;
+    border-top: 1px solid rgba(191, 219, 254, 0.24);
+    border-bottom: 1px solid rgba(191, 219, 254, 0.24);
+}
+
+#purchaseDialogOverlay .price-display-lg .currency {
+    font-size: 22px;
+    color: #fde68a;
+    margin-right: 2px;
+}
+
+#purchaseDialogOverlay .price-display-lg .amount {
+    font-size: 52px;
+    color: #fef08a;
+    font-weight: 800;
+}
+
+#purchaseDialogOverlay .dialog-pay-tip {
+    font-size: 12px;
+    line-height: 1.5;
+    color: rgba(219, 234, 254, 0.9);
+}
+
+#purchaseDialogOverlay .verify-section {
+    gap: 8px;
+}
+
+#purchaseDialogOverlay .verify-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #dbeafe;
+}
+
+#purchaseDialogOverlay .verify-row {
+    gap: 8px;
+}
+
+#purchaseDialogOverlay .verify-code-box {
+    border-radius: 10px;
+    border: 1px dashed rgba(251, 191, 36, 0.7);
+    background: rgba(251, 191, 36, 0.18);
+    color: #fde68a;
+    font-size: 24px;
+    letter-spacing: 8px;
+    padding: 9px 12px;
+}
+
+#purchaseDialogOverlay .verify-refresh-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    border: 1px solid rgba(191, 219, 254, 0.2);
+    background: rgba(30, 64, 175, 0.45);
+    color: #bfdbfe;
+}
+
+#purchaseDialogOverlay .verify-refresh-btn:hover {
+    color: #fef08a;
+    background: rgba(30, 64, 175, 0.7);
+}
+
+#purchaseDialogOverlay .verify-input {
+    border-radius: 10px;
+    border: 1px solid rgba(191, 219, 254, 0.25);
+    background: rgba(15, 23, 42, 0.34);
+    font-size: 15px;
+}
+
+#purchaseDialogOverlay .verify-input:focus {
+    border-color: rgba(253, 224, 71, 0.72);
+}
+
+#purchaseDialogOverlay .confirm-pay-btn {
+    margin-top: 4px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 13px 16px;
+    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    box-shadow: 0 12px 24px rgba(37, 99, 235, 0.35);
+}
+
+#purchaseDialogOverlay .confirm-pay-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 16px 28px rgba(30, 64, 175, 0.42);
+}
+
+#purchaseDialogOverlay .confirm-pay-btn .pay-arrow {
+    font-size: 15px;
+}
+
+#purchaseDialogOverlay .dialog-right-panel {
+    padding: 24px 22px 20px;
+    background:
+        radial-gradient(circle at 100% 0, rgba(191, 219, 254, 0.36) 0, rgba(191, 219, 254, 0) 34%),
+        #f8fbff;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+#purchaseDialogOverlay .dialog-right-head h4 {
+    margin: 0 0 4px;
+    font-size: 20px;
+    color: #0f172a;
+    font-weight: 800;
+}
+
+#purchaseDialogOverlay .dialog-right-head p {
+    margin: 0;
+    font-size: 13px;
+    color: #64748b;
+}
+
+#purchaseDialogOverlay .option-group {
+    margin-bottom: 0;
+    padding: 14px;
+    border-radius: 14px;
+    border: 1px solid #dbe7fb;
+    background: rgba(255, 255, 255, 0.85);
+}
+
+#purchaseDialogOverlay .option-title {
+    margin-bottom: 12px;
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+#purchaseDialogOverlay .option-title::before {
+    width: 4px;
+    height: 14px;
+    border-radius: 99px;
+    background: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%);
+}
+
+#purchaseDialogOverlay .duration-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+
+#purchaseDialogOverlay .dur-card {
+    gap: 5px;
+    padding: 14px 8px 12px;
+    border-radius: 12px;
+    border: 1px solid #d5e2f6;
+    background: #fff;
+}
+
+#purchaseDialogOverlay .dur-card:hover {
+    border-color: #93c5fd;
+    background: #f8fbff;
+}
+
+#purchaseDialogOverlay .dur-card.active {
+    border-color: #3b82f6;
+    background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+    box-shadow: 0 6px 14px rgba(59, 130, 246, 0.2);
+}
+
+#purchaseDialogOverlay .dur-card .dur-name {
+    font-size: 12px;
+    color: #334155;
+}
+
+#purchaseDialogOverlay .dur-card .dur-price {
+    font-size: 22px;
+    line-height: 1;
+    color: #0f172a;
+}
+
+#purchaseDialogOverlay .dur-card.active .dur-price {
+    color: #1d4ed8;
+}
+
+#purchaseDialogOverlay .dur-card .dur-tag {
+    top: -7px;
+    right: -3px;
+    border-radius: 999px;
+    padding: 2px 7px;
+    font-size: 10px;
+}
+
+#purchaseDialogOverlay .pay-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+#purchaseDialogOverlay .pay-card {
+    align-items: center;
+    padding: 12px 12px;
+    border-radius: 12px;
+    border: 1px solid #d6e2f5;
+    background: #fff;
+}
+
+#purchaseDialogOverlay .pay-card:hover {
+    border-color: #93c5fd;
+    background: #f8fbff;
+}
+
+#purchaseDialogOverlay .pay-card.active {
+    border-color: #3b82f6;
+    background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+    box-shadow: 0 7px 16px rgba(59, 130, 246, 0.18);
+}
+
+#purchaseDialogOverlay .pay-card .pay-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+}
+
+#purchaseDialogOverlay .pay-card .pay-meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+#purchaseDialogOverlay .pay-card .pay-name {
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+#purchaseDialogOverlay .pay-card .pay-desc {
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.2;
+    margin-top: 2px;
+}
+
+@media (max-width: 900px) {
+    #purchaseDialogOverlay .purchase-dialog-horizontal {
+        width: 760px;
+        grid-template-columns: 280px 1fr;
+    }
+
+    #purchaseDialogOverlay .duration-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    #purchaseDialogOverlay .purchase-dialog-horizontal {
+        width: 96vw;
+        max-height: 92vh;
+        overflow-y: auto;
+        grid-template-columns: 1fr;
+        border-radius: 18px;
+        min-height: 0;
+    }
+
+    #purchaseDialogOverlay .dialog-left-panel {
+        padding: 18px 16px;
+        gap: 10px;
+    }
+
+    #purchaseDialogOverlay .dialog-right-panel {
+        padding: 18px 14px 16px;
+    }
+
+    #purchaseDialogOverlay .dialog-right-head h4 {
+        font-size: 18px;
+    }
+
+    #purchaseDialogOverlay .price-display-lg .amount {
+        font-size: 44px;
+    }
+
+    #purchaseDialogOverlay .pay-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    #purchaseDialogOverlay .purchase-dialog-horizontal {
+        width: 100vw;
+        max-width: 100vw;
+        border-radius: 16px 16px 0 0;
+    }
+
+    #purchaseDialogOverlay .dialog-close-x {
+        right: 10px;
+        top: 10px;
+        width: 30px;
+        height: 30px;
+    }
+
+    #purchaseDialogOverlay .selected-plan-info {
+        padding-right: 44px;
+    }
+
+    #purchaseDialogOverlay .plan-text h3 {
+        font-size: 19px;
+    }
+
+    #purchaseDialogOverlay .price-display-lg .amount {
+        font-size: 38px;
+    }
+}
