@@ -4217,6 +4217,31 @@ body.page-admin {
     background: #f8fafc;
 }
 
+.redeem-skeleton-row td {
+    padding-top: 16px;
+    padding-bottom: 16px;
+}
+
+.redeem-skeleton-line {
+    height: 12px;
+    border-radius: 8px;
+    background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+.redeem-skeleton-line.short {
+    width: 56px;
+}
+
+.redeem-skeleton-line.medium {
+    width: 112px;
+}
+
+.redeem-skeleton-line.code {
+    width: 138px;
+}
+
 /* 寰界珷鏍峰紡 */
 .badge {
     display: inline-block;
@@ -9765,4 +9790,3 @@ select.custom-select:focus,
         font-size: 13px;
     }
 }
-

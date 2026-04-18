@@ -4919,12 +4919,15 @@ def get_user_access_plan_types(user):
 
 
 def is_active_subscriber(user):
-    """判断用户是否拥有有效订阅（白名单也算）"""
+    """判断用户是否为订阅用户（仅 lv='b' 且 ex>当前时间）"""
     if not user:
         return False
-    if is_whitelist_user(user):
-        return True
     return user.lv == 'b' and bool(user.ex and user.ex > datetime.now())
+
+
+def has_subscription_access(user):
+    """判断用户是否有可用订阅权限（白名单用户或订阅用户）"""
+    return is_whitelist_user(user) or is_active_subscriber(user)
 
 
 class Subscription(db.Model):
@@ -7792,7 +7795,7 @@ def login():
             
             # 登录时检查：如果用户有有效订阅但 Emby 账号可能被禁用，自动恢复（封禁用户和黑名单禁用用户除外）
             if user.lv != 'c' and not user.ban_reason and user.embyid and emby_client.is_enabled():
-                has_valid_sub = is_active_subscriber(user)
+                has_valid_sub = has_subscription_access(user)
                 if has_valid_sub:
                     try:
                         emby_client.enable_user(user.embyid)
@@ -8592,14 +8595,11 @@ def check_emby_bindable():
         # 检查是否已有 Emby 账号
         has_emby = bool(user.embyid and user.emby_name)
         
-        # 检查是否有有效订阅（包含白名单套餐用户）
-        has_valid_subscription = is_active_subscriber(user)
+        # 检查是否有可用订阅权限（白名单或订阅用户）
+        has_valid_subscription = has_subscription_access(user)
         
         # 判断是否白名单套餐
-        is_whitelist = False
-        if has_valid_subscription:
-            ws = Subscription.query.filter_by(user_tg=user.tg, status='active', plan_type='whitelist').first()
-            is_whitelist = bool(ws)
+        is_whitelist = is_whitelist_user(user)
         
         # 新建账号需要有效订阅，绑定已有账号不需要
         can_create = has_valid_subscription  # 是否可以新建账号
@@ -8828,7 +8828,7 @@ def bind_emby_account():
         # 如果用户有有效订阅，确保Emby账号在服务器上是启用状态
         # （用户可能从embyboss迁移过来，Emby服务器上账号可能仍处于禁用状态）
         # 封禁用户和黑名单禁用用户除外，不自动恢复
-        has_valid_sub = is_active_subscriber(user)
+        has_valid_sub = has_subscription_access(user)
         if user.lv != 'c' and not user.ban_reason and has_valid_sub and user.embyid and emby_client.is_enabled():
             try:
                 if emby_client.enable_user(user.embyid):
@@ -8942,8 +8942,8 @@ def create_emby_account():
         if not user:
             return jsonify({'success': False, 'error': '用户不存在'}), 404
         
-        # 检查用户是否有有效订阅（包含白名单套餐）
-        has_valid_subscription = is_active_subscriber(user)
+        # 检查用户是否有可用订阅权限（白名单或订阅用户）
+        has_valid_subscription = has_subscription_access(user)
         
         if not has_valid_subscription:
             return jsonify({'success': False, 'error': '需要有效订阅才能创建Emby账号，请先购买订阅'}), 403
@@ -18776,8 +18776,37 @@ def use_redeem_code():
         if not redeem:
             app.logger.warning(f'兑换码使用失败 - 用户: {user.name}(tg={user.tg}), 兑换码: {code}, 原因: 兑换码不存在')
             return jsonify({'success': False, 'error': '兑换码不存在，请检查输入是否正确'}), 404
+
+        # 兜底校验：历史脏数据或异常生成的兑换码直接拦截，避免污染用户订阅状态
+        if redeem.code_type not in {'new', 'renew'}:
+            app.logger.error(
+                f'兑换码数据异常 - code={code}, code_type={redeem.code_type}, '
+                f'user={user.name}(tg={user.tg})'
+            )
+            return jsonify({'success': False, 'error': '兑换码数据异常，请联系管理员处理'}), 400
+        if not redeem.duration_days or int(redeem.duration_days) <= 0:
+            app.logger.error(
+                f'兑换码数据异常 - code={code}, duration_days={redeem.duration_days}, '
+                f'user={user.name}(tg={user.tg})'
+            )
+            return jsonify({'success': False, 'error': '兑换码时长异常，请联系管理员处理'}), 400
         
         if redeem.is_used:
+            # 同一用户重复提交同一码：返回幂等成功，避免“已生效但前端误报失败”后再次尝试时造成困惑
+            if str(redeem.used_by or '') == str(user.tg):
+                app.logger.info(
+                    f'兑换码重复提交(幂等成功) - 用户: {user.name}(tg={user.tg}), '
+                    f'兑换码: {code}, used_at={redeem.used_at}'
+                )
+                return jsonify({
+                    'success': True,
+                    'message': '该兑换码已兑换成功，无需重复操作',
+                    'plan_type': redeem.plan_type,
+                    'duration_days': redeem.duration_days,
+                    'code_type': redeem.code_type,
+                    'has_emby_account': bool(user.embyid),
+                    'reused': True
+                }), 200
             app.logger.warning(f'兑换码使用失败 - 用户: {user.name}(tg={user.tg}), 兑换码: {code}, 原因: 兑换码已被使用 (used_by={redeem.used_by}, used_at={redeem.used_at})')
             return jsonify({'success': False, 'error': '兑换码已被使用，每个兑换码只能使用一次'}), 400
         
@@ -22935,12 +22964,26 @@ def admin_get_redeem_codes():
 def admin_generate_redeem_code():
     """生成兑换码"""
     try:
-        data = request.json
-        code_type = data.get('code_type', 'new')  # new: 新订阅, renew: 续费
-        plan_type = data.get('plan_type', 'standard')
-        duration_days = int(data.get('duration_days', 30))
-        remark = data.get('remark', '')
+        data = request.get_json(silent=True) or {}
+        code_type = str(data.get('code_type', 'new')).strip().lower()  # new: 新订阅, renew: 续费
+        plan_type = str(data.get('plan_type', 'standard')).strip()
+        remark = (data.get('remark', '') or '').strip()
         expires_days = data.get('expires_days')  # 兑换码有效期（天）
+
+        # 参数校验
+        if code_type not in {'new', 'renew'}:
+            return jsonify({'error': '兑换类型无效，仅支持 new 或 renew'}), 400
+
+        try:
+            duration_days = int(data.get('duration_days', 30))
+        except (TypeError, ValueError):
+            return jsonify({'error': '订阅天数格式错误'}), 400
+        if duration_days <= 0 or duration_days > 99999:
+            return jsonify({'error': '订阅天数需在 1-99999 之间'}), 400
+
+        valid_plan_ids = {str(p.get('id')) for p in load_plans_config() if p.get('id')}
+        if plan_type != 'custom' and plan_type not in valid_plan_ids:
+            return jsonify({'error': '关联套餐无效'}), 400
         
         # 生成唯一兑换码
         import string
@@ -22951,8 +22994,14 @@ def admin_generate_redeem_code():
             code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
         
         expires_at = None
-        if expires_days:
-            expires_at = datetime.now() + timedelta(days=int(expires_days))
+        if expires_days not in [None, '']:
+            try:
+                expires_days = int(expires_days)
+            except (TypeError, ValueError):
+                return jsonify({'error': '兑换码有效期格式错误'}), 400
+            if expires_days <= 0 or expires_days > 3650:
+                return jsonify({'error': '兑换码有效期需在 1-3650 天之间'}), 400
+            expires_at = datetime.now() + timedelta(days=expires_days)
         
         redeem = RedeemCode(
             code=code,
@@ -22984,17 +23033,43 @@ def admin_generate_redeem_code():
 def admin_batch_generate_redeem_codes():
     """批量生成兑换码"""
     try:
-        data = request.json
-        code_type = data.get('code_type', 'new')
-        plan_type = data.get('plan_type', 'standard')
-        duration_days = int(data.get('duration_days', 30))
-        count = min(int(data.get('count', 10)), 100)  # 最多一次生成100个
-        remark = data.get('remark', '')
+        data = request.get_json(silent=True) or {}
+        code_type = str(data.get('code_type', 'new')).strip().lower()
+        plan_type = str(data.get('plan_type', 'standard')).strip()
+        remark = (data.get('remark', '') or '').strip()
         expires_days = data.get('expires_days')
+
+        # 参数校验
+        if code_type not in {'new', 'renew'}:
+            return jsonify({'error': '兑换类型无效，仅支持 new 或 renew'}), 400
+
+        try:
+            duration_days = int(data.get('duration_days', 30))
+        except (TypeError, ValueError):
+            return jsonify({'error': '订阅天数格式错误'}), 400
+        if duration_days <= 0 or duration_days > 99999:
+            return jsonify({'error': '订阅天数需在 1-99999 之间'}), 400
+
+        try:
+            count = int(data.get('count', 10))
+        except (TypeError, ValueError):
+            return jsonify({'error': '生成数量格式错误'}), 400
+        if count < 1 or count > 100:
+            return jsonify({'error': '生成数量需在 1-100 之间'}), 400
+
+        valid_plan_ids = {str(p.get('id')) for p in load_plans_config() if p.get('id')}
+        if plan_type != 'custom' and plan_type not in valid_plan_ids:
+            return jsonify({'error': '关联套餐无效'}), 400
         
         expires_at = None
-        if expires_days:
-            expires_at = datetime.now() + timedelta(days=int(expires_days))
+        if expires_days not in [None, '']:
+            try:
+                expires_days = int(expires_days)
+            except (TypeError, ValueError):
+                return jsonify({'error': '兑换码有效期格式错误'}), 400
+            if expires_days <= 0 or expires_days > 3650:
+                return jsonify({'error': '兑换码有效期需在 1-3650 天之间'}), 400
+            expires_at = datetime.now() + timedelta(days=expires_days)
         
         import string
         generated_codes = []
@@ -23504,9 +23579,10 @@ def get_user_lines():
         now = datetime.now()
         is_whitelist = is_whitelist_user(user)
         is_subscriber = is_active_subscriber(user)
+        has_access_subscription = is_whitelist or is_subscriber
         
         # 无权限用户（未订阅或已过期）
-        if not is_subscriber:
+        if not has_access_subscription:
             app.logger.info(f'[线路API] 用户无权限: {user.name}, lv={user.lv}, ex={user.ex}, now={now}, is_whitelist={is_whitelist}, is_subscriber={is_subscriber}')
             return jsonify({
                 'success': True,
@@ -23590,7 +23666,7 @@ def log_view_lines():
         is_subscriber = is_active_subscriber(user)
         user_plan_types = get_user_access_plan_types(user)
         
-        user_type = '白名单用户' if is_whitelist else '订阅用户'
+        user_type = '白名单用户' if is_whitelist else ('订阅用户' if is_subscriber else '未订阅用户')
         
         # 查询用户可见的所有线路名称
         lines = ServerLine.query.filter_by(is_active=True).order_by(

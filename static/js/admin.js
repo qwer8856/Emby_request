@@ -5672,6 +5672,29 @@ async function savePlansConfig() {
 let redeemCodesData = [];
 let redeemCurrentPage = 1;
 const redeemPageSize = 20;
+let redeemPageRenderTimer = null;
+
+function renderRedeemTableSkeleton(rows = 6) {
+    const tableBody = document.getElementById('redeemCodesTableBody');
+    if (!tableBody) return;
+
+    const rowCount = Math.max(1, rows);
+    const skeletonRows = Array.from({ length: rowCount }).map(() => `
+        <tr class="redeem-skeleton-row">
+            <td><div class="redeem-skeleton-line short"></div></td>
+            <td><div class="redeem-skeleton-line code"></div></td>
+            <td><div class="redeem-skeleton-line short"></div></td>
+            <td><div class="redeem-skeleton-line medium"></div></td>
+            <td><div class="redeem-skeleton-line short"></div></td>
+            <td><div class="redeem-skeleton-line short"></div></td>
+            <td><div class="redeem-skeleton-line medium"></div></td>
+            <td><div class="redeem-skeleton-line medium"></div></td>
+            <td><div class="redeem-skeleton-line short"></div></td>
+        </tr>
+    `).join('');
+
+    tableBody.innerHTML = skeletonRows;
+}
 
 // 加载兑换码列表
 async function loadRedeemCodes() {
@@ -5681,7 +5704,11 @@ async function loadRedeemCodes() {
         return;
     }
     
-    tableBody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;">加载中...</td></tr>';
+    if (redeemPageRenderTimer) {
+        clearTimeout(redeemPageRenderTimer);
+        redeemPageRenderTimer = null;
+    }
+    renderRedeemTableSkeleton(6);
     
     // 获取筛选参数
     const typeFilter = document.getElementById('codeTypeFilter')?.value || '';
@@ -5731,11 +5758,24 @@ function renderRedeemCodesTable() {
     updateSelectedRedeemCount();
     
     if (redeemCodesData.length === 0) {
+        redeemCurrentPage = 1;
         tableBody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#6b7280;">暂无兑换码</td></tr>';
+        const pageInfo = document.getElementById('redeemPageInfo');
+        if (pageInfo) {
+            pageInfo.textContent = '第 1 / 1 页，共 0 条';
+        }
+        const prevBtn = document.getElementById('redeemPrevBtn');
+        const nextBtn = document.getElementById('redeemNextBtn');
+        if (prevBtn) prevBtn.disabled = true;
+        if (nextBtn) nextBtn.disabled = true;
         return;
     }
     
-    // 分页
+    // 分页（先矫正当前页，避免筛选后出现“有数据但当前页为空”）
+    const totalPages = Math.ceil(redeemCodesData.length / redeemPageSize) || 1;
+    if (redeemCurrentPage > totalPages) redeemCurrentPage = totalPages;
+    if (redeemCurrentPage < 1) redeemCurrentPage = 1;
+
     const startIdx = (redeemCurrentPage - 1) * redeemPageSize;
     const pageData = redeemCodesData.slice(startIdx, startIdx + redeemPageSize);
     
@@ -5775,9 +5815,7 @@ function renderRedeemCodesTable() {
                             删除
                         </button>
                     ` : `
-                        <button class="btn-action btn-danger" onclick="showSingleDeleteConfirm(${code.id})" title="删除">
-                            删除
-                        </button>
+                        <span style="color:#9ca3af;">已使用不可操作</span>
                     `}
                 </td>
             </tr>
@@ -5785,10 +5823,9 @@ function renderRedeemCodesTable() {
     }).join('');
     
     // 更新分页信息
-    const totalPages = Math.ceil(redeemCodesData.length / redeemPageSize);
     const pageInfo = document.getElementById('redeemPageInfo');
     if (pageInfo) {
-        pageInfo.textContent = `第 ${redeemCurrentPage} / ${totalPages || 1} 页，共 ${redeemCodesData.length} 条`;
+        pageInfo.textContent = `第 ${redeemCurrentPage} / ${totalPages} 页，共 ${redeemCodesData.length} 条`;
     }
     const prevBtn = document.getElementById('redeemPrevBtn');
     const nextBtn = document.getElementById('redeemNextBtn');
@@ -5864,22 +5901,32 @@ async function confirmDeleteRedeemCodes() {
     
     let successCount = 0;
     let failCount = 0;
-    
-    for (const id of ids) {
-        try {
-            const response = await fetch(`/api/admin/redeem-codes/${id}`, {
-                method: 'DELETE'
-            });
-            const data = await response.json();
-            if (data.success) {
-                successCount++;
-            } else {
+
+    try {
+        const total = ids.length;
+        showLoading(`正在删除兑换码（0/${total}）...`);
+
+        for (let i = 0; i < ids.length; i++) {
+            const id = ids[i];
+            try {
+                const response = await fetch(`/api/admin/redeem-codes/${id}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                if (data.success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            } catch (error) {
+                console.error('删除兑换码失败:', error);
                 failCount++;
+            } finally {
+                showLoading(`正在删除兑换码（${i + 1}/${total}）...`);
             }
-        } catch (error) {
-            console.error('删除兑换码失败:', error);
-            failCount++;
         }
+    } finally {
+        hideLoading();
     }
     
     if (successCount > 0) {
@@ -5900,7 +5947,14 @@ function changeRedeemPage(direction) {
     
     if (newPage >= 1 && newPage <= totalPages) {
         redeemCurrentPage = newPage;
-        renderRedeemCodesTable();
+        renderRedeemTableSkeleton(4);
+        if (redeemPageRenderTimer) {
+            clearTimeout(redeemPageRenderTimer);
+        }
+        redeemPageRenderTimer = setTimeout(() => {
+            redeemPageRenderTimer = null;
+            renderRedeemCodesTable();
+        }, 120);
     }
 }
 
@@ -6011,6 +6065,7 @@ async function generateRedeemCodes() {
     btn.innerHTML = '生成中...';
     
     try {
+        showLoading(`正在生成 ${count} 个兑换码...`);
         const body = {
             code_type: codeType,
             plan_type: planType,
@@ -6043,6 +6098,7 @@ async function generateRedeemCodes() {
         console.error('生成兑换码失败:', error);
         showToast('错误', '生成失败: ' + error.message, 'error');
     } finally {
+        hideLoading();
         btn.disabled = false;
         btn.innerHTML = originalText;
     }

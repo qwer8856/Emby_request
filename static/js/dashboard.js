@@ -5757,6 +5757,8 @@ async function unbindTelegramId() {
         }
 
         // ==================== 兑换码功能 ====================
+        let redeemInProgress = false;
+
         async function redeemCode() {
             const input = document.getElementById('redeemCodeInput');
             const btn = document.getElementById('redeemBtn');
@@ -5767,44 +5769,62 @@ async function unbindTelegramId() {
                 if (input) input.focus();
                 return;
             }
-            
-            // 1. 从后端获取图片验证码
-            let captchaImage;
-            try {
-                const capRes = await fetch('/api/user/captcha');
-                const capData = await capRes.json();
-                if (!capData.success) {
-                    showMessage(capData.error || '获取验证码失败', 'error');
-                    return;
-                }
-                captchaImage = capData.image;
-            } catch (e) {
-                showMessage('获取验证码失败，请稍后重试', 'error');
+
+            if (redeemInProgress) {
+                showMessage('正在处理兑换，请勿重复提交', 'warning');
                 return;
             }
 
-            // 2. 弹窗确认 + 图片验证码
-            const maskedCode = code.length > 4 ? code.substring(0, 4) + '░'.repeat(code.length - 4) : code;
-            const answer = await showCaptchaPrompt({
-                title: '🔒 兑换验证',
-                message: `确定使用兑换码 ${maskedCode}？<br>请输入图片中的 4 位数字`,
-                image: captchaImage,
-                placeholder: '请输入验证码'
-            });
-
-            // 用户取消
-            if (answer === null) return;
-            
-            // 按钮loading状态
+            redeemInProgress = true;
             let originalText = '立即兑换';
+
             if (btn) {
                 originalText = btn.innerHTML;
                 btn.disabled = true;
-                btn.innerHTML = '<span class="spinner-small"></span> 兑换中...';
+                btn.innerHTML = '<span class="spinner-small"></span> 处理中...';
             }
             
-            // 3. 提交兑换请求，携带验证码答案
             try {
+                // 1. 从后端获取图片验证码
+                let captchaImage = '';
+                const capRes = await fetch('/api/user/captcha');
+                const capText = await capRes.text();
+                let capData = null;
+                if (capText) {
+                    try {
+                        capData = JSON.parse(capText);
+                    } catch (parseErr) {
+                        console.error('验证码响应解析失败:', parseErr, capText);
+                    }
+                }
+
+                if (!capRes.ok || !capData || !capData.success || !capData.image) {
+                    const capError = (capData && (capData.error || capData.message)) || '';
+                    const fallbackError = capRes.status === 429
+                        ? '请求太频繁，请稍后再试'
+                        : `获取验证码失败（HTTP ${capRes.status}）`;
+                    showMessage(capError || fallbackError, 'error');
+                    return;
+                }
+                captchaImage = capData.image;
+
+                // 2. 弹窗确认 + 图片验证码
+                const maskedCode = code.length > 4 ? code.substring(0, 4) + '░'.repeat(code.length - 4) : code;
+                const answer = await showCaptchaPrompt({
+                    title: '🔒 兑换验证',
+                    message: `确定使用兑换码 ${maskedCode}？<br>请输入图片中的 4 位数字`,
+                    image: captchaImage,
+                    placeholder: '请输入验证码'
+                });
+
+                // 用户取消
+                if (answer === null) return;
+
+                if (btn) {
+                    btn.innerHTML = '<span class="spinner-small"></span> 兑换中...';
+                }
+
+                // 3. 提交兑换请求，携带验证码答案
                 const response = await fetch('/api/redeem/use', {
                     method: 'POST',
                     headers: {
@@ -5813,9 +5833,26 @@ async function unbindTelegramId() {
                     body: JSON.stringify({ code: code, captcha_answer: answer })
                 });
                 
-                const data = await response.json();
-                
-                if (data.success) {
+                const rawText = await response.text();
+                let data = null;
+                if (rawText) {
+                    try {
+                        data = JSON.parse(rawText);
+                    } catch (parseErr) {
+                        console.error('兑换响应解析失败:', parseErr, rawText);
+                    }
+                }
+
+                if (!response.ok) {
+                    const serverError = data && (data.error || data.message);
+                    const fallbackError = response.status === 401
+                        ? '登录已过期，请重新登录后再试'
+                        : `兑换失败（HTTP ${response.status}）`;
+                    showMessage(serverError || fallbackError, 'error');
+                    return;
+                }
+
+                if (data && data.success) {
                     showMessage(data.message || '🎉 兑换成功！套餐已激活', 'success');
                     if (input) input.value = '';
                     
@@ -5831,13 +5868,28 @@ async function unbindTelegramId() {
                             window.location.reload();
                         }, 1500);
                     }
-                } else {
-                    showMessage(data.error || data.message || '兑换失败', 'error');
+                    return;
                 }
+
+                if (data && (data.error || data.message)) {
+                    showMessage(data.error || data.message || '兑换失败', 'error');
+                    return;
+                }
+                
+                if (response.ok && !rawText) {
+                    showMessage('兑换请求已提交，正在同步状态，请稍后查看', 'warning');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1200);
+                    return;
+                }
+
+                showMessage('兑换失败，服务器响应异常，请稍后重试', 'error');
             } catch (error) {
                 console.error('兑换失败:', error);
                 showMessage('兑换失败，请稍后重试', 'error');
             } finally {
+                redeemInProgress = false;
                 if (btn) {
                     btn.disabled = false;
                     btn.innerHTML = originalText;

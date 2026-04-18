@@ -263,10 +263,18 @@
                     <div class="global-confirm-icon">🔒</div>
                     <h3 class="global-confirm-title">${title}</h3>
                     ${message ? `<p class="global-confirm-message" style="margin-bottom:10px;">${message}</p>` : ''}
-                    <div style="text-align:center;margin:8px 0 6px;">
-                        <img src="${image}" alt="验证码" class="captcha-img"
-                             style="border-radius:6px;border:1px solid #ddd;cursor:pointer;height:56px;"
+                    <div class="captcha-frame" style="text-align:center;margin:8px 0 6px;">
+                        <div class="captcha-loading"
+                             style="height:56px;display:flex;align-items:center;justify-content:center;color:#6b7280;font-size:13px;background:#f9fafb;border:1px solid #ddd;border-radius:6px;">
+                             正在加载验证码...
+                        </div>
+                        <img src="" alt="验证码" class="captcha-img"
+                             style="display:none;border-radius:6px;border:1px solid #ddd;cursor:pointer;height:56px;"
                              title="点击刷新验证码">
+                    </div>
+                    <div style="display:flex;gap:8px;justify-content:center;margin:2px 0 8px;">
+                        <button type="button" class="global-confirm-btn confirm info captcha-refresh-btn" style="padding:6px 10px;">换一张</button>
+                        <button type="button" class="global-confirm-btn confirm warning captcha-retry-btn" style="padding:6px 10px;display:none;">重试加载</button>
                     </div>
                     <input type="text" maxlength="4" inputmode="numeric" autocomplete="off"
                            class="global-prompt-input" placeholder="${placeholder}"
@@ -282,21 +290,95 @@
 
             const input = modal.querySelector('.global-prompt-input');
             const captchaImg = modal.querySelector('.captcha-img');
+            const captchaLoading = modal.querySelector('.captcha-loading');
+            const refreshBtn = modal.querySelector('.captcha-refresh-btn');
+            const retryBtn = modal.querySelector('.captcha-retry-btn');
+            let isRefreshing = false;
+
+            function setLoading(loading, text = '正在加载验证码...') {
+                if (captchaLoading) {
+                    captchaLoading.style.display = loading ? 'flex' : 'none';
+                    captchaLoading.textContent = text;
+                }
+                if (captchaImg && loading) {
+                    captchaImg.style.display = 'none';
+                }
+                if (refreshBtn) refreshBtn.disabled = loading;
+                if (retryBtn && loading) retryBtn.style.display = 'none';
+            }
+
+            function setLoadFailed(text) {
+                if (captchaLoading) {
+                    captchaLoading.style.display = 'flex';
+                    captchaLoading.textContent = text || '验证码加载失败';
+                }
+                if (captchaImg) {
+                    captchaImg.style.display = 'none';
+                }
+                if (refreshBtn) refreshBtn.disabled = false;
+                if (retryBtn) retryBtn.style.display = '';
+            }
+
+            function applyCaptchaImage(src) {
+                if (!captchaImg) return;
+                captchaImg.onload = () => {
+                    setLoading(false);
+                    captchaImg.style.display = 'inline-block';
+                    if (retryBtn) retryBtn.style.display = 'none';
+                };
+                captchaImg.onerror = () => {
+                    setLoadFailed('验证码加载失败，请重试');
+                };
+                captchaImg.src = src || '';
+            }
+
+            async function refreshCaptcha() {
+                if (isRefreshing) return;
+                isRefreshing = true;
+                setLoading(true, '正在刷新验证码...');
+                try {
+                    const res = await fetch('/api/user/captcha');
+                    const text = await res.text();
+                    let data = null;
+                    if (text) {
+                        try {
+                            data = JSON.parse(text);
+                        } catch (parseErr) {
+                            console.error('验证码响应解析失败:', parseErr, text);
+                        }
+                    }
+                    if (!res.ok || !data || !data.success || !data.image) {
+                        const msg = (data && (data.error || data.message)) || `验证码加载失败（HTTP ${res.status}）`;
+                        setLoadFailed(msg);
+                        return;
+                    }
+                    applyCaptchaImage(data.image);
+                    input.value = '';
+                    input.focus();
+                } catch (e) {
+                    setLoadFailed('网络错误，请点击重试');
+                } finally {
+                    isRefreshing = false;
+                }
+            }
 
             // 点击图片刷新验证码
-            captchaImg.addEventListener('click', async () => {
-                try {
-                    captchaImg.style.opacity = '0.4';
-                    const res = await fetch('/api/user/captcha');
-                    const data = await res.json();
-                    if (data.success && data.image) {
-                        captchaImg.src = data.image;
-                        input.value = '';
-                        input.focus();
-                    }
-                } catch (e) { /* ignore */ }
-                finally { captchaImg.style.opacity = '1'; }
-            });
+            if (captchaImg) {
+                captchaImg.addEventListener('click', () => refreshCaptcha());
+            }
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', () => refreshCaptcha());
+            }
+            if (retryBtn) {
+                retryBtn.addEventListener('click', () => refreshCaptcha());
+            }
+
+            if (image) {
+                setLoading(true);
+                applyCaptchaImage(image);
+            } else {
+                refreshCaptcha();
+            }
 
             requestAnimationFrame(() => {
                 modal.classList.add('show');
