@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.38'
+APP_VERSION = '2.2.40'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -1152,6 +1152,55 @@ def is_whitelist_plan_key(plan_key, plans=None):
         return True
     plan = resolve_plan_config(key, plans)
     return is_whitelist_plan_config(plan)
+
+
+def _safe_price_float(value, default=0.0):
+    try:
+        if value in [None, '']:
+            return float(default)
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def resolve_whitelist_once_price(plan, plan_key=''):
+    """解析白名单套餐的一次性价格，显式 price_once 永远优先。"""
+    if not isinstance(plan, dict):
+        return 0.0
+
+    raw_price_once = _safe_price_float(plan.get('price_once', 0))
+    raw_price_1m = _safe_price_float(plan.get('price_1m', 0))
+    raw_price_legacy = _safe_price_float(plan.get('price', 0))
+    plan_label = (
+        plan_key
+        or coerce_plan_key(plan.get('id'))
+        or coerce_plan_key(plan.get('type'))
+        or str(plan.get('name', '')).strip()
+        or 'unknown'
+    )
+
+    if raw_price_once > 0:
+        stale_fields = []
+        if raw_price_1m > 0 and abs(raw_price_1m - raw_price_once) > 1e-9:
+            stale_fields.append(f'price_1m={raw_price_1m}')
+        if raw_price_legacy > 0 and abs(raw_price_legacy - raw_price_once) > 1e-9:
+            stale_fields.append(f'price={raw_price_legacy}')
+        if stale_fields:
+            app.logger.warning(
+                f'白名单套餐存在历史残留价格字段，已优先使用 price_once: '
+                f'plan={plan_label}, price_once={raw_price_once}, stale={", ".join(stale_fields)}'
+            )
+        return raw_price_once
+
+    for field_name, field_price in [('price_1m', raw_price_1m), ('price', raw_price_legacy)]:
+        if field_price > 0:
+            app.logger.warning(
+                f'白名单套餐缺少 price_once，已临时回退到 {field_name}: '
+                f'plan={plan_label}, value={field_price}'
+            )
+            return field_price
+
+    return 0.0
 
 
 def load_site_config():
@@ -5153,13 +5202,20 @@ class Order(db.Model):
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
     
     def to_dict(self):
+        actual_duration_days = self.duration_days if self.duration_days else (self.duration_months * 30)
+        is_permanent_order = bool(
+            is_whitelist_plan_key(self.plan_type) or ('永久' in str(self.plan_name or ''))
+        )
+
         return {
             'id': self.id,
             'order_no': self.order_no,
             'plan_type': self.plan_type,
             'plan_name': self.plan_name,
             'duration_months': self.duration_months,
-            'duration_days': self.duration_days if self.duration_days else (self.duration_months * 30),
+            'duration_days': actual_duration_days,
+            'duration_text': '永久' if is_permanent_order else (f'{actual_duration_days}天' if actual_duration_days else f'{self.duration_months or 1}个月'),
+            'is_permanent': is_permanent_order,
             'original_price': self.original_price,
             'discount': self.discount,
             'final_price': self.final_price,
@@ -18720,10 +18776,7 @@ def create_order():
         normalized_plan_type = coerce_plan_key(plan_config.get('id')) or requested_plan_type
         
         def _safe_float(v, default=0.0):
-            try:
-                return float(v or 0)
-            except (TypeError, ValueError):
-                return float(default)
+            return _safe_price_float(v, default)
         
         # 从套餐配置获取基础天数（duration_days 字段）
         try:
@@ -18746,18 +18799,9 @@ def create_order():
         halfyear_price = _safe_float(plan_config.get('price_6m', 0))
         yearly_price = _safe_float(plan_config.get('price_12m', 0))
 
-        # 白名单套餐兼容兜底：老配置可能把价格填在月付/旧price字段，统一按最小正数当作一次性价格
+        # 白名单套餐仅允许使用一次性价格，price_once 优先，历史字段仅作兜底回退
         if is_permanent:
-            whitelist_price_candidates = [p for p in [raw_price_once, raw_price_1m, raw_price_legacy] if p > 0]
-            if whitelist_price_candidates:
-                compat_once_price = min(whitelist_price_candidates)
-                if raw_price_once > 0 and abs(compat_once_price - raw_price_once) > 1e-9:
-                    app.logger.warning(
-                        f'白名单套餐价格字段不一致，已按兼容规则使用更小值: '
-                        f'price_once={raw_price_once}, price_1m={raw_price_1m}, price={raw_price_legacy}, '
-                        f'use={compat_once_price}, plan_type={normalized_plan_type}'
-                    )
-                once_price = compat_once_price
+            once_price = resolve_whitelist_once_price(plan_config, plan_key=normalized_plan_type)
             # 白名单仅按一次性购买处理，周期价格不参与计算
             monthly_price = 0
             quarter_price = 0
@@ -19252,24 +19296,17 @@ def create_payment():
             return jsonify({'error': '订单已取消，请重新下单'}), 400
 
         def _safe_float(v, default=0.0):
-            try:
-                return float(v or 0)
-            except (TypeError, ValueError):
-                return float(default)
+            return _safe_price_float(v, default)
 
         # 兼容历史待支付白名单订单：
         # 如果旧订单是在白名单价格修复前创建的，这里按当前套餐配置重新校正金额，避免继续支付 999 元旧金额。
         current_plan_config = resolve_plan_config(order.plan_type)
         if current_plan_config and is_whitelist_plan_config(current_plan_config):
-            raw_price_once = _safe_float(current_plan_config.get('price_once', 0))
-            raw_price_1m = _safe_float(current_plan_config.get('price_1m', 0))
-            raw_price_legacy = _safe_float(current_plan_config.get('price', 0))
-            whitelist_price_candidates = [p for p in [raw_price_once, raw_price_1m, raw_price_legacy] if p > 0]
+            corrected_price = resolve_whitelist_once_price(current_plan_config, plan_key=order.plan_type)
 
-            if not whitelist_price_candidates:
+            if corrected_price <= 0:
                 return jsonify({'error': '白名单套餐未配置一次性价格，请联系管理员检查套餐设置'}), 400
 
-            corrected_price = min(whitelist_price_candidates)
             try:
                 corrected_days = int(current_plan_config.get('duration_days', WHITELIST_INTERNAL_DAYS) or WHITELIST_INTERNAL_DAYS)
             except (TypeError, ValueError):
@@ -21304,7 +21341,10 @@ def save_plans_config_api():
         def _float_or_none(value):
             if value in [None, '']:
                 return None
-            return float(value)
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
         
         # 验证套餐数据
         validated_plans = []
@@ -21359,8 +21399,8 @@ def save_plans_config_api():
                 'description': str(plan.get('description', '')).strip() if plan.get('description') else None,
                 'duration': duration_months,
                 'duration_days': duration_days,
-                'price': float(plan.get('price', 0)),
-                'original_price': float(plan.get('original_price')) if plan.get('original_price') else None,
+                'price': _float_or_none(plan.get('price')) or 0.0,
+                'original_price': _float_or_none(plan.get('original_price')),
                 'features': plan.get('features', []) if isinstance(plan.get('features'), list) else [],
                 'popular': bool(plan.get('popular', False)),
                 # 白名单套餐标记（勾选后该套餐用户视为白名单用户）
@@ -21383,16 +21423,41 @@ def save_plans_config_api():
             # 互斥校验：一次性价格和周期价格不能同时存在
             once_price = validated_plan.get('price_once') or 0
             monthly_price = validated_plan.get('price_1m') or 0
-            if once_price > 0 and monthly_price > 0:
-                # 一次性价格优先，清空周期价格
+            quarter_price = validated_plan.get('price_3m') or 0
+            halfyear_price = validated_plan.get('price_6m') or 0
+            yearly_price = validated_plan.get('price_12m') or 0
+            legacy_price = validated_plan.get('price') or 0
+
+            if is_whitelist_plan:
+                whitelist_once_price = resolve_whitelist_once_price(validated_plan, plan_key=current_plan_id or validated_plan['name'])
+                validated_plan['price_once'] = whitelist_once_price or None
                 validated_plan['price_1m'] = None
                 validated_plan['price_3m'] = None
                 validated_plan['price_6m'] = None
                 validated_plan['price_12m'] = None
                 validated_plan['price'] = 0
-                app.logger.warning(f'套餐 {validated_plan["name"]} 同时设置了一次性和周期价格，已自动清空周期价格')
-            
+            else:
+                if monthly_price <= 0 and legacy_price > 0:
+                    monthly_price = legacy_price
+
+                has_periodic_price = any(price > 0 for price in [monthly_price, quarter_price, halfyear_price, yearly_price, legacy_price])
+                if once_price > 0 and has_periodic_price:
+                    validated_plan['price_1m'] = None
+                    validated_plan['price_3m'] = None
+                    validated_plan['price_6m'] = None
+                    validated_plan['price_12m'] = None
+                    validated_plan['price'] = 0
+                    app.logger.warning(f'濂楅 {validated_plan["name"]} 鍚屾椂璁剧疆浜嗕竴娆℃€у拰鍛ㄦ湡浠锋牸锛屽凡鑷姩娓呯┖鍛ㄦ湡浠锋牸')
+                else:
+                    validated_plan['price_once'] = once_price or None
+                    validated_plan['price_1m'] = monthly_price or None
+                    validated_plan['price_3m'] = quarter_price or None
+                    validated_plan['price_6m'] = halfyear_price or None
+                    validated_plan['price_12m'] = yearly_price or None
+                    validated_plan['price'] = monthly_price or 0
+
             validated_plans.append(validated_plan)
+            continue
         
         if not validated_plans:
             return jsonify({

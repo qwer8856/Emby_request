@@ -5128,7 +5128,7 @@ async function unbindTelegramId() {
                         <div class="order-info">
                             <div class="order-main">
                                 <span class="order-plan">${order.plan_name || order.plan_type}</span>
-                                <span class="order-duration">${order.duration_days ? order.duration_days + '天' : (order.duration_months || 1) + '个月'}</span>
+                                <span class="order-duration">${order.duration_text || (order.duration_days ? order.duration_days + '天' : (order.duration_months || 1) + '个月')}</span>
                                 <span class="order-status ${status.class}">${status.text}</span>
                             </div>
                             <div class="order-meta">

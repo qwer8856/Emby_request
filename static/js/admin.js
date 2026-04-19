@@ -1760,7 +1760,24 @@ async function syncSubscriptionRecords() {
             }
         });
         
-        const data = await response.json();
+        const responseText = await response.text();
+        let data = {};
+
+        if (responseText) {
+            try {
+                data = JSON.parse(responseText);
+            } catch (parseError) {
+                const compactText = responseText.trim();
+                const fallbackMessage = compactText
+                    ? (compactText.startsWith('<') ? `服务器返回了非 JSON 响应（HTTP ${response.status}）` : compactText.slice(0, 160))
+                    : `HTTP ${response.status}`;
+                throw new Error(fallbackMessage);
+            }
+        }
+
+        if (!response.ok) {
+            throw new Error(data.error || data.message || (responseText ? responseText.trim().slice(0, 160) : `HTTP ${response.status}`));
+        }
         
         if (data.success) {
             showToast('同步成功', data.message, 'success');
@@ -2023,7 +2040,7 @@ function viewOrder(orderNo) {
                     </div>
                     <div class="detail-item">
                         <span class="detail-label">订阅时长</span>
-                        <span class="detail-value">${order.duration_days ? order.duration_days + ' 天' : (order.duration_months || 1) + ' 个月'}</span>
+                        <span class="detail-value">${order.duration_text || (order.duration_days ? order.duration_days + ' 天' : (order.duration_months || 1) + ' 个月')}</span>
                     </div>
                 </div>
             </div>
@@ -5678,7 +5695,24 @@ async function savePlansConfig() {
             body: JSON.stringify({ plans: plansConfigData })
         });
         
-        const data = await response.json();
+        const responseText = await response.text();
+        let data = {};
+
+        if (responseText) {
+            try {
+                data = JSON.parse(responseText);
+            } catch (parseError) {
+                const compactText = responseText.trim();
+                const fallbackMessage = compactText
+                    ? (compactText.startsWith('<') ? `服务器返回了非 JSON 响应（HTTP ${response.status}）` : compactText.slice(0, 160))
+                    : `HTTP ${response.status}`;
+                throw new Error(fallbackMessage);
+            }
+        }
+
+        if (!response.ok) {
+            throw new Error(data.error || data.message || (responseText ? responseText.trim().slice(0, 160) : `HTTP ${response.status}`));
+        }
         
         if (data.success) {
             if (Array.isArray(data.plans)) {
