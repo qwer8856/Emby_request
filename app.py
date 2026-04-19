@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.40'
+APP_VERSION = '2.2.41'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -131,30 +131,43 @@ def set_db_config(key: str, value: dict, description: str = None):
         if not has_app_context():
             return False
         
-        config_value = json.dumps(value, ensure_ascii=False)
+        preferred_config_value = json.dumps(value, ensure_ascii=False)
+        ascii_safe_config_value = json.dumps(value, ensure_ascii=True)
         now = datetime.now()
-        
-        # 使用 UPSERT 操作（兼容 MySQL 和 SQLite）
-        existing = db.session.execute(
-            db.text("SELECT id FROM system_config WHERE config_key = :key"),
-            {'key': key}
-        ).fetchone()
-        
-        if existing:
-            db.session.execute(
-                db.text("""UPDATE system_config 
-                          SET config_value = :value, description = :desc, updated_at = :now 
-                          WHERE config_key = :key"""),
-                {'key': key, 'value': config_value, 'desc': description, 'now': now}
-            )
-        else:
-            db.session.execute(
-                db.text("""INSERT INTO system_config (config_key, config_value, description, updated_at) 
-                          VALUES (:key, :value, :desc, :now)"""),
-                {'key': key, 'value': config_value, 'desc': description, 'now': now}
-            )
-        
-        db.session.commit()
+
+        def _write_config(config_value):
+            # 使用 UPSERT 操作（兼容 MySQL 和 SQLite）
+            existing = db.session.execute(
+                db.text("SELECT id FROM system_config WHERE config_key = :key"),
+                {'key': key}
+            ).fetchone()
+            
+            if existing:
+                db.session.execute(
+                    db.text("""UPDATE system_config 
+                              SET config_value = :value, description = :desc, updated_at = :now 
+                              WHERE config_key = :key"""),
+                    {'key': key, 'value': config_value, 'desc': description, 'now': now}
+                )
+            else:
+                db.session.execute(
+                    db.text("""INSERT INTO system_config (config_key, config_value, description, updated_at) 
+                              VALUES (:key, :value, :desc, :now)"""),
+                    {'key': key, 'value': config_value, 'desc': description, 'now': now}
+                )
+            
+            db.session.commit()
+
+        try:
+            _write_config(preferred_config_value)
+        except Exception as primary_error:
+            db.session.rollback()
+            # 某些 MySQL utf8/utf8mb3 环境无法直接保存 4 字节 emoji。
+            # 此时回退为 ASCII 转义 JSON，读取时 json.loads 会自动还原原始字符。
+            if ascii_safe_config_value == preferred_config_value:
+                raise
+            print(f"[WARNING] 保存配置到数据库 {key} 首次失败，尝试 ASCII 转义重试: {primary_error}")
+            _write_config(ascii_safe_config_value)
         
         # 更新缓存
         _db_config_cache[key] = value
