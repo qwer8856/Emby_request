@@ -280,8 +280,8 @@
                            class="global-prompt-input" placeholder="${placeholder}"
                            style="width:100%;padding:10px;margin:6px 0 10px;border:1px solid #ddd;border-radius:6px;font-size:18px;text-align:center;letter-spacing:8px;">
                     <div class="global-confirm-buttons">
-                        <button class="global-confirm-btn cancel">取消</button>
-                        <button class="global-confirm-btn confirm info">确定</button>
+                        <button type="button" class="global-confirm-btn cancel captcha-cancel-btn">取消</button>
+                        <button type="button" class="global-confirm-btn confirm info captcha-confirm-btn">确定</button>
                     </div>
                 </div>
             `;
@@ -429,8 +429,8 @@
                 input.focus();
             });
 
-            const confirmBtn = modal.querySelector('.global-confirm-btn.confirm');
-            const cancelBtn = modal.querySelector('.global-confirm-btn.cancel');
+            const confirmBtn = modal.querySelector('.captcha-confirm-btn');
+            const cancelBtn = modal.querySelector('.captcha-cancel-btn');
 
             function close(result) {
                 stopRefreshCooldown();

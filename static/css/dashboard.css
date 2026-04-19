@@ -531,18 +531,38 @@
 .dashboard-kpi-refined .stat-card-modern {
     border-color: #dbe4f4;
     background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    border-radius: 16px;
 }
 
 .dashboard-kpi-refined .stat-card-modern:hover {
     border-color: #bfdbfe;
 }
 
+.dashboard-kpi-refined .stat-card-inner {
+    padding: 16px 18px;
+    gap: 12px;
+}
+
+.dashboard-kpi-refined .stat-icon-modern {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+}
+
+.dashboard-kpi-refined .stat-icon-modern svg {
+    width: 22px;
+    height: 22px;
+}
+
 .dashboard-kpi-refined .stat-value-modern {
-    font-weight: 700;
+    font-size: 24px;
+    font-weight: 600;
     letter-spacing: -0.01em;
+    line-height: 1.08;
 }
 
 .dashboard-kpi-refined .stat-label-modern {
+    font-size: 12px;
     font-weight: 450;
     color: #64748b;
 }
