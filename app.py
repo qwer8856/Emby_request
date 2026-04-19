@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.35'
+APP_VERSION = '2.2.36'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -18683,13 +18683,9 @@ def create_order():
         halfyear_price = _safe_float(plan_config.get('price_6m', 0))
         yearly_price = _safe_float(plan_config.get('price_12m', 0))
         
-        # 兼容旧配置：永久套餐如果没配 price_once，但配了月付价，则按一次性价格处理
-        if is_permanent and once_price <= 0 and monthly_price > 0:
-            once_price = monthly_price
-            app.logger.warning(
-                f'永久套餐未配置 price_once，已回退使用 price_1m 作为一次性价格: '
-                f'plan_type={plan_type}, price_1m={monthly_price}'
-            )
+        # 白名单套餐必须显式配置一次性价格，避免误用月付价格导致金额异常
+        if is_permanent and once_price <= 0:
+            return jsonify({'error': '白名单套餐未配置一次性价格，请在套餐设置中填写“一次性价格”'}), 400
         
         # 互斥校验：一次性价格和月付价格只能用一种模式
         has_once_price = once_price > 0

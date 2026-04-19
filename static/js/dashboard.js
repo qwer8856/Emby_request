@@ -4553,10 +4553,10 @@ async function unbindTelegramId() {
                 // 判断是否有任何可购买的价格
                 const priceOnce = Number(plan.price_once || 0) || 0;
                 const monthlyPrice = Number(plan.price_1m || plan.price || 0) || 0;
-                // 互斥：有一次性价格优先；兼容旧配置（永久套餐仅配置月付价）按一次性展示
-                const effectiveOncePrice = priceOnce > 0 ? priceOnce : ((isWhitelistPlan && monthlyPrice > 0) ? monthlyPrice : 0);
+                // 互斥：有一次性价格优先。白名单套餐不再回退月付价，避免金额误判
+                const effectiveOncePrice = priceOnce > 0 ? priceOnce : 0;
                 const useOnceMode = effectiveOncePrice > 0;
-                const hasAnyPrice = useOnceMode ? true : (monthlyPrice > 0);
+                const hasAnyPrice = useOnceMode ? true : (!isWhitelistPlan && monthlyPrice > 0);
                 
                 // 显示价格：互斥，一次性优先
                 let displayPrice = 0;
@@ -4564,7 +4564,7 @@ async function unbindTelegramId() {
                 if (useOnceMode) {
                     displayPrice = effectiveOncePrice;
                     pricePeriod = isPermanent ? '' : `/${durationDays}天`;
-                } else if (monthlyPrice > 0) {
+                } else if (!isWhitelistPlan && monthlyPrice > 0) {
                     displayPrice = monthlyPrice;
                     pricePeriod = isShortTerm ? `/${durationDays}天` : '/月起';
                 }
@@ -4661,9 +4661,10 @@ async function unbindTelegramId() {
             const hasOncePrice = prices[0] > 0;
             const hasMonthlyPrice = prices[1] > 0;
             
-            // 兼容旧配置：永久套餐如果只配了月付价，也按一次性购买处理
-            if (isPermanent && !hasOncePrice && hasMonthlyPrice) {
-                prices[0] = prices[1];
+            // 白名单套餐必须使用一次性价格
+            if (isPermanent && !hasOncePrice) {
+                showMessage('该白名单套餐未配置一次性价格，请联系管理员', 'error');
+                return;
             }
             
             // 互斥逻辑：有一次性价格就只显示一次性，否则显示月付/季付等
@@ -4900,10 +4901,20 @@ async function unbindTelegramId() {
                         payment_method: paymentMethod
                     })
                 });
+
+                const rawText = await response.text();
+                let data = null;
+                try {
+                    data = rawText ? JSON.parse(rawText) : {};
+                } catch (_) {
+                    data = null;
+                }
+                if (!response.ok && !data) {
+                    showMessage(`创建订单失败：HTTP ${response.status}`, 'error');
+                    return;
+                }
                 
-                const data = await response.json();
-                
-                if (data.success) {
+                if (data && data.success) {
                     // 刷新订单列表
                     loadMyOrders();
                     
@@ -4932,11 +4943,11 @@ async function unbindTelegramId() {
                         showMessage(payData.error || '创建支付失败', 'error');
                     }
                 } else {
-                    showMessage(data.error || '创建订单失败', 'error');
+                    showMessage((data && data.error) || `创建订单失败（HTTP ${response.status}）`, 'error');
                 }
             } catch (error) {
                 console.error('创建订单失败:', error);
-                showMessage('网络错误，请稍后重试', 'error');
+                showMessage(`网络错误：${error && error.message ? error.message : '请稍后重试'}`, 'error');
             }
         }
         
