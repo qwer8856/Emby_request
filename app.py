@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.48'
+APP_VERSION = '2.2.49'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -13958,46 +13958,6 @@ def _do_process_telegram_update(data):
                 status_text = "✅ 白名单 (永久有效)"
             elif user.ex and user.ex > datetime.now():
                 status_text = f"✅ 已订阅 (到期: {user.ex.strftime('%Y-%m-%d')})"
-            username = bind_input
-            
-            # 查找用户
-            user = User.query.filter_by(name=username).first()
-            if not user:
-                reply = f"""❌ 绑定码 <b>{bind_input}</b> 无效或已过期
-
-<b>绑定步骤：</b>
-1. 登录网站，点击左下角"绑定 Telegram"按钮
-2. 复制弹窗中显示的绑定码
-3. 发送: <code>/bind 绑定码</code>
-
-绑定码有效期为 5 分钟。"""
-                send_telegram_reply(chat_id, reply)
-                return jsonify({'ok': True})
-            
-            # 检查是否已被其他 Telegram 账号绑定
-            existing = User.query.filter_by(telegram_id=telegram_user_id).first()
-            if existing and existing.tg != user.tg:
-                reply = f"⚠️ 您的 Telegram 已绑定账号 <b>{existing.name}</b>\n\n如需更换，请先发送 /unbind 解绑。"
-                send_telegram_reply(chat_id, reply)
-                return jsonify({'ok': True})
-            
-            # 检查该账号是否已被其他 Telegram 绑定
-            if user.telegram_id and user.telegram_id != telegram_user_id:
-                reply = f"⚠️ 账号 <b>{username}</b> 已被其他 Telegram 绑定"
-                send_telegram_reply(chat_id, reply)
-                return jsonify({'ok': True})
-            
-            # 绑定
-            user.telegram_id = telegram_user_id
-            db.session.commit()
-            
-            # 获取订阅状态
-            status_text = "未订阅"
-            _bind2_wl = Subscription.query.filter_by(user_tg=user.tg, plan_type='whitelist', status='active').first()
-            if _bind2_wl or user.lv == 'a':
-                status_text = "✅ 白名单 (永久有效)"
-            elif user.ex and user.ex > datetime.now():
-                status_text = f"✅ 已订阅 (到期: {user.ex.strftime('%Y-%m-%d')})"
             
             reply = f"""✅ <b>绑定成功！</b>
 
@@ -14009,6 +13969,18 @@ def _do_process_telegram_update(data):
 • 订阅到期提醒
 • 系统公告推送"""
             send_telegram_reply(chat_id, reply)
+            return jsonify({'ok': True})
+        else:
+            reply = f"""❌ 绑定码 <b>{bind_input}</b> 无效或已过期
+
+<b>绑定步骤：</b>
+1. 登录网站，点击左下角"绑定 Telegram"按钮
+2. 复制弹窗中显示的绑定码
+3. 发送: <code>/bind 绑定码</code>
+
+绑定码有效期为 5 分钟。"""
+            send_telegram_reply(chat_id, reply)
+            return jsonify({'ok': True})
         
     elif text.startswith('/unbind'):
         # 查找绑定的用户
