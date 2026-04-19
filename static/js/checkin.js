@@ -24,6 +24,31 @@ async function readJsonResponse(response) {
     return { data, responseText };
 }
 
+async function fetchWithRetry(url, options = {}, retryCount = 1, retryDelayMs = 350) {
+    let lastResponse = null;
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= retryCount; attempt++) {
+        try {
+            const response = await fetch(url, options);
+            lastResponse = response;
+            if (![502, 503, 504].includes(response.status) || attempt === retryCount) {
+                return response;
+            }
+        } catch (error) {
+            lastError = error;
+            if (attempt === retryCount) {
+                throw error;
+            }
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
+
+    if (lastResponse) return lastResponse;
+    throw lastError || new Error('网络请求失败');
+}
+
 function setCheckinButtonState(disabled, text) {
     const btn = document.getElementById('checkinMiniBtn');
     if (!btn) return;
@@ -96,7 +121,7 @@ async function doCheckin() {
 
     try {
         // 1) 获取验证码
-        const capRes = await fetch('/api/user/captcha');
+        const capRes = await fetchWithRetry('/api/user/captcha');
         const { data: capData, responseText: capText } = await readJsonResponse(capRes);
         if (!capRes.ok || !capData || !capData.success || !capData.image) {
             const detail = (capData && (capData.error || capData.message))
@@ -117,7 +142,7 @@ async function doCheckin() {
         setCheckinButtonState(true, '签到中...');
 
         // 3) 提交签到
-        const response = await fetch('/api/user/checkin', {
+        const response = await fetchWithRetry('/api/user/checkin', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -147,7 +172,11 @@ async function doCheckin() {
     } catch (error) {
         console.error('签到失败(详细):', error);
         const detail = normalizeErrorMessage(error && error.message, '请稍后重试');
-        window.showToast(`签到失败：${detail}`, 'error');
+        if (/HTTP\s*502|502|Bad Gateway/i.test(detail)) {
+            window.showToast('签到失败：网关异常(HTTP 502)，后端服务暂时无响应，请稍后重试', 'error');
+        } else {
+            window.showToast(`签到失败：${detail}`, 'error');
+        }
     } finally {
         checkinRequestInFlight = false;
         if (!success) {
@@ -209,7 +238,7 @@ function renderExchangePlans(plans, coinName, userCoins) {
 async function exchangePlan(planId, planName, coins, days) {
     let captchaImage;
     try {
-        const capRes = await fetch('/api/user/captcha');
+        const capRes = await fetchWithRetry('/api/user/captcha');
         const { data: capData, responseText: capText } = await readJsonResponse(capRes);
         if (!capRes.ok || !capData || !capData.success || !capData.image) {
             const detail = (capData && (capData.error || capData.message))
@@ -240,7 +269,7 @@ async function exchangePlan(planId, planName, coins, days) {
     }
 
     try {
-        const response = await fetch('/api/user/exchange', {
+        const response = await fetchWithRetry('/api/user/exchange', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -326,4 +355,3 @@ document.addEventListener('DOMContentLoaded', () => {
         loadCheckinStatus();
     }, 100);
 });
-
