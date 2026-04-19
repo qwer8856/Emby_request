@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.32'
+APP_VERSION = '2.2.35'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -794,6 +794,9 @@ EPAY_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ins
 # 套餐配置文件
 PLANS_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'plans_config.json')
 
+# 白名单套餐的内部时长（仅用于兼容存储，不作为业务判断依据）
+WHITELIST_INTERNAL_DAYS = 36500
+
 # 前端配置文件
 SITE_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'site_config.json')
 
@@ -919,7 +922,38 @@ def normalize_plans_config(plans):
         old_id = str(next_plan.get('id') or '').strip()
         old_type = str(next_plan.get('type') or '').strip()
         old_legacy_ids = [str(alias).strip() for alias in (next_plan.get('legacy_ids') or []) if str(alias).strip()]
-        is_whitelist = bool(next_plan.get('is_whitelist', False))
+        try:
+            duration_months = int(next_plan.get('duration', 1) or 1)
+        except (TypeError, ValueError):
+            duration_months = 1
+        if duration_months <= 0:
+            duration_months = 1
+        try:
+            duration_days = int(next_plan.get('duration_days', 0) or 0)
+        except (TypeError, ValueError):
+            duration_days = 0
+        if duration_days <= 0:
+            duration_days = duration_months * 30
+
+        # 白名单仅由显式标记/白名单别名判定，不再依赖时长
+        legacy_candidates = [old_id, old_type, str(next_plan.get('name') or '').strip(), *old_legacy_ids]
+        legacy_is_whitelist = False
+        for legacy_key in legacy_candidates:
+            clean_key = str(legacy_key or '').strip()
+            compact_key = clean_key.replace(' ', '')
+            if not compact_key:
+                continue
+            if clean_key in WHITELIST_PLAN_ALIASES or compact_key == '0|白名单':
+                legacy_is_whitelist = True
+                break
+        is_whitelist = bool(next_plan.get('is_whitelist', False) or legacy_is_whitelist)
+        next_plan['is_whitelist'] = is_whitelist
+        if is_whitelist:
+            next_plan['duration_days'] = WHITELIST_INTERNAL_DAYS
+            next_plan['duration'] = 1
+        else:
+            next_plan['duration_days'] = duration_days
+            next_plan['duration'] = duration_months
 
         if is_whitelist and not whitelist_assigned:
             plan_id = '0'
@@ -1034,6 +1068,38 @@ def normalize_plan_match_keys(plan_keys, plans=None):
             normalized.append(key)
 
     return normalized
+
+
+def is_whitelist_plan_config(plan):
+    """判断套餐配置是否为白名单套餐（仅基于显式标记/白名单别名）。"""
+    if not isinstance(plan, dict):
+        return False
+    if bool(plan.get('is_whitelist', False)):
+        return True
+
+    candidates = [
+        str(plan.get('id') or '').strip(),
+        str(plan.get('type') or '').strip(),
+        str(plan.get('name') or '').strip(),
+    ]
+    candidates.extend([str(alias).strip() for alias in (plan.get('legacy_ids') or []) if str(alias).strip()])
+    for key in candidates:
+        compact_key = key.replace(' ', '')
+        if key in WHITELIST_PLAN_ALIASES or compact_key == '0|白名单':
+            return True
+    return False
+
+
+def is_whitelist_plan_key(plan_key, plans=None):
+    """按套餐 key 判断是否白名单套餐（支持 id/type/name/legacy_ids）。"""
+    key = str(plan_key or '').strip()
+    if not key:
+        return False
+    compact_key = key.replace(' ', '')
+    if key in WHITELIST_PLAN_ALIASES or compact_key == '0|白名单':
+        return True
+    plan = resolve_plan_config(key, plans)
+    return is_whitelist_plan_config(plan)
 
 
 def load_site_config():
@@ -17331,6 +17397,7 @@ def batch_users():
                     fail_count += 1
                     continue
                 type_labels = {}
+                _plans = []
                 try:
                     _plans = load_plans_config()
                     for _p in _plans:
@@ -17344,13 +17411,8 @@ def batch_users():
                 except:
                     pass
                 plan_name = type_labels.get(plan_type_value, plan_type_value) + '套餐'
-                # 检查该套餐是否为白名单套餐（标记了 is_whitelist 或时长 >= 999 天即永久）
-                _is_wl_plan = False
-                for _p in _plans:
-                    if _p.get('id') == plan_type_value:
-                        if _p.get('is_whitelist') or int(_p.get('duration_days', 0) or 0) >= 999:
-                            _is_wl_plan = True
-                        break
+                # 检查该套餐是否为白名单套餐（仅按套餐白名单标记）
+                _is_wl_plan = is_whitelist_plan_key(plan_type_value, _plans)
                 if _is_wl_plan:
                     # 白名单套餐：设为白名单用户
                     user.lv = 'a'
@@ -18582,7 +18644,10 @@ def create_order():
             app.logger.info('orders 表已创建')
         
         plan_type = data.get('plan_type')  # 套餐类型
-        duration = int(data.get('duration', 1))  # 订阅时长（0=一次性，1=月付，3=季付等）
+        try:
+            duration = int(data.get('duration', 1))  # 订阅时长（0=一次性，1=月付，3=季付等）
+        except (TypeError, ValueError):
+            duration = 1
         payment_method = data.get('payment_method', 'alipay')
         
         app.logger.info(f'创建订单参数: plan_type={plan_type}, duration={duration}, payment_method={payment_method}, user={user.name}')
@@ -18594,14 +18659,55 @@ def create_order():
         if not plan_config:
             return jsonify({'error': '无效的套餐'}), 400
         
+        def _safe_float(v, default=0.0):
+            try:
+                return float(v or 0)
+            except (TypeError, ValueError):
+                return float(default)
+        
         # 从套餐配置获取基础天数（duration_days 字段）
-        base_duration_days = int(plan_config.get('duration_days', 30))
-        # 永久套餐：999天及以上视为永久
-        is_permanent = base_duration_days >= 999
+        try:
+            base_duration_days = int(plan_config.get('duration_days', 30) or 30)
+        except (TypeError, ValueError):
+            base_duration_days = 30
+        if base_duration_days <= 0:
+            base_duration_days = 30
+        
+        # 永久套餐：仅由白名单标记判定（不依赖 999 天）
+        is_permanent = is_whitelist_plan_config(plan_config)
+        
+        # 价格读取（做兼容与容错）
+        once_price = _safe_float(plan_config.get('price_once', 0))
+        monthly_price = _safe_float(plan_config.get('price_1m', 0) or plan_config.get('price', 0))
+        quarter_price = _safe_float(plan_config.get('price_3m', 0))
+        halfyear_price = _safe_float(plan_config.get('price_6m', 0))
+        yearly_price = _safe_float(plan_config.get('price_12m', 0))
+        
+        # 兼容旧配置：永久套餐如果没配 price_once，但配了月付价，则按一次性价格处理
+        if is_permanent and once_price <= 0 and monthly_price > 0:
+            once_price = monthly_price
+            app.logger.warning(
+                f'永久套餐未配置 price_once，已回退使用 price_1m 作为一次性价格: '
+                f'plan_type={plan_type}, price_1m={monthly_price}'
+            )
         
         # 互斥校验：一次性价格和月付价格只能用一种模式
-        has_once_price = float(plan_config.get('price_once', 0) or 0) > 0
-        has_monthly_price = float(plan_config.get('price_1m', 0) or plan_config.get('price', 0) or 0) > 0
+        has_once_price = once_price > 0
+        has_monthly_price = monthly_price > 0
+        
+        app.logger.info(
+            f'订单金额计算参数: plan_type={plan_type}, duration={duration}, '
+            f'base_duration_days={base_duration_days}, is_permanent={is_permanent}, '
+            f'price_once={once_price}, price_1m={monthly_price}, '
+            f'price_3m={quarter_price}, price_6m={halfyear_price}, price_12m={yearly_price}'
+        )
+        
+        # 一次性套餐强制按一次性购买，避免前端缓存/旧参数导致金额异常
+        if has_once_price and duration != 0:
+            app.logger.warning(
+                f'检测到一次性套餐但收到周期参数 duration={duration}，自动按一次性处理: plan_type={plan_type}'
+            )
+            duration = 0
         
         if duration == 0 and not has_once_price:
             return jsonify({'error': '该套餐未配置一次性价格'}), 400
@@ -18613,7 +18719,7 @@ def create_order():
         # 一次性购买（duration=0）：使用套餐的基础天数，价格用 price_once
         if duration == 0:
             actual_duration_days = base_duration_days
-            final_price = float(plan_config.get('price_once', 0))
+            final_price = once_price
             if final_price <= 0:
                 return jsonify({'error': '该套餐未配置一次性价格'}), 400
             original_price = final_price
@@ -18625,28 +18731,26 @@ def create_order():
             
             # 获取对应周期的价格
             duration_price_map = {
-                1: plan_config.get('price_1m') or plan_config.get('price', 0),
-                3: plan_config.get('price_3m', 0),
-                6: plan_config.get('price_6m', 0),
-                12: plan_config.get('price_12m', 0)
+                1: monthly_price,
+                3: quarter_price,
+                6: halfyear_price,
+                12: yearly_price
             }
             
             if duration not in duration_price_map:
                 return jsonify({'error': '无效的订阅时长'}), 400
             
-            final_price = float(duration_price_map[duration])
+            final_price = _safe_float(duration_price_map[duration])
             if final_price <= 0:
                 # 如果该周期没有设置价格，使用月付价格计算
-                monthly_price = float(plan_config.get('price_1m') or plan_config.get('price', 0))
                 if monthly_price <= 0:
                     return jsonify({'error': '套餐价格未配置'}), 400
                 # 使用默认折扣计算
                 multipliers = {1: 1.0, 3: 2.8, 6: 5.0, 12: 9.0}
-                final_price = round(monthly_price * multipliers.get(duration, duration), 2)
+                final_price = round(monthly_price * multipliers.get(duration, 1.0), 2)
         
         # 计算原价和折扣（一次性购买已在上面处理）
         if duration != 0:
-            monthly_price = float(plan_config.get('price_1m') or plan_config.get('price', 0))
             original_price = round(monthly_price * duration, 2)
             discount = round(original_price - final_price, 2)
             if discount < 0:
@@ -18880,10 +18984,7 @@ def use_redeem_code():
         # 获取套餐配置
         plans_config = []
         try:
-            plans_config_path = os.path.join(app.instance_path, 'plans_config.json')
-            if os.path.exists(plans_config_path):
-                with open(plans_config_path, 'r', encoding='utf-8') as f:
-                    plans_config = json.load(f)
+            plans_config = load_plans_config()
         except Exception as e:
             app.logger.error(f'加载套餐配置失败: {e}')
         
@@ -18900,20 +19001,10 @@ def use_redeem_code():
         # 计算月数（向上取整，保证 Subscription.duration_months 不为 0）
         duration_months = max(1, -(-redeem.duration_days // 30))  # ceil division
         
-        # 检查该套餐是否为白名单套餐（标记了 is_whitelist 或时长 >= 999 天即永久）
+        # 检查该套餐是否为白名单套餐（仅按套餐白名单标记）
         _redeem_plan_type = redeem.plan_type
         _redeem_plan_name = plan_name
-        _redeem_is_wl = False
-        if redeem.duration_days >= 999:
-            _redeem_is_wl = True
-        else:
-            try:
-                for _rp in load_plans_config():
-                    if _rp.get('id') == redeem.plan_type and _rp.get('is_whitelist'):
-                        _redeem_is_wl = True
-                        break
-            except Exception:
-                pass
+        _redeem_is_wl = is_whitelist_plan_key(redeem.plan_type, plans_config)
         
         # 计算订阅时间 - 所有类型都立即生效，在现有到期时间基础上叠加
         now = datetime.now()
@@ -19211,20 +19302,10 @@ def payment_notify():
             start_date = now
             purchased_days = order.duration_days if order.duration_days else (order.duration_months * 30)
             
-            # 检查该套餐是否为白名单套餐（标记了 is_whitelist 或时长 >= 999 天即永久）
+            # 检查该套餐是否为白名单套餐（仅按套餐白名单标记）
             _purchase_plan_type = order.plan_type
             _purchase_plan_name = order.plan_name
-            _is_wl_purchase = False
-            if purchased_days >= 999:
-                _is_wl_purchase = True
-            else:
-                try:
-                    for _pp in load_plans_config():
-                        if _pp.get('id') == order.plan_type and _pp.get('is_whitelist'):
-                            _is_wl_purchase = True
-                            break
-                except Exception:
-                    pass
+            _is_wl_purchase = is_whitelist_plan_key(order.plan_type)
             
             if _is_wl_purchase:
                 # 白名单套餐：永久有效
@@ -19329,19 +19410,10 @@ def payment_callback():
                 start_date = now
                 purchased_days = order.duration_days if order.duration_days else (order.duration_months * 30)
                 
-                # 检查该套餐是否为白名单套餐（标记了 is_whitelist 或时长 >= 999 天即永久）
+                # 检查该套餐是否为白名单套餐（仅按套餐白名单标记）
                 _cb_plan_type = order.plan_type
                 _cb_plan_name = order.plan_name
-                _cb_is_wl = False
-                if purchased_days >= 999:
-                    _cb_is_wl = True
-                else:
-                    try:
-                        _pp = resolve_plan_config(order.plan_type)
-                        if _pp and _pp.get('is_whitelist'):
-                            _cb_is_wl = True
-                    except Exception:
-                        pass
+                _cb_is_wl = is_whitelist_plan_key(order.plan_type)
                 
                 if _cb_is_wl:
                     # 白名单套餐：永久有效
@@ -21105,10 +21177,22 @@ def save_plans_config_api():
                 continue
                 
             # 计算 duration_days：优先使用前端传来的值，否则从 duration（月）计算
-            duration_months = int(plan.get('duration', 1))
-            duration_days = int(plan.get('duration_days', 0))
+            try:
+                duration_months = int(plan.get('duration', 1) or 1)
+            except (TypeError, ValueError):
+                duration_months = 1
+            if duration_months <= 0:
+                duration_months = 1
+            try:
+                duration_days = int(plan.get('duration_days', 0) or 0)
+            except (TypeError, ValueError):
+                duration_days = 0
             if duration_days <= 0:
                 duration_days = duration_months * 30
+            is_whitelist_plan = bool(plan.get('is_whitelist', False))
+            if is_whitelist_plan:
+                duration_days = WHITELIST_INTERNAL_DAYS
+                duration_months = 1
 
             plan_id = str(plan.get('id') or plan.get('type') or f'plan_{len(validated_plans) + 1}').strip()
             if not plan_id:
@@ -21145,7 +21229,7 @@ def save_plans_config_api():
                 'features': plan.get('features', []) if isinstance(plan.get('features'), list) else [],
                 'popular': bool(plan.get('popular', False)),
                 # 白名单套餐标记（勾选后该套餐用户视为白名单用户）
-                'is_whitelist': bool(plan.get('is_whitelist', False)),
+                'is_whitelist': is_whitelist_plan,
                 # 多周期价格（互斥：一次性和月付/季付/年付只能设一种）
                 'price_once': float(plan.get('price_once', 0)) if plan.get('price_once') else None,
                 'price_1m': float(plan.get('price_1m', 0)) if plan.get('price_1m') else None,
@@ -24404,7 +24488,7 @@ def admin_set_user_type(user_id):
         if user_type and user_type.startswith('sub_'):
             plan_type_value = user_type[4:]  # 提取 basic, standard 等
             matched_plan = resolve_plan_config(plan_type_value)
-            if matched_plan and (matched_plan.get('is_whitelist') or _safe_int(matched_plan.get('duration_days'), 0) >= 999):
+            if matched_plan and is_whitelist_plan_config(matched_plan):
                 user_type = 'whitelist'  # 白名单套餐按白名单逻辑处理
                 plan_type_value = 'whitelist'
             else:
@@ -25216,14 +25300,7 @@ def admin_mark_order_paid(order_no):
         start_date = datetime.now()
         _mark_plan_type = order.plan_type
         _mark_plan_name = order.plan_name
-        _mark_is_wl = purchased_days >= 999
-        if not _mark_is_wl:
-            try:
-                _pp = resolve_plan_config(order.plan_type)
-                if _pp and _pp.get('is_whitelist'):
-                    _mark_is_wl = True
-            except Exception:
-                pass
+        _mark_is_wl = is_whitelist_plan_key(order.plan_type)
 
         if _mark_is_wl:
             end_date = datetime(9999, 12, 31)

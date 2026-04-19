@@ -5086,6 +5086,7 @@ document.addEventListener('click', function(e) {
 
 // ==================== 套餐配置 ====================
 let plansConfigData = [];
+const PLAN_WHITELIST_INTERNAL_DAYS = 36500;
 
 // 记录套餐卡片展开状态
 let expandedPlanCards = new Set();
@@ -5327,7 +5328,7 @@ function renderPlansConfig() {
                     <span class="plan-config-title">${plan.name || '新套餐'}</span>
                 </div>
                 <div class="plan-config-actions">
-                    <span class="plan-badge duration">${(plan.duration_days || (plan.duration || 1) * 30) >= 999 ? '永久' : (plan.duration_days || (plan.duration || 1) * 30) + '天'}</span>
+                    <span class="plan-badge duration">${plan.is_whitelist ? '白名单' : ((plan.duration_days || (plan.duration || 1) * 30) + '天')}</span>
                     ${plan.popular ? '<span class="plan-badge popular">推荐</span>' : ''}
                     <button class="btn-icon btn-danger" onclick="deletePlan(${index}); event.stopPropagation();" title="删除套餐">
                         <span>🗑️</span>
@@ -5356,10 +5357,10 @@ function renderPlansConfig() {
                     </div>
                     <div class="plan-config-field">
                         <label>套餐时长（天）</label>
-                        <input type="number" value="${plan.duration_days || (plan.duration || 1) * 30}" min="1" max="99999"
+                        <input type="number" value="${plan.is_whitelist ? PLAN_WHITELIST_INTERNAL_DAYS : (plan.duration_days || (plan.duration || 1) * 30)}" min="1" max="99999" ${plan.is_whitelist ? 'readonly disabled' : ''}
                                onchange="updatePlanDuration(${index}, parseInt(this.value) || 30)"
                                placeholder="30">
-                        <span class="field-hint" id="durationHint_${index}">${formatDurationHint(plan.duration_days || (plan.duration || 1) * 30)}</span>
+                        <span class="field-hint" id="durationHint_${index}">${formatDurationHint(plan.duration_days || (plan.duration || 1) * 30, !!plan.is_whitelist)}</span>
                     </div>
                     <div class="plan-config-field full-width">
                         <label>套餐描述</label>
@@ -5380,7 +5381,7 @@ function renderPlansConfig() {
                                    onchange="updatePlanField(${index}, 'is_whitelist', this.checked)">
                             <span>👑 白名单套餐</span>
                         </label>
-                        <span class="field-hint">勾选后，使用此套餐的用户视为白名单用户（永久有效、求片次数按白名单配置）</span>
+                        <span class="field-hint">勾选后自动使用系统内置白名单时长（无需手动填写999天）</span>
                     </div>
                 </div>
                 
@@ -5555,12 +5556,23 @@ function updatePlanField(index, field, value) {
         if (field === 'popular') {
             renderPlansConfig();
         }
+        if (field === 'is_whitelist') {
+            if (value) {
+                plansConfigData[index].duration_days = PLAN_WHITELIST_INTERNAL_DAYS;
+                plansConfigData[index].duration = 1;
+            } else if ((plansConfigData[index].duration_days || 0) >= PLAN_WHITELIST_INTERNAL_DAYS) {
+                plansConfigData[index].duration_days = 30;
+                plansConfigData[index].duration = 1;
+            }
+            renderPlansConfig();
+        }
     }
 }
 
 // 更新套餐时长（天数），同步计算月数
 function updatePlanDuration(index, days) {
     if (!plansConfigData[index]) return;
+    if (plansConfigData[index].is_whitelist) return;
     plansConfigData[index].duration_days = days;
     // 同步更新 duration（月数），用于购买流程兼容
     plansConfigData[index].duration = Math.max(1, Math.round(days / 30));
@@ -5570,10 +5582,11 @@ function updatePlanDuration(index, days) {
 }
 
 // 格式化天数提示
-function formatDurationHint(days) {
-    if (days >= 999) {
-        return '= 永久';
-    } else if (days % 365 === 0 && days >= 365) {
+function formatDurationHint(days, isWhitelist = false) {
+    if (isWhitelist) {
+        return '白名单套餐：时长由系统自动管理';
+    }
+    if (days % 365 === 0 && days >= 365) {
         return `= ${days / 365}年`;
     } else if (days % 30 === 0 && days >= 30) {
         return `= ${days / 30}个月`;
@@ -5600,7 +5613,8 @@ function addNewPlan() {
         price_12m: 0,
         features: [],
         benefits: [],
-        popular: false
+        popular: false,
+        is_whitelist: false
     };
     plansConfigData.push(newPlan);
     renderPlansConfig();
@@ -8162,7 +8176,7 @@ function togglePwd2(userId) {
 
 // 重置用户密码
 async function resetUserPassword(userId) {
-    const newPassword = await showPrompt({
+    const inputPassword = await showPrompt({
         title: '🔐 重置用户密码',
         message: '请输入新密码（留空则自动生成随机密码）',
         placeholder: '留空自动生成随机密码',
@@ -8171,7 +8185,13 @@ async function resetUserPassword(userId) {
         cancelText: '取消',
         type: 'warning'
     });
-    if (newPassword === null) return; // 用户取消
+    if (inputPassword === null) return; // 用户取消
+
+    const newPassword = typeof inputPassword === 'string' ? inputPassword.trim() : '';
+    if (newPassword && (newPassword.length < 6 || newPassword.length > 32)) {
+        showToast('错误', '密码长度必须在6-32个字符之间', 'error');
+        return;
+    }
     
     try {
         const response = await fetch(`/api/admin/users/${userId}/reset-password`, {
@@ -8179,8 +8199,16 @@ async function resetUserPassword(userId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ password: newPassword })
         });
-        
-        const result = await response.json();
+
+        const responseText = await response.text();
+        let result = {};
+        try {
+            result = responseText ? JSON.parse(responseText) : {};
+        } catch (parseError) {
+            console.error('重置密码返回非JSON响应:', parseError, responseText);
+            showToast('错误', `接口返回异常（HTTP ${response.status}），请查看服务端日志`, 'error');
+            return;
+        }
         
         if (result.success) {
             showToast('成功', `密码已重置为: ${result.new_password}`, 'success');
@@ -8190,7 +8218,8 @@ async function resetUserPassword(userId) {
                 showToast('提示', '新密码已复制到剪贴板', 'info');
             }
         } else {
-            showToast('错误', result.error || '重置密码失败', 'error');
+            const fallback = response.ok ? '重置密码失败' : `重置密码失败（HTTP ${response.status}）`;
+            showToast('错误', result.error || fallback, 'error');
         }
     } catch (error) {
         console.error('重置密码失败:', error);

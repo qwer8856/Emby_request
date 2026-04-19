@@ -4492,13 +4492,17 @@ async function unbindTelegramId() {
         
         // 获取套餐的各周期价格（优先使用配置的价格，否则根据月付价格计算）
         function getPlanPrices(plan) {
-            const monthlyPrice = plan.price_1m || plan.price || 0;
+            const monthlyPrice = Number(plan.price_1m || plan.price || 0) || 0;
+            const oncePrice = Number(plan.price_once || 0) || 0;
+            const quarterPrice = Number(plan.price_3m || 0) || 0;
+            const halfyearPrice = Number(plan.price_6m || 0) || 0;
+            const yearlyPrice = Number(plan.price_12m || 0) || 0;
             return {
-                0: plan.price_once || 0,  // 一次性价格
+                0: oncePrice,  // 一次性价格
                 1: monthlyPrice,
-                3: plan.price_3m || Math.round(monthlyPrice * 2.8 * 100) / 100,
-                6: plan.price_6m || Math.round(monthlyPrice * 5 * 100) / 100,
-                12: plan.price_12m || Math.round(monthlyPrice * 9 * 100) / 100
+                3: quarterPrice || Math.round(monthlyPrice * 2.8 * 100) / 100,
+                6: halfyearPrice || Math.round(monthlyPrice * 5 * 100) / 100,
+                12: yearlyPrice || Math.round(monthlyPrice * 9 * 100) / 100
             };
         }
         
@@ -4541,22 +4545,24 @@ async function unbindTelegramId() {
                 const planId = plan.id || plan.type || '';
                 const isPopular = plan.popular;
                 const durationDays = plan.duration_days || 30;
-                const isPermanent = durationDays >= 999;
+                const isWhitelistPlan = !!plan.is_whitelist || String(plan.id || '').trim() === '0' || String(plan.type || '').trim() === 'whitelist';
+                const isPermanent = isWhitelistPlan;
                 const isShortTerm = !isPermanent && durationDays < 30;
                 const cardClass = [isPopular ? 'popular' : '', isPermanent ? 'ultimate' : ''].filter(Boolean).join(' ');
                 
                 // 判断是否有任何可购买的价格
-                const priceOnce = plan.price_once || 0;
-                const monthlyPrice = plan.price_1m || plan.price || 0;
-                // 互斥：有一次性价格就只看一次性，否则看月付
-                const useOnceMode = priceOnce > 0;
+                const priceOnce = Number(plan.price_once || 0) || 0;
+                const monthlyPrice = Number(plan.price_1m || plan.price || 0) || 0;
+                // 互斥：有一次性价格优先；兼容旧配置（永久套餐仅配置月付价）按一次性展示
+                const effectiveOncePrice = priceOnce > 0 ? priceOnce : ((isWhitelistPlan && monthlyPrice > 0) ? monthlyPrice : 0);
+                const useOnceMode = effectiveOncePrice > 0;
                 const hasAnyPrice = useOnceMode ? true : (monthlyPrice > 0);
                 
                 // 显示价格：互斥，一次性优先
                 let displayPrice = 0;
                 let pricePeriod = '';
                 if (useOnceMode) {
-                    displayPrice = priceOnce;
+                    displayPrice = effectiveOncePrice;
                     pricePeriod = isPermanent ? '' : `/${durationDays}天`;
                 } else if (monthlyPrice > 0) {
                     displayPrice = monthlyPrice;
@@ -4649,13 +4655,19 @@ async function unbindTelegramId() {
             const planIcon = plan ? (plan.icon || '📦') : '📦';
             const prices = plan ? getPlanPrices(plan) : { 0: 0, 1: 0, 3: 0, 6: 0, 12: 0 };
             const durationDays = plan ? (plan.duration_days || 30) : 30;
-            const isPermanent = durationDays >= 999;
+            const isWhitelistPlan = !!(plan && (plan.is_whitelist || String(plan.id || '').trim() === '0' || String(plan.type || '').trim() === 'whitelist'));
+            const isPermanent = isWhitelistPlan;
             const isShortTerm = !isPermanent && durationDays < 30;
             const hasOncePrice = prices[0] > 0;
             const hasMonthlyPrice = prices[1] > 0;
             
+            // 兼容旧配置：永久套餐如果只配了月付价，也按一次性购买处理
+            if (isPermanent && !hasOncePrice && hasMonthlyPrice) {
+                prices[0] = prices[1];
+            }
+            
             // 互斥逻辑：有一次性价格就只显示一次性，否则显示月付/季付等
-            const useOnceMode = hasOncePrice;
+            const useOnceMode = prices[0] > 0;
             
             // 默认选中
             if (useOnceMode) {
