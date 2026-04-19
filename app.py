@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.41'
+APP_VERSION = '2.2.42'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -158,16 +158,23 @@ def set_db_config(key: str, value: dict, description: str = None):
             
             db.session.commit()
 
-        try:
-            _write_config(preferred_config_value)
-        except Exception as primary_error:
-            db.session.rollback()
-            # 某些 MySQL utf8/utf8mb3 环境无法直接保存 4 字节 emoji。
-            # 此时回退为 ASCII 转义 JSON，读取时 json.loads 会自动还原原始字符。
-            if ascii_safe_config_value == preferred_config_value:
-                raise
-            print(f"[WARNING] 保存配置到数据库 {key} 首次失败，尝试 ASCII 转义重试: {primary_error}")
+        # 某些 MySQL utf8/utf8mb3 环境在遇到 4 字节字符（常见于 emoji）时，
+        # 可能不是普通报错，而是直接让上游连接异常。这里提前改用 ASCII 转义 JSON，
+        # 读取时 json.loads 会自动还原原始字符，避免再次触发该类问题。
+        contains_non_bmp = any(ord(ch) > 0xFFFF for ch in preferred_config_value)
+        if contains_non_bmp:
             _write_config(ascii_safe_config_value)
+        else:
+            try:
+                _write_config(preferred_config_value)
+            except Exception as primary_error:
+                db.session.rollback()
+                # 兜底：如果不是显式检测到的 4 字节字符，但数据库仍拒绝原始 JSON，
+                # 则再回退一次 ASCII 转义写法，尽量保证配置可保存。
+                if ascii_safe_config_value == preferred_config_value:
+                    raise
+                print(f"[WARNING] 保存配置到数据库 {key} 首次失败，尝试 ASCII 转义重试: {primary_error}")
+                _write_config(ascii_safe_config_value)
         
         # 更新缓存
         _db_config_cache[key] = value
@@ -21479,15 +21486,16 @@ def save_plans_config_api():
             }), 400
         
         # 保存配置
-        if save_plans_config(validated_plans):
+        normalized_response_plans = normalize_plans_config(validated_plans)
+
+        if save_plans_config(normalized_response_plans):
             clear_db_config_cache(CONFIG_KEY_PLANS)
-            saved_plans = load_plans_config()
-            app.logger.info(f'套餐配置已更新，共 {len(saved_plans)} 个套餐')
+            app.logger.info(f'套餐配置已更新，共 {len(normalized_response_plans)} 个套餐')
             
             return jsonify({
                 'success': True,
-                'message': f'配置保存成功，共 {len(saved_plans)} 个套餐',
-                'plans': saved_plans
+                'message': f'配置保存成功，共 {len(normalized_response_plans)} 个套餐',
+                'plans': normalized_response_plans
             }), 200
         else:
             return jsonify({
