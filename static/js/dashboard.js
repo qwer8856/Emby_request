@@ -4492,11 +4492,26 @@ async function unbindTelegramId() {
         
         // 获取套餐的各周期价格（优先使用配置的价格，否则根据月付价格计算）
         function getPlanPrices(plan) {
-            const monthlyPrice = Number(plan.price_1m || plan.price || 0) || 0;
-            const oncePrice = Number(plan.price_once || 0) || 0;
-            const quarterPrice = Number(plan.price_3m || 0) || 0;
-            const halfyearPrice = Number(plan.price_6m || 0) || 0;
-            const yearlyPrice = Number(plan.price_12m || 0) || 0;
+            const priceOnceRaw = Number(plan.price_once || 0) || 0;
+            const price1mRaw = Number(plan.price_1m || 0) || 0;
+            const priceLegacyRaw = Number(plan.price || 0) || 0;
+            const isWhitelistPlan = !!plan.is_whitelist || String(plan.id || '').trim() === '0' || String(plan.type || '').trim() === 'whitelist';
+
+            let oncePrice = priceOnceRaw;
+            let monthlyPrice = Number(plan.price_1m || plan.price || 0) || 0;
+            let quarterPrice = Number(plan.price_3m || 0) || 0;
+            let halfyearPrice = Number(plan.price_6m || 0) || 0;
+            let yearlyPrice = Number(plan.price_12m || 0) || 0;
+
+            // 白名单套餐兼容兜底：若历史配置把价格填在月付/旧 price 字段，统一按最小正数显示/下单
+            if (isWhitelistPlan) {
+                const whitelistCandidates = [priceOnceRaw, price1mRaw, priceLegacyRaw].filter(v => v > 0);
+                oncePrice = whitelistCandidates.length ? Math.min(...whitelistCandidates) : 0;
+                monthlyPrice = 0;
+                quarterPrice = 0;
+                halfyearPrice = 0;
+                yearlyPrice = 0;
+            }
             return {
                 0: oncePrice,  // 一次性价格
                 1: monthlyPrice,
@@ -4551,8 +4566,9 @@ async function unbindTelegramId() {
                 const cardClass = [isPopular ? 'popular' : '', isPermanent ? 'ultimate' : ''].filter(Boolean).join(' ');
                 
                 // 判断是否有任何可购买的价格
-                const priceOnce = Number(plan.price_once || 0) || 0;
-                const monthlyPrice = Number(plan.price_1m || plan.price || 0) || 0;
+                const prices = getPlanPrices(plan);
+                const priceOnce = prices[0] || 0;
+                const monthlyPrice = prices[1] || 0;
                 // 互斥：有一次性价格优先。白名单套餐不再回退月付价，避免金额误判
                 const effectiveOncePrice = priceOnce > 0 ? priceOnce : 0;
                 const useOnceMode = effectiveOncePrice > 0;

@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.36'
+APP_VERSION = '2.2.37'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -18677,12 +18677,33 @@ def create_order():
         is_permanent = is_whitelist_plan_config(plan_config)
         
         # 价格读取（做兼容与容错）
-        once_price = _safe_float(plan_config.get('price_once', 0))
+        raw_price_once = _safe_float(plan_config.get('price_once', 0))
+        raw_price_1m = _safe_float(plan_config.get('price_1m', 0))
+        raw_price_legacy = _safe_float(plan_config.get('price', 0))
+        once_price = raw_price_once
         monthly_price = _safe_float(plan_config.get('price_1m', 0) or plan_config.get('price', 0))
         quarter_price = _safe_float(plan_config.get('price_3m', 0))
         halfyear_price = _safe_float(plan_config.get('price_6m', 0))
         yearly_price = _safe_float(plan_config.get('price_12m', 0))
-        
+
+        # 白名单套餐兼容兜底：老配置可能把价格填在月付/旧price字段，统一按最小正数当作一次性价格
+        if is_permanent:
+            whitelist_price_candidates = [p for p in [raw_price_once, raw_price_1m, raw_price_legacy] if p > 0]
+            if whitelist_price_candidates:
+                compat_once_price = min(whitelist_price_candidates)
+                if raw_price_once > 0 and abs(compat_once_price - raw_price_once) > 1e-9:
+                    app.logger.warning(
+                        f'白名单套餐价格字段不一致，已按兼容规则使用更小值: '
+                        f'price_once={raw_price_once}, price_1m={raw_price_1m}, price={raw_price_legacy}, '
+                        f'use={compat_once_price}, plan_type={plan_type}'
+                    )
+                once_price = compat_once_price
+            # 白名单仅按一次性购买处理，周期价格不参与计算
+            monthly_price = 0
+            quarter_price = 0
+            halfyear_price = 0
+            yearly_price = 0
+
         # 白名单套餐必须显式配置一次性价格，避免误用月付价格导致金额异常
         if is_permanent and once_price <= 0:
             return jsonify({'error': '白名单套餐未配置一次性价格，请在套餐设置中填写“一次性价格”'}), 400
@@ -19165,6 +19186,50 @@ def create_payment():
         
         if order.payment_status == 'cancelled':
             return jsonify({'error': '订单已取消，请重新下单'}), 400
+
+        def _safe_float(v, default=0.0):
+            try:
+                return float(v or 0)
+            except (TypeError, ValueError):
+                return float(default)
+
+        # 兼容历史待支付白名单订单：
+        # 如果旧订单是在白名单价格修复前创建的，这里按当前套餐配置重新校正金额，避免继续支付 999 元旧金额。
+        current_plan_config = resolve_plan_config(order.plan_type)
+        if current_plan_config and is_whitelist_plan_config(current_plan_config):
+            raw_price_once = _safe_float(current_plan_config.get('price_once', 0))
+            raw_price_1m = _safe_float(current_plan_config.get('price_1m', 0))
+            raw_price_legacy = _safe_float(current_plan_config.get('price', 0))
+            whitelist_price_candidates = [p for p in [raw_price_once, raw_price_1m, raw_price_legacy] if p > 0]
+
+            if not whitelist_price_candidates:
+                return jsonify({'error': '白名单套餐未配置一次性价格，请联系管理员检查套餐设置'}), 400
+
+            corrected_price = min(whitelist_price_candidates)
+            try:
+                corrected_days = int(current_plan_config.get('duration_days', WHITELIST_INTERNAL_DAYS) or WHITELIST_INTERNAL_DAYS)
+            except (TypeError, ValueError):
+                corrected_days = WHITELIST_INTERNAL_DAYS
+            corrected_plan_name = f"{current_plan_config.get('name', order.plan_name or '套餐')}(永久)"
+
+            if (
+                abs(float(order.final_price or 0) - corrected_price) > 1e-9 or
+                int(order.duration_months or 0) != 0 or
+                int(order.duration_days or 0) != corrected_days or
+                (order.plan_name or '') != corrected_plan_name
+            ):
+                app.logger.warning(
+                    f'检测到历史白名单待支付订单金额/信息不一致，已自动校正: '
+                    f'order_no={order.order_no}, old_price={order.final_price}, new_price={corrected_price}, '
+                    f'old_duration_months={order.duration_months}, new_duration_days={corrected_days}'
+                )
+                order.duration_months = 0
+                order.duration_days = corrected_days
+                order.original_price = corrected_price
+                order.discount = 0
+                order.final_price = corrected_price
+                order.plan_name = corrected_plan_name
+                db.session.commit()
         
         # 动态获取易支付配置
         epay_config = get_epay_config()
