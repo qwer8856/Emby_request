@@ -5088,6 +5088,20 @@ document.addEventListener('click', function(e) {
 let plansConfigData = [];
 const PLAN_WHITELIST_INTERNAL_DAYS = 36500;
 
+function normalizePlanConfigId(value) {
+    if (value === undefined || value === null) {
+        return '';
+    }
+    return String(value).trim();
+}
+
+function getPlanConfigId(plan) {
+    if (!plan || typeof plan !== 'object') {
+        return '';
+    }
+    return normalizePlanConfigId(plan.id);
+}
+
 // 记录套餐卡片展开状态
 let expandedPlanCards = new Set();
 
@@ -5338,10 +5352,9 @@ function renderPlansConfig() {
             <div class="plan-config-body collapsible-body">
                 <div class="plan-config-grid">
                     <div class="plan-config-field">
-                        <label>套餐ID <span style="font-weight:normal;color:#999;font-size:11px;">（用于线路权限绑定，不可重复）</span></label>
-                        <input type="text" value="${plan.id || ''}" 
-                               onchange="updatePlanField(${index}, 'id', this.value)"
-                               placeholder="如: basic_1m, standard_3m">
+                        <label>套餐ID <span style="font-weight:normal;color:#999;font-size:11px;">（系统自动生成，用于线路权限绑定）</span></label>
+                        <input type="text" value="${getPlanConfigId(plan)}" 
+                               placeholder="保存后自动生成" readonly>
                     </div>
                     <div class="plan-config-field">
                         <label>套餐名称</label>
@@ -5601,7 +5614,7 @@ function formatDurationHint(days, isWhitelist = false) {
 
 function addNewPlan() {
     const newPlan = {
-        id: `plan_${Date.now()}`,
+        id: '',
         name: '新套餐',
         duration: 1,
         duration_days: 30,
@@ -5650,9 +5663,9 @@ async function deletePlan(index) {
 
 async function savePlansConfig() {
     // 验证数据
-    const invalidPlans = plansConfigData.filter(p => !p.id || !p.name);
+    const invalidPlans = plansConfigData.filter(p => !String(p?.name || '').trim());
     if (invalidPlans.length > 0) {
-        showToast('警告', '请确保所有套餐都填写了ID和名称', 'warning');
+        showToast('警告', '请确保所有套餐都填写了名称', 'warning');
         return;
     }
     
@@ -5668,6 +5681,10 @@ async function savePlansConfig() {
         const data = await response.json();
         
         if (data.success) {
+            if (Array.isArray(data.plans)) {
+                plansConfigData = data.plans;
+                renderPlansConfig();
+            }
             showToast('成功', data.message || '套餐配置已保存', 'success');
             // 清除套餐类型缓存，让用户管理/线路管理重新加载最新类型
             window._planTypeOptions = null;
@@ -6306,8 +6323,9 @@ async function loadGlobalPlanTypeOptions() {
         if (data.success && data.plans) {
             window._planTypeOptions = [];
             data.plans.forEach(plan => {
-                if (plan.id) {
-                    window._planTypeOptions.push({value: plan.id, label: plan.name || plan.id, is_whitelist: !!plan.is_whitelist});
+                const planId = getPlanConfigId(plan);
+                if (planId) {
+                    window._planTypeOptions.push({value: planId, label: plan.name || planId, is_whitelist: !!plan.is_whitelist});
                 }
             });
         }
@@ -6329,8 +6347,9 @@ async function loadLinePlanTypeOptions(selectedTypes = []) {
         const data = await response.json();
         if (data.success && data.plans) {
             data.plans.forEach(plan => {
-                if (plan.id) {
-                    typeOptions.push({value: plan.id, label: plan.name || plan.id});
+                const planId = getPlanConfigId(plan);
+                if (planId) {
+                    typeOptions.push({value: planId, label: plan.name || planId});
                 }
             });
         }

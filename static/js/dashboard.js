@@ -4489,13 +4489,56 @@ async function unbindTelegramId() {
         let selectedDuration = 1;
         let selectedPayment = 'alipay';
         let plansData = []; // 存储从API加载的套餐数据
+
+        function normalizePlanIdentifier(value) {
+            if (value === undefined || value === null) {
+                return '';
+            }
+            return String(value).trim();
+        }
+
+        function getPlanIdentifier(plan) {
+            if (!plan || typeof plan !== 'object') {
+                return '';
+            }
+            return normalizePlanIdentifier(plan.id) || normalizePlanIdentifier(plan.type);
+        }
+
+        function findPlanByIdentifier(identifier) {
+            const target = normalizePlanIdentifier(identifier);
+            if (!target) {
+                return null;
+            }
+            return plansData.find(plan => {
+                const planId = getPlanIdentifier(plan);
+                const planType = normalizePlanIdentifier(plan && plan.type);
+                const legacyIds = Array.isArray(plan && plan.legacy_ids)
+                    ? plan.legacy_ids.map(normalizePlanIdentifier)
+                    : [];
+                return planId === target || planType === target || legacyIds.includes(target);
+            }) || null;
+        }
+
+        function isWhitelistPlanEntry(plan) {
+            if (!plan || typeof plan !== 'object') {
+                return false;
+            }
+            if (plan.is_whitelist) {
+                return true;
+            }
+            const planType = normalizePlanIdentifier(plan.type).toLowerCase();
+            const legacyIds = Array.isArray(plan.legacy_ids)
+                ? plan.legacy_ids.map(normalizePlanIdentifier)
+                : [];
+            return planType === 'whitelist' || legacyIds.includes('whitelist') || legacyIds.includes('0');
+        }
         
         // 获取套餐的各周期价格（优先使用配置的价格，否则根据月付价格计算）
         function getPlanPrices(plan) {
             const priceOnceRaw = Number(plan.price_once || 0) || 0;
             const price1mRaw = Number(plan.price_1m || 0) || 0;
             const priceLegacyRaw = Number(plan.price || 0) || 0;
-            const isWhitelistPlan = !!plan.is_whitelist || String(plan.id || '').trim() === '0' || String(plan.type || '').trim() === 'whitelist';
+            const isWhitelistPlan = isWhitelistPlanEntry(plan);
 
             let oncePrice = priceOnceRaw;
             let monthlyPrice = Number(plan.price_1m || plan.price || 0) || 0;
@@ -4557,10 +4600,10 @@ async function unbindTelegramId() {
             const finalPlans = plans;
             
             plansGrid.innerHTML = finalPlans.map(plan => {
-                const planId = plan.id || plan.type || '';
+                const planId = getPlanIdentifier(plan);
                 const isPopular = plan.popular;
                 const durationDays = plan.duration_days || 30;
-                const isWhitelistPlan = !!plan.is_whitelist || String(plan.id || '').trim() === '0' || String(plan.type || '').trim() === 'whitelist';
+                const isWhitelistPlan = isWhitelistPlanEntry(plan);
                 const isPermanent = isWhitelistPlan;
                 const isShortTerm = !isPermanent && durationDays < 30;
                 const cardClass = [isPopular ? 'popular' : '', isPermanent ? 'ultimate' : ''].filter(Boolean).join(' ');
@@ -4658,20 +4701,20 @@ async function unbindTelegramId() {
         
         // 打开购买弹窗
         function openPurchaseDialog(planType) {
-            selectedPlan = planType;
+            selectedPlan = normalizePlanIdentifier(planType);
             selectedDuration = 1;
             selectedPayment = 'alipay';
             currentVerifyCode = generateVerifyCode();
             
             // 获取套餐价格（按ID匹配，兼容旧type匹配）
-            const plan = plansData.find(p => p.id === planType) || plansData.find(p => p.type === planType);
+            const plan = findPlanByIdentifier(selectedPlan);
             
             // 使用后台配置的名称和图标
             const planName = plan ? (plan.name || '套餐') : '套餐';
             const planIcon = plan ? (plan.icon || '📦') : '📦';
             const prices = plan ? getPlanPrices(plan) : { 0: 0, 1: 0, 3: 0, 6: 0, 12: 0 };
             const durationDays = plan ? (plan.duration_days || 30) : 30;
-            const isWhitelistPlan = !!(plan && (plan.is_whitelist || String(plan.id || '').trim() === '0' || String(plan.type || '').trim() === 'whitelist'));
+            const isWhitelistPlan = !!(plan && isWhitelistPlanEntry(plan));
             const isPermanent = isWhitelistPlan;
             const isShortTerm = !isPermanent && durationDays < 30;
             const hasOncePrice = prices[0] > 0;
@@ -4837,7 +4880,7 @@ async function unbindTelegramId() {
                 card.classList.toggle('active', card.dataset.duration == duration);
             });
             // 更新价格显示
-            const plan = plansData.find(p => p.id === selectedPlan) || plansData.find(p => p.type === selectedPlan);
+            const plan = findPlanByIdentifier(selectedPlan);
             const prices = plan ? getPlanPrices(plan) : { 0: 0, 1: 0, 3: 0, 6: 0, 12: 0 };
             const priceAmount = document.getElementById('dialogPriceAmount');
             if (priceAmount) {
@@ -4885,7 +4928,7 @@ async function unbindTelegramId() {
             closePurchaseDialog();
             
             // 获取价格
-            const plan = plansData.find(p => p.id === selectedPlan) || plansData.find(p => p.type === selectedPlan);
+            const plan = findPlanByIdentifier(selectedPlan);
             const prices = plan ? getPlanPrices(plan) : { 0: 0, 1: 0, 3: 0, 6: 0, 12: 0 };
             const price = prices[selectedDuration] || 0;
             
@@ -4894,6 +4937,7 @@ async function unbindTelegramId() {
         
         // 直接创建订单
         async function createOrderDirect(planType, duration, paymentMethod) {
+            const normalizedPlanType = normalizePlanIdentifier(planType);
             // 检查是否有未支付订单
             if (hasPendingOrder) {
                 showMessage('您有未支付的订单，请先支付或取消后再购买', 'warning');
@@ -4907,12 +4951,17 @@ async function unbindTelegramId() {
             
             try {
                 showMessage('正在创建订单...', 'info');
+
+                if (!normalizedPlanType) {
+                    showMessage('请选择有效的套餐', 'error');
+                    return;
+                }
                 
                 const response = await fetch('/api/orders/create', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        plan_type: planType,
+                        plan_type: normalizedPlanType,
                         duration: duration,
                         payment_method: paymentMethod
                     })
@@ -4981,7 +5030,7 @@ async function unbindTelegramId() {
         }
         
         async function createOrder() {
-            if (!selectedPlan) {
+            if (!normalizePlanIdentifier(selectedPlan)) {
                 showMessage('请先选择套餐', 'error');
                 return;
             }

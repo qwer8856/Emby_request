@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.37'
+APP_VERSION = '2.2.38'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -894,40 +894,84 @@ def save_plans_config(plans):
     return db_success and file_success
 
 
+def coerce_plan_key(value):
+    """将套餐 ID / type / alias 统一转成可比较的字符串。"""
+    if value is None:
+        return ''
+    return str(value).strip()
+
+
+def is_whitelist_plan_alias(value):
+    key = coerce_plan_key(value)
+    if not key:
+        return False
+    compact_key = key.replace(' ', '')
+    return key in WHITELIST_PLAN_ALIASES or compact_key == '0|白名单'
+
+
 def normalize_plans_config(plans):
-    """将套餐配置规范化为白名单=0，其余套餐按 1,2,3... 递增。"""
+    """将套餐配置规范化为正整数 ID，白名单通过 is_whitelist 标记区分。"""
     if not isinstance(plans, list):
         return []
 
     normalized = []
     used_ids = set()
-    next_regular_id = 1
-    whitelist_assigned = False
+    used_primary_types = set()
+    reserved_numeric_ids = set()
 
-    def _next_regular_id():
-        nonlocal next_regular_id
-        while True:
-            candidate = str(next_regular_id)
-            next_regular_id += 1
-            if candidate != '0' and candidate not in used_ids:
-                return candidate
+    def _reserve_numeric_id(value):
+        key = coerce_plan_key(value)
+        if key.isdigit() and int(key) > 0:
+            reserved_numeric_ids.add(key)
 
-    for index, plan in enumerate(plans):
+    for plan in plans:
         if not isinstance(plan, dict):
             continue
-        if not plan.get('name'):
+        _reserve_numeric_id(plan.get('id'))
+        _reserve_numeric_id(plan.get('type'))
+
+    next_numeric_id = 1
+
+    def _next_plan_id():
+        nonlocal next_numeric_id
+        while True:
+            candidate = str(next_numeric_id)
+            next_numeric_id += 1
+            if candidate not in reserved_numeric_ids and candidate not in used_ids:
+                return candidate
+
+    def _pick_existing_numeric_id(*values):
+        for value in values:
+            key = coerce_plan_key(value)
+            if key.isdigit() and int(key) > 0 and key not in used_ids:
+                return key
+        return ''
+
+    for plan in plans:
+        if not isinstance(plan, dict):
             continue
 
         next_plan = dict(plan)
-        old_id = str(next_plan.get('id') or '').strip()
-        old_type = str(next_plan.get('type') or '').strip()
-        old_legacy_ids = [str(alias).strip() for alias in (next_plan.get('legacy_ids') or []) if str(alias).strip()]
+        plan_name = str(next_plan.get('name', '')).strip()
+        if not plan_name:
+            continue
+
+        old_id = coerce_plan_key(next_plan.get('id'))
+        old_type = coerce_plan_key(next_plan.get('type'))
+        raw_legacy_ids = next_plan.get('legacy_ids') or []
+        if isinstance(raw_legacy_ids, str):
+            raw_legacy_ids = [raw_legacy_ids]
+        elif not isinstance(raw_legacy_ids, (list, tuple, set)):
+            raw_legacy_ids = []
+        old_legacy_ids = _unique_plan_keys(raw_legacy_ids)
+
         try:
             duration_months = int(next_plan.get('duration', 1) or 1)
         except (TypeError, ValueError):
             duration_months = 1
         if duration_months <= 0:
             duration_months = 1
+
         try:
             duration_days = int(next_plan.get('duration_days', 0) or 0)
         except (TypeError, ValueError):
@@ -935,17 +979,8 @@ def normalize_plans_config(plans):
         if duration_days <= 0:
             duration_days = duration_months * 30
 
-        # 白名单仅由显式标记/白名单别名判定，不再依赖时长
-        legacy_candidates = [old_id, old_type, str(next_plan.get('name') or '').strip(), *old_legacy_ids]
-        legacy_is_whitelist = False
-        for legacy_key in legacy_candidates:
-            clean_key = str(legacy_key or '').strip()
-            compact_key = clean_key.replace(' ', '')
-            if not compact_key:
-                continue
-            if clean_key in WHITELIST_PLAN_ALIASES or compact_key == '0|白名单':
-                legacy_is_whitelist = True
-                break
+        legacy_candidates = [old_id, old_type, plan_name, *old_legacy_ids]
+        legacy_is_whitelist = any(is_whitelist_plan_alias(legacy_key) for legacy_key in legacy_candidates)
         is_whitelist = bool(next_plan.get('is_whitelist', False) or legacy_is_whitelist)
         next_plan['is_whitelist'] = is_whitelist
         if is_whitelist:
@@ -955,27 +990,33 @@ def normalize_plans_config(plans):
             next_plan['duration_days'] = duration_days
             next_plan['duration'] = duration_months
 
-        if is_whitelist and not whitelist_assigned:
-            plan_id = '0'
-            whitelist_assigned = True
-        else:
-            plan_id = _next_regular_id()
-
+        plan_id = _pick_existing_numeric_id(old_id, old_type) or _next_plan_id()
         used_ids.add(plan_id)
+
+        primary_type = ''
+        if old_type and not is_whitelist_plan_alias(old_type) and not old_type.isdigit():
+            if old_type != plan_id and old_type not in used_primary_types:
+                primary_type = old_type
+        if not primary_type:
+            primary_type = plan_id
+        used_primary_types.add(primary_type)
 
         legacy_ids = []
         for alias in [old_id, old_type, *old_legacy_ids]:
-            alias = alias.strip()
-            if alias and alias != plan_id and alias not in legacy_ids:
-                legacy_ids.append(alias)
+            alias_key = coerce_plan_key(alias)
+            if not alias_key:
+                continue
+            if alias_key in [plan_id, primary_type]:
+                continue
+            if alias_key not in legacy_ids:
+                legacy_ids.append(alias_key)
+
+        next_plan['id'] = plan_id
+        next_plan['type'] = primary_type
         if legacy_ids:
             next_plan['legacy_ids'] = legacy_ids
         else:
             next_plan.pop('legacy_ids', None)
-
-        next_plan['id'] = plan_id
-        # 保留旧 type 作为兼容别名，优先保留原值
-        next_plan['type'] = old_type or old_id or plan_id
         normalized.append(next_plan)
 
     return normalized
@@ -983,7 +1024,7 @@ def normalize_plans_config(plans):
 
 def resolve_plan_config(plan_key, plans=None):
     """按套餐 ID / type / 名称 / 旧别名解析套餐配置。"""
-    key = str(plan_key or '').strip()
+    key = coerce_plan_key(plan_key)
     if not key:
         return None
 
@@ -992,13 +1033,7 @@ def resolve_plan_config(plan_key, plans=None):
         if not isinstance(plan, dict):
             continue
 
-        candidates = [
-            str(plan.get('id') or '').strip(),
-            str(plan.get('type') or '').strip(),
-            str(plan.get('name') or '').strip(),
-        ]
-        candidates.extend([str(alias).strip() for alias in (plan.get('legacy_ids') or []) if str(alias).strip()])
-        if key in candidates:
+        if key in collect_plan_aliases(plan):
             return plan
 
     return None
@@ -1018,32 +1053,57 @@ def _unique_plan_keys(values):
     """按原顺序去重并清理空值。"""
     unique_values = []
     seen = set()
-    for value in values or []:
-        key = str(value or '').strip()
+    if values is None:
+        iterable_values = []
+    elif isinstance(values, str):
+        iterable_values = [values]
+    else:
+        try:
+            iterable_values = list(values)
+        except TypeError:
+            iterable_values = [values]
+
+    for value in iterable_values:
+        key = coerce_plan_key(value)
         if key and key not in seen:
             seen.add(key)
             unique_values.append(key)
     return unique_values
 
 
+def collect_plan_aliases(plan):
+    if not isinstance(plan, dict):
+        return []
+    raw_legacy_ids = plan.get('legacy_ids') or []
+    if isinstance(raw_legacy_ids, str):
+        raw_legacy_ids = [raw_legacy_ids]
+    elif not isinstance(raw_legacy_ids, (list, tuple, set)):
+        raw_legacy_ids = []
+    return _unique_plan_keys([
+        plan.get('id'),
+        plan.get('type'),
+        plan.get('name'),
+        *raw_legacy_ids,
+    ])
+
+
 def normalize_plan_match_key(plan_key, plans=None):
     """把套餐/线路可见性值规范化为当前可匹配的主键。"""
-    key = str(plan_key or '').strip()
+    key = coerce_plan_key(plan_key)
     if not key:
         return None
 
-    compact_key = key.replace(' ', '')
-    if key in WHITELIST_PLAN_ALIASES or compact_key == '0|白名单':
+    if is_whitelist_plan_alias(key):
         return 'whitelist'
 
     plan = resolve_plan_config(key, plans)
     if plan:
         if plan.get('is_whitelist'):
             return 'whitelist'
-        plan_name = str(plan.get('name') or '').strip()
+        plan_name = coerce_plan_key(plan.get('name'))
         if plan_name:
             return plan_name
-        plan_id = str(plan.get('id') or '').strip()
+        plan_id = coerce_plan_key(plan.get('id'))
         if plan_id:
             return plan_id
 
@@ -1077,26 +1137,18 @@ def is_whitelist_plan_config(plan):
     if bool(plan.get('is_whitelist', False)):
         return True
 
-    candidates = [
-        str(plan.get('id') or '').strip(),
-        str(plan.get('type') or '').strip(),
-        str(plan.get('name') or '').strip(),
-    ]
-    candidates.extend([str(alias).strip() for alias in (plan.get('legacy_ids') or []) if str(alias).strip()])
-    for key in candidates:
-        compact_key = key.replace(' ', '')
-        if key in WHITELIST_PLAN_ALIASES or compact_key == '0|白名单':
+    for key in collect_plan_aliases(plan):
+        if is_whitelist_plan_alias(key):
             return True
     return False
 
 
 def is_whitelist_plan_key(plan_key, plans=None):
     """按套餐 key 判断是否白名单套餐（支持 id/type/name/legacy_ids）。"""
-    key = str(plan_key or '').strip()
+    key = coerce_plan_key(plan_key)
     if not key:
         return False
-    compact_key = key.replace(' ', '')
-    if key in WHITELIST_PLAN_ALIASES or compact_key == '0|白名单':
+    if is_whitelist_plan_alias(key):
         return True
     plan = resolve_plan_config(key, plans)
     return is_whitelist_plan_config(plan)
@@ -18627,7 +18679,7 @@ def get_plans():
 def create_order():
     """创建订单"""
     try:
-        data = request.json
+        data = request.get_json(silent=True) or {}
         app.logger.info(f'收到创建订单请求: {data}')
         
         user = db.session.get(User, session.get('user_id'))
@@ -18643,21 +18695,29 @@ def create_order():
             db.create_all()
             app.logger.info('orders 表已创建')
         
-        plan_type = data.get('plan_type')  # 套餐类型
+        requested_plan_type = coerce_plan_key(data.get('plan_type'))  # 套餐类型
         try:
             duration = int(data.get('duration', 1))  # 订阅时长（0=一次性，1=月付，3=季付等）
         except (TypeError, ValueError):
             duration = 1
         payment_method = data.get('payment_method', 'alipay')
-        
-        app.logger.info(f'创建订单参数: plan_type={plan_type}, duration={duration}, payment_method={payment_method}, user={user.name}')
+
+        if not requested_plan_type:
+            return jsonify({'error': '请选择有效的套餐'}), 400
+
+        app.logger.info(
+            f'创建订单参数: requested_plan_type={requested_plan_type}, '
+            f'duration={duration}, payment_method={payment_method}, user={user.name}'
+        )
         
         # 从配置文件加载套餐
         plans_config = load_plans_config()
-        plan_config = resolve_plan_config(plan_type, plans_config)
+        plan_config = resolve_plan_config(requested_plan_type, plans_config)
         
         if not plan_config:
             return jsonify({'error': '无效的套餐'}), 400
+
+        normalized_plan_type = coerce_plan_key(plan_config.get('id')) or requested_plan_type
         
         def _safe_float(v, default=0.0):
             try:
@@ -18695,7 +18755,7 @@ def create_order():
                     app.logger.warning(
                         f'白名单套餐价格字段不一致，已按兼容规则使用更小值: '
                         f'price_once={raw_price_once}, price_1m={raw_price_1m}, price={raw_price_legacy}, '
-                        f'use={compat_once_price}, plan_type={plan_type}'
+                        f'use={compat_once_price}, plan_type={normalized_plan_type}'
                     )
                 once_price = compat_once_price
             # 白名单仅按一次性购买处理，周期价格不参与计算
@@ -18713,7 +18773,7 @@ def create_order():
         has_monthly_price = monthly_price > 0
         
         app.logger.info(
-            f'订单金额计算参数: plan_type={plan_type}, duration={duration}, '
+            f'订单金额计算参数: plan_type={normalized_plan_type}, duration={duration}, '
             f'base_duration_days={base_duration_days}, is_permanent={is_permanent}, '
             f'price_once={once_price}, price_1m={monthly_price}, '
             f'price_3m={quarter_price}, price_6m={halfyear_price}, price_12m={yearly_price}'
@@ -18722,7 +18782,7 @@ def create_order():
         # 一次性套餐强制按一次性购买，避免前端缓存/旧参数导致金额异常
         if has_once_price and duration != 0:
             app.logger.warning(
-                f'检测到一次性套餐但收到周期参数 duration={duration}，自动按一次性处理: plan_type={plan_type}'
+                f'检测到一次性套餐但收到周期参数 duration={duration}，自动按一次性处理: plan_type={normalized_plan_type}'
             )
             duration = 0
         
@@ -18792,10 +18852,14 @@ def create_order():
         # 自动取消该用户同一套餐的旧待支付订单（防止订单堆积）
         stale_orders = Order.query.filter_by(
             user_tg=user.tg,
-            plan_type=plan_type,
             payment_status='pending'
         ).all()
         for stale in stale_orders:
+            stale_plan_type = coerce_plan_key(stale.plan_type)
+            stale_plan = resolve_plan_config(stale_plan_type, plans_config) if stale_plan_type else None
+            stale_plan_id = coerce_plan_key(stale_plan.get('id')) if stale_plan else stale_plan_type
+            if stale_plan_id != normalized_plan_type:
+                continue
             stale.payment_status = 'cancelled'
             app.logger.info(f'自动取消旧待支付订单: {stale.order_no}')
         
@@ -18807,7 +18871,7 @@ def create_order():
         order = Order(
             order_no=order_no,
             user_tg=user.tg,
-            plan_type=plan_type,
+            plan_type=normalized_plan_type,
             plan_name=plan_name,
             duration_months=duration,
             duration_days=actual_duration_days,
@@ -18835,7 +18899,7 @@ def create_order():
         
         # 记录创建订单日志
         log_user_activity(UserActivityLog.ACTION_CREATE_ORDER, user=user,
-                         detail={'order_no': order_no, 'plan_type': plan_type, 'plan_name': plan_name,
+                         detail={'order_no': order_no, 'plan_type': normalized_plan_type, 'plan_name': plan_name,
                                 'duration_months': duration, 'final_price': final_price, 'payment_method': payment_method})
         
         return jsonify({
@@ -21220,20 +21284,33 @@ def get_plans_config():
 def save_plans_config_api():
     """保存套餐配置（管理员）"""
     try:
-        data = request.json
+        data = request.get_json(silent=True) or {}
         plans = data.get('plans', [])
+        if not isinstance(plans, list):
+            return jsonify({
+                'success': False,
+                'error': '套餐数据格式错误'
+            }), 400
+
         existing_plans = load_plans_config()
-        existing_by_id = {}
-        for plan in existing_plans:
-            if isinstance(plan, dict):
-                plan_id = str(plan.get('id') or '').strip()
-                if plan_id and plan_id not in existing_by_id:
-                    existing_by_id[plan_id] = plan
+        existing_by_key = {}
+        for existing_plan in existing_plans:
+            if not isinstance(existing_plan, dict):
+                continue
+            for alias in collect_plan_aliases(existing_plan):
+                if alias and alias not in existing_by_key:
+                    existing_by_key[alias] = existing_plan
+
+        def _float_or_none(value):
+            if value in [None, '']:
+                return None
+            return float(value)
         
         # 验证套餐数据
         validated_plans = []
-        used_ids = set()
         for plan in plans:
+            if not isinstance(plan, dict):
+                continue
             if not plan.get('name'):
                 continue
                 
@@ -21255,31 +21332,28 @@ def save_plans_config_api():
                 duration_days = WHITELIST_INTERNAL_DAYS
                 duration_months = 1
 
-            plan_id = str(plan.get('id') or plan.get('type') or f'plan_{len(validated_plans) + 1}').strip()
-            if not plan_id:
-                plan_id = f'plan_{len(validated_plans) + 1}'
-            if plan_id in used_ids:
-                base_id = plan_id
-                suffix = 2
-                while f'{base_id}_{suffix}' in used_ids:
-                    suffix += 1
-                plan_id = f'{base_id}_{suffix}'
-            used_ids.add(plan_id)
-            existing_plan = existing_by_id.get(str(plan.get('id') or '').strip()) or existing_by_id.get(plan_id)
+            incoming_id = coerce_plan_key(plan.get('id'))
+            incoming_type = coerce_plan_key(plan.get('type'))
+            existing_plan = existing_by_key.get(incoming_id) or existing_by_key.get(incoming_type)
+            current_plan_id = incoming_id or (coerce_plan_key(existing_plan.get('id')) if existing_plan else '')
             legacy_ids = []
             if existing_plan:
-                legacy_ids.extend([str(alias).strip() for alias in (existing_plan.get('legacy_ids') or []) if str(alias).strip()])
+                legacy_ids.extend(_unique_plan_keys(existing_plan.get('legacy_ids') or []))
                 for alias in [
                     existing_plan.get('id'),
                     existing_plan.get('type'),
                     existing_plan.get('name'),
                 ]:
-                    alias = str(alias or '').strip()
-                    if alias and alias != plan_id and alias not in legacy_ids:
+                    alias = coerce_plan_key(alias)
+                    if alias and alias != current_plan_id and alias not in legacy_ids:
                         legacy_ids.append(alias)
+
+            for alias in [incoming_id, incoming_type]:
+                if alias and alias not in legacy_ids:
+                    legacy_ids.append(alias)
             
             validated_plan = {
-                'id': plan_id,
+                'id': current_plan_id,
                 'name': str(plan.get('name', '')).strip(),
                 'icon': str(plan.get('icon', '')).strip() if plan.get('icon') else None,
                 'description': str(plan.get('description', '')).strip() if plan.get('description') else None,
@@ -21292,14 +21366,17 @@ def save_plans_config_api():
                 # 白名单套餐标记（勾选后该套餐用户视为白名单用户）
                 'is_whitelist': is_whitelist_plan,
                 # 多周期价格（互斥：一次性和月付/季付/年付只能设一种）
-                'price_once': float(plan.get('price_once', 0)) if plan.get('price_once') else None,
-                'price_1m': float(plan.get('price_1m', 0)) if plan.get('price_1m') else None,
-                'price_3m': float(plan.get('price_3m', 0)) if plan.get('price_3m') else None,
-                'price_6m': float(plan.get('price_6m', 0)) if plan.get('price_6m') else None,
-                'price_12m': float(plan.get('price_12m', 0)) if plan.get('price_12m') else None,
+                'price_once': _float_or_none(plan.get('price_once')),
+                'price_1m': _float_or_none(plan.get('price_1m')),
+                'price_3m': _float_or_none(plan.get('price_3m')),
+                'price_6m': _float_or_none(plan.get('price_6m')),
+                'price_12m': _float_or_none(plan.get('price_12m')),
                 # 订阅权益
                 'benefits': plan.get('benefits', []) if isinstance(plan.get('benefits'), list) else [],
             }
+            preserved_type = incoming_type or (coerce_plan_key(existing_plan.get('type')) if existing_plan else '')
+            if preserved_type:
+                validated_plan['type'] = preserved_type
             if legacy_ids:
                 validated_plan['legacy_ids'] = legacy_ids
             
@@ -21325,11 +21402,14 @@ def save_plans_config_api():
         
         # 保存配置
         if save_plans_config(validated_plans):
-            app.logger.info(f'套餐配置已更新，共 {len(validated_plans)} 个套餐')
+            clear_db_config_cache(CONFIG_KEY_PLANS)
+            saved_plans = load_plans_config()
+            app.logger.info(f'套餐配置已更新，共 {len(saved_plans)} 个套餐')
             
             return jsonify({
                 'success': True,
-                'message': f'配置保存成功，共 {len(validated_plans)} 个套餐'
+                'message': f'配置保存成功，共 {len(saved_plans)} 个套餐',
+                'plans': saved_plans
             }), 200
         else:
             return jsonify({
