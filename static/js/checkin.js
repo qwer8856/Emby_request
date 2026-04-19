@@ -1,114 +1,122 @@
 // ==================== 签到系统 ====================
 
-// 加载签到状态
+let checkinRequestInFlight = false;
+
+function normalizeErrorMessage(raw, fallback = '未知错误') {
+    const text = String(raw || '')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!text) return fallback;
+    return text.length > 180 ? `${text.slice(0, 180)}...` : text;
+}
+
+async function readJsonResponse(response) {
+    const responseText = await response.text();
+    let data = null;
+    if (responseText) {
+        try {
+            data = JSON.parse(responseText);
+        } catch (e) {
+            data = null;
+        }
+    }
+    return { data, responseText };
+}
+
+function setCheckinButtonState(disabled, text) {
+    const btn = document.getElementById('checkinMiniBtn');
+    if (!btn) return;
+    btn.disabled = !!disabled;
+    btn.innerHTML = `<span class="btn-text">${text}</span>`;
+    if (disabled) {
+        btn.classList.add('disabled');
+    } else {
+        btn.classList.remove('disabled');
+    }
+}
+
 async function loadCheckinStatus() {
     try {
         const response = await fetch('/api/user/checkin/status');
-        const data = await response.json();
-        
-        if (data.success) {
-            const { config, status } = data;
-            
-            // 获取签到相关元素
-            const miniCard = document.getElementById('checkinMiniCard');
-            const exchangeSection = document.getElementById('checkinExchangeSection');
-            
-            // 如果签到功能未开启，隐藏签到容器
-            if (!config.enabled) {
-                if (miniCard) miniCard.style.display = 'none';
-                if (exchangeSection) exchangeSection.style.display = 'none';
-                return;
-            }
-            
-            // 显示签到容器
-            if (miniCard) miniCard.style.display = 'block';
-            
-            // 检查是否有兑换套餐，有则显示兑换区域
-            if (config.exchange_plans && config.exchange_plans.length > 0) {
-                if (exchangeSection) exchangeSection.style.display = 'block';
-            }
-            
-            // 更新迷你卡片信息
-            const coinNameMini = document.getElementById('coinNameMini');
-            const userCoinsMini = document.getElementById('userCoinsMini');
-            const checkinMiniBtn = document.getElementById('checkinMiniBtn');
-            const checkinMiniHint = document.getElementById('checkinMiniHint');
-            
-            if (coinNameMini) coinNameMini.textContent = config.coin_name;
-            if (userCoinsMini) userCoinsMini.textContent = status.coins || 0;
-            
-            // 更新签到按钮状态
-            if (checkinMiniBtn) {
-                if (!config.can_checkin) {
-                    // 无权签到（权限限制）
-                    checkinMiniBtn.disabled = true;
-                    checkinMiniBtn.classList.add('disabled');
-                    checkinMiniBtn.innerHTML = '<span class="btn-text">不可签到</span>';
-                    if (checkinMiniHint) checkinMiniHint.textContent = config.checkin_hint || '暂无签到权限';
-                } else if (status.checked_today) {
-                    checkinMiniBtn.disabled = true;
-                    checkinMiniBtn.classList.add('disabled');
-                    checkinMiniBtn.innerHTML = '<span class="btn-text">已签到</span>';
-                    if (checkinMiniHint) checkinMiniHint.textContent = '明天再来~';
-                } else {
-                    checkinMiniBtn.disabled = false;
-                    checkinMiniBtn.classList.remove('disabled');
-                    checkinMiniBtn.innerHTML = '<span class="btn-text">签到</span>';
-                    if (checkinMiniHint) checkinMiniHint.textContent = '签到获得奖励';
-                }
-            }
-            
-            // 加载兑换套餐
-            renderExchangePlans(config.exchange_plans, config.coin_name, status.coins || 0);
-            
-            // 加载兑换记录
-            loadExchangeRecords();
-        } else {
-            console.error('加载签到状态失败:', data.error);
+        const { data } = await readJsonResponse(response);
+        if (!data || !data.success) {
+            console.error('加载签到状态失败:', data && data.error);
+            return;
         }
+
+        const { config, status } = data;
+        const miniCard = document.getElementById('checkinMiniCard');
+        const exchangeSection = document.getElementById('checkinExchangeSection');
+        const checkinMiniHint = document.getElementById('checkinMiniHint');
+        const coinNameMini = document.getElementById('coinNameMini');
+        const userCoinsMini = document.getElementById('userCoinsMini');
+
+        if (!config.enabled) {
+            if (miniCard) miniCard.style.display = 'none';
+            if (exchangeSection) exchangeSection.style.display = 'none';
+            return;
+        }
+
+        if (miniCard) miniCard.style.display = 'block';
+        if (exchangeSection) {
+            exchangeSection.style.display = (config.exchange_plans && config.exchange_plans.length > 0)
+                ? 'block'
+                : 'none';
+        }
+
+        if (coinNameMini) coinNameMini.textContent = config.coin_name || '积分';
+        if (userCoinsMini) userCoinsMini.textContent = status.coins || 0;
+
+        if (!config.can_checkin) {
+            setCheckinButtonState(true, '不可签到');
+            if (checkinMiniHint) checkinMiniHint.textContent = config.checkin_hint || '暂无签到权限';
+        } else if (status.checked_today) {
+            setCheckinButtonState(true, '已签到');
+            if (checkinMiniHint) checkinMiniHint.textContent = '明天再来~';
+        } else {
+            setCheckinButtonState(false, '签到');
+            if (checkinMiniHint) checkinMiniHint.textContent = '签到获得奖励';
+        }
+
+        renderExchangePlans(config.exchange_plans || [], config.coin_name || '积分', status.coins || 0);
+        loadExchangeRecords();
     } catch (error) {
         console.error('加载签到状态失败:', error);
     }
 }
 
-// 执行签到 —— 验证码由后端生成图片，答案存在 session 中，防止脚本绕过
 async function doCheckin() {
     const miniBtn = document.getElementById('checkinMiniBtn');
     if (miniBtn && miniBtn.disabled) return;
+    if (checkinRequestInFlight) return;
 
-    // 1. 从后端获取图片验证码
-    let captchaImage;
+    checkinRequestInFlight = true;
+    let success = false;
+
     try {
+        // 1) 获取验证码
         const capRes = await fetch('/api/user/captcha');
-        const capData = await capRes.json();
-        if (!capData.success) {
-            window.showToast(capData.error || '获取验证码失败', 'error');
-            return;
+        const { data: capData, responseText: capText } = await readJsonResponse(capRes);
+        if (!capRes.ok || !capData || !capData.success || !capData.image) {
+            const detail = (capData && (capData.error || capData.message))
+                || capText
+                || `HTTP ${capRes.status}`;
+            throw new Error(`获取验证码失败：${normalizeErrorMessage(detail, `HTTP ${capRes.status}`)}`);
         }
-        captchaImage = capData.image;
-    } catch (e) {
-        window.showToast('获取验证码失败，请稍后重试', 'error');
-        return;
-    }
 
-    // 2. 弹窗显示验证码图片 + 输入框
-    const answer = await showCaptchaPrompt({
-        title: '🔒 签到验证',
-        message: '请输入图片中的 4 位数字',
-        image: captchaImage,
-        placeholder: '请输入验证码'
-    });
+        // 2) 弹窗输入验证码
+        const answer = await showCaptchaPrompt({
+            title: '🔒 签到验证',
+            message: '请输入图片中的 4 位数字',
+            image: capData.image,
+            placeholder: '请输入验证码'
+        });
+        if (answer === null) return;
 
-    // 用户取消
-    if (answer === null) return;
-    
-    if (miniBtn) {
-        miniBtn.disabled = true;
-        miniBtn.innerHTML = '<span class="btn-text">签到中...</span>';
-    }
-    
-    // 3. 提交签到请求，携带验证码答案由后端校验
-    try {
+        setCheckinButtonState(true, '签到中...');
+
+        // 3) 提交签到
         const response = await fetch('/api/user/checkin', {
             method: 'POST',
             headers: {
@@ -116,37 +124,39 @@ async function doCheckin() {
             },
             body: JSON.stringify({ captcha_answer: answer })
         });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            // 显示签到成功动画
-            showCheckinSuccess(data.coins_earned, data.coin_name);
-            
-            // 刷新签到状态
-            setTimeout(() => {
-                loadCheckinStatus();
-            }, 1500);
-        } else {
-            window.showToast(data.error || '签到失败', 'error');
-            if (miniBtn) {
-                miniBtn.disabled = false;
-                miniBtn.innerHTML = '<span class="btn-text">签到</span>';
-            }
+
+        const { data, responseText } = await readJsonResponse(response);
+        if (!response.ok) {
+            const detail = (data && (data.error || data.message))
+                || responseText
+                || `HTTP ${response.status}`;
+            throw new Error(normalizeErrorMessage(detail, `HTTP ${response.status}`));
         }
+        if (!data) {
+            throw new Error(`服务器返回格式错误（HTTP ${response.status}）`);
+        }
+        if (!data.success) {
+            throw new Error(normalizeErrorMessage(data.error || data.message, '签到失败'));
+        }
+
+        success = true;
+        showCheckinSuccess(data.coins_earned, data.coin_name || '积分');
+        setTimeout(() => {
+            loadCheckinStatus();
+        }, 1500);
     } catch (error) {
-        console.error('签到失败:', error);
-        window.showToast('签到失败，请稍后重试', 'error');
-        if (miniBtn) {
-            miniBtn.disabled = false;
-            miniBtn.innerHTML = '<span class="btn-text">签到</span>';
+        console.error('签到失败(详细):', error);
+        const detail = normalizeErrorMessage(error && error.message, '请稍后重试');
+        window.showToast(`签到失败：${detail}`, 'error');
+    } finally {
+        checkinRequestInFlight = false;
+        if (!success) {
+            setCheckinButtonState(false, '签到');
         }
     }
 }
 
-// 显示签到成功动画
 function showCheckinSuccess(coins, coinName) {
-    // 创建动画元素
     const animation = document.createElement('div');
     animation.className = 'checkin-success-animation';
     animation.innerHTML = `
@@ -154,29 +164,28 @@ function showCheckinSuccess(coins, coinName) {
         <div class="success-text">签到成功!</div>
         <div class="success-reward">+${coins} ${coinName}</div>
     `;
-    
+
     document.body.appendChild(animation);
-    
-    // 3秒后移除
     setTimeout(() => {
         animation.classList.add('fade-out');
         setTimeout(() => {
-            document.body.removeChild(animation);
+            if (animation.parentNode) {
+                animation.parentNode.removeChild(animation);
+            }
         }, 300);
     }, 2500);
 }
 
-// 渲染兑换套餐
 function renderExchangePlans(plans, coinName, userCoins) {
     const container = document.getElementById('exchangePlans');
     if (!container) return;
-    
+
     if (!plans || plans.length === 0) {
         container.innerHTML = '<div class="no-plans">暂无可兑换的套餐</div>';
         return;
     }
-    
-    const html = plans.map(plan => {
+
+    const html = plans.map((plan) => {
         const canExchange = userCoins >= plan.coins;
         return `
             <div class="exchange-plan ${canExchange ? '' : 'disabled'}">
@@ -185,7 +194,7 @@ function renderExchangePlans(plans, coinName, userCoins) {
                     <div class="plan-price">${plan.coins} ${coinName}</div>
                 </div>
                 <div class="plan-duration">${plan.days} 天订阅</div>
-                <button class="exchange-btn ${canExchange ? '' : 'disabled'}" 
+                <button class="exchange-btn ${canExchange ? '' : 'disabled'}"
                         onclick="exchangePlan('${plan.id}', '${plan.name}', ${plan.coins}, ${plan.days})"
                         ${canExchange ? '' : 'disabled'}>
                     ${canExchange ? '立即兑换' : '积分不足'}
@@ -193,47 +202,43 @@ function renderExchangePlans(plans, coinName, userCoins) {
             </div>
         `;
     }).join('');
-    
+
     container.innerHTML = html;
 }
 
-// 兑换套餐 —— 同样需要后端图片验证码校验
 async function exchangePlan(planId, planName, coins, days) {
-    // 1. 从后端获取图片验证码
     let captchaImage;
     try {
         const capRes = await fetch('/api/user/captcha');
-        const capData = await capRes.json();
-        if (!capData.success) {
-            window.showToast(capData.error || '获取验证码失败', 'error');
+        const { data: capData, responseText: capText } = await readJsonResponse(capRes);
+        if (!capRes.ok || !capData || !capData.success || !capData.image) {
+            const detail = (capData && (capData.error || capData.message))
+                || capText
+                || `HTTP ${capRes.status}`;
+            window.showToast(`获取验证码失败：${normalizeErrorMessage(detail, `HTTP ${capRes.status}`)}`, 'error');
             return;
         }
         captchaImage = capData.image;
     } catch (e) {
-        window.showToast('获取验证码失败，请稍后重试', 'error');
+        window.showToast(`获取验证码失败：${normalizeErrorMessage(e && e.message, '请稍后重试')}`, 'error');
         return;
     }
 
-    // 2. 弹窗确认 + 图片验证码
     const answer = await showCaptchaPrompt({
         title: '🔒 兑换验证',
-        message: `确定使用 ${coins} 积分兑换 ${planName} (${days}天)？<br>请输入图片中的 4 位数字`,
+        message: `确定使用 ${coins} 积分兑换 ${planName}（${days}天）？<br>请输入图片中的 4 位数字`,
         image: captchaImage,
         placeholder: '请输入验证码'
     });
-
-    // 用户取消
     if (answer === null) return;
-    
-    // 找到按钮并显示加载状态（通过 planId 定位按钮，避免依赖隐式 event 变量）
+
     const btn = document.querySelector(`.exchange-btn[onclick*="'${planId}'"]`);
     const originalText = btn ? btn.innerHTML : '';
     if (btn) {
         btn.disabled = true;
         btn.innerHTML = '<span class="loading-spinner"></span> 兑换中...';
     }
-    
-    // 3. 提交兑换请求，携带验证码答案
+
     try {
         const response = await fetch('/api/user/exchange', {
             method: 'POST',
@@ -248,31 +253,26 @@ async function exchangePlan(planId, planName, coins, days) {
                 captcha_answer: answer
             })
         });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            window.showToast(`兑换成功！订阅已延长 ${days} 天`, 'success');
-            
-            // 刷新签到状态和兑换记录
-            loadCheckinStatus();
-            
-            // 如果在订阅页面，也刷新订阅信息
-            if (typeof loadSubscription === 'function') {
-                loadSubscription();
-            }
-        } else {
-            window.showToast(data.error || '兑换失败', 'error');
-            // 恢复按钮状态
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = originalText;
-            }
+
+        const { data, responseText } = await readJsonResponse(response);
+        if (!response.ok) {
+            const detail = (data && (data.error || data.message))
+                || responseText
+                || `HTTP ${response.status}`;
+            throw new Error(normalizeErrorMessage(detail, `HTTP ${response.status}`));
+        }
+        if (!data || !data.success) {
+            throw new Error(normalizeErrorMessage(data && (data.error || data.message), '兑换失败'));
+        }
+
+        window.showToast(`兑换成功！订阅已延长 ${days} 天`, 'success');
+        loadCheckinStatus();
+        if (typeof loadSubscription === 'function') {
+            loadSubscription();
         }
     } catch (error) {
-        console.error('兑换失败:', error);
-        window.showToast('兑换失败，请稍后重试', 'error');
-        // 恢复按钮状态
+        console.error('兑换失败(详细):', error);
+        window.showToast(`兑换失败：${normalizeErrorMessage(error && error.message, '请稍后重试')}`, 'error');
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = originalText;
@@ -280,13 +280,11 @@ async function exchangePlan(planId, planName, coins, days) {
     }
 }
 
-// 加载兑换记录
 async function loadExchangeRecords(page = 1) {
     try {
         const response = await fetch(`/api/user/exchange/records?page=${page}&per_page=5`);
-        const data = await response.json();
-        
-        if (data.success) {
+        const { data } = await readJsonResponse(response);
+        if (data && data.success) {
             renderExchangeRecords(data.records);
         }
     } catch (error) {
@@ -294,17 +292,16 @@ async function loadExchangeRecords(page = 1) {
     }
 }
 
-// 渲染兑换记录
 function renderExchangeRecords(records) {
     const container = document.getElementById('exchangeRecordsList');
     if (!container) return;
-    
+
     if (!records || records.length === 0) {
         container.innerHTML = '<div class="no-records">暂无兑换记录</div>';
         return;
     }
-    
-    const html = records.map(record => `
+
+    const html = records.map((record) => `
         <div class="exchange-record-item">
             <div class="record-info">
                 <div class="record-name">${record.plan_name}</div>
@@ -316,20 +313,17 @@ function renderExchangeRecords(records) {
             </div>
         </div>
     `).join('');
-    
+
     container.innerHTML = html;
 }
 
-// 查看全部兑换记录
 function viewAllExchangeRecords() {
-    // 可以打开一个模态框显示完整的兑换记录
     window.showToast('功能开发中', 'info');
 }
 
-// 页面加载时初始化
 document.addEventListener('DOMContentLoaded', () => {
-    // 立即加载签到状态
     setTimeout(() => {
         loadCheckinStatus();
     }, 100);
 });
+
