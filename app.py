@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.42'
+APP_VERSION = '2.2.48'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -79,6 +79,24 @@ def normalize_display_text(text):
 
 def fix_text_filter(text):
     return normalize_display_text(text)
+
+
+def to_db_safe_text(text, max_length=None):
+    """将文本转换为数据库安全格式，避免 4 字节字符在 utf8/utf8mb3 环境写入异常。"""
+    if text is None:
+        return None
+
+    safe_text = text if isinstance(text, str) else str(text)
+    if any(ord(ch) > 0xFFFF for ch in safe_text):
+        safe_text = ''.join(
+            ch if ord(ch) <= 0xFFFF else f'\\U{ord(ch):08X}'
+            for ch in safe_text
+        )
+
+    if isinstance(max_length, int) and max_length > 0 and len(safe_text) > max_length:
+        safe_text = safe_text[:max_length]
+
+    return safe_text
 
 
 # ==================== 数据库配置缓存（在 db 初始化前定义）====================
@@ -18763,14 +18781,6 @@ def create_order():
             app.logger.error('创建订单失败: 用户未找到')
             return jsonify({'error': '用户未找到'}), 401
         
-        # 检查 orders 表是否存在
-        from sqlalchemy import inspect
-        inspector = inspect(db.engine)
-        if 'orders' not in inspector.get_table_names():
-            app.logger.warning('orders 表不存在，正在创建...')
-            db.create_all()
-            app.logger.info('orders 表已创建')
-        
         requested_plan_type = coerce_plan_key(data.get('plan_type'))  # 套餐类型
         try:
             duration = int(data.get('duration', 1))  # 订阅时长（0=一次性，1=月付，3=季付等）
@@ -18912,63 +18922,152 @@ def create_order():
         elif duration > 1:
             duration_names = {3: '(季付)', 6: '(半年付)', 12: '(年付)'}
             plan_name = f"{plan_name}{duration_names.get(duration, f'({duration}期)')}"
-        
-        # 自动取消该用户同一套餐的旧待支付订单（防止订单堆积）
-        stale_orders = Order.query.filter_by(
+
+        # 兼容部分 MySQL utf8/utf8mb3 环境：将订单名转为数据库安全文本，避免写入异常导致网关 502。
+        raw_plan_name = plan_name
+        plan_name = to_db_safe_text(raw_plan_name, max_length=100) or '套餐'
+        if plan_name != raw_plan_name:
+            app.logger.warning(
+                f'订单套餐名称包含数据库不兼容字符，已转义保存: raw={raw_plan_name!r}, safe={plan_name!r}'
+            )
+
+        def _serialize_order_for_response(src_order):
+            actual_duration_days = src_order.duration_days if src_order.duration_days else ((src_order.duration_months or 0) * 30)
+            is_permanent_order = bool(
+                is_whitelist_plan_key(src_order.plan_type, plans_config) or ('永久' in str(src_order.plan_name or ''))
+            )
+            return {
+                'order_no': src_order.order_no,
+                'plan_type': src_order.plan_type,
+                'plan_name': src_order.plan_name,
+                'duration_months': src_order.duration_months,
+                'duration_days': actual_duration_days,
+                'duration_text': '永久' if is_permanent_order else (f'{actual_duration_days}天' if actual_duration_days else f'{src_order.duration_months or 1}个月'),
+                'is_permanent': is_permanent_order,
+                'final_price': src_order.final_price,
+                'payment_method': src_order.payment_method,
+                'payment_status': src_order.payment_status,
+                'created_at': src_order.created_at.isoformat() if src_order.created_at else None
+            }
+
+        # 幂等保护：如果同套餐近期已有待支付订单，直接复用，避免“第一次失败第二次成功”导致重复下单。
+        pending_orders = Order.query.filter_by(
             user_tg=user.tg,
             payment_status='pending'
-        ).all()
-        for stale in stale_orders:
-            stale_plan_type = coerce_plan_key(stale.plan_type)
-            stale_plan = resolve_plan_config(stale_plan_type, plans_config) if stale_plan_type else None
-            stale_plan_id = coerce_plan_key(stale_plan.get('id')) if stale_plan else stale_plan_type
-            if stale_plan_id != normalized_plan_type:
-                continue
+        ).order_by(Order.created_at.desc()).all()
+
+        same_plan_pending_orders = []
+        for pending in pending_orders:
+            pending_plan_type = coerce_plan_key(pending.plan_type)
+            pending_plan = resolve_plan_config(pending_plan_type, plans_config) if pending_plan_type else None
+            pending_plan_id = coerce_plan_key(pending_plan.get('id')) if pending_plan else pending_plan_type
+            if pending_plan_id == normalized_plan_type:
+                same_plan_pending_orders.append(pending)
+
+        reusable_order = None
+        recent_pending_window = timedelta(minutes=10)
+        now_dt = datetime.now()
+        for pending in same_plan_pending_orders:
+            created_at = pending.created_at or now_dt
+            if (now_dt - created_at) <= recent_pending_window:
+                reusable_order = pending
+                break
+
+        if reusable_order:
+            if payment_method and reusable_order.payment_method != payment_method:
+                reusable_order.payment_method = payment_method
+                db.session.commit()
+            app.logger.info(f'复用近期待支付订单: {reusable_order.order_no}, 用户: {user.name}, 套餐: {plan_name}')
+            return jsonify({
+                'success': True,
+                'order': _serialize_order_for_response(reusable_order)
+            }), 200
+
+        # 自动取消同套餐旧待支付订单（仅当无可复用订单时）
+        for stale in same_plan_pending_orders:
             stale.payment_status = 'cancelled'
             app.logger.info(f'自动取消旧待支付订单: {stale.order_no}')
+        if same_plan_pending_orders:
+            db.session.commit()
         
         # 生成订单号（时间戳 + 用户ID后4位 + 4位随机数，防止可预测）
         import random
-        order_no = f'ORD{int(time.time())}{user.tg % 10000:04d}{random.randint(1000, 9999)}'
-        
-        # 创建订单
-        order = Order(
-            order_no=order_no,
-            user_tg=user.tg,
-            plan_type=normalized_plan_type,
-            plan_name=plan_name,
-            duration_months=duration,
-            duration_days=actual_duration_days,
-            original_price=original_price,
-            discount=discount,
-            final_price=final_price,
-            payment_method=payment_method,
-            payment_status='pending'
+        from sqlalchemy.exc import IntegrityError
+
+        order = None
+        max_create_attempts = 5
+        for attempt in range(max_create_attempts):
+            order_no = f'ORD{int(time.time())}{user.tg % 10000:04d}{random.randint(1000, 9999)}'
+            order = Order(
+                order_no=order_no,
+                user_tg=user.tg,
+                plan_type=normalized_plan_type,
+                plan_name=plan_name,
+                duration_months=duration,
+                duration_days=actual_duration_days,
+                original_price=original_price,
+                discount=discount,
+                final_price=final_price,
+                payment_method=payment_method,
+                payment_status='pending'
+            )
+
+            db.session.add(order)
+            try:
+                db.session.commit()
+                break
+            except IntegrityError as ie:
+                # 仅对订单号冲突进行重试，其他完整性异常直接抛出
+                db.session.rollback()
+                ie_text = str(ie).lower()
+                is_order_no_conflict = (
+                    'order_no' in ie_text or
+                    'duplicate' in ie_text or
+                    'unique constraint' in ie_text or
+                    'unique failed' in ie_text
+                )
+                if not is_order_no_conflict or attempt == max_create_attempts - 1:
+                    raise
+                app.logger.warning(f'订单号冲突，正在重试创建订单: attempt={attempt + 1}/{max_create_attempts}, user={user.tg}')
+
+        app.logger.info(
+            f'创建订单成功: {order.order_no}, 用户: {user.name}, 套餐: {plan_name}, 金额: {final_price}'
         )
-        
-        db.session.add(order)
-        db.session.commit()
-        
-        # 验证订单是否真的保存了
-        saved_order = Order.query.filter_by(order_no=order_no).first()
-        if saved_order:
-            app.logger.info(f'创建订单成功: {order_no}, ID={saved_order.id}, 用户: {user.name}, 套餐: {plan_name}, 金额: {final_price}')
-        else:
-            app.logger.error(f'订单保存失败！order_no={order_no} 无法查询到')
-            # 尝试直接用SQL查询
-            from sqlalchemy import text
-            result = db.session.execute(text(f"SELECT COUNT(*) FROM orders WHERE order_no='{order_no}'"))
-            count = result.scalar()
-            app.logger.error(f'直接SQL查询结果: {count}')
-        
-        # 记录创建订单日志
-        log_user_activity(UserActivityLog.ACTION_CREATE_ORDER, user=user,
-                         detail={'order_no': order_no, 'plan_type': normalized_plan_type, 'plan_name': plan_name,
-                                'duration_months': duration, 'final_price': final_price, 'payment_method': payment_method})
-        
+
+        # 异步记录日志，避免日志写入阻塞下单主流程
+        def _log_create_order_async(_user_tg, _user_name, _detail):
+            try:
+                with app.app_context():
+                    log_user_activity(
+                        UserActivityLog.ACTION_CREATE_ORDER,
+                        user_tg=_user_tg,
+                        user_name=_user_name,
+                        detail=_detail
+                    )
+            except Exception as async_log_err:
+                app.logger.warning(f'异步记录创建订单日志失败（已忽略）: {async_log_err}')
+
+        Thread(
+            target=_log_create_order_async,
+            args=(
+                user.tg,
+                user.name,
+                {
+                    'order_no': order.order_no,
+                    'plan_type': normalized_plan_type,
+                    'plan_name': plan_name,
+                    'duration_months': duration,
+                    'final_price': final_price,
+                    'payment_method': payment_method
+                }
+            ),
+            daemon=True
+        ).start()
+
+        # 直接返回稳定字段，避免附加序列化逻辑导致下单成功但前端误判失败
         return jsonify({
             'success': True,
-            'order': order.to_dict()
+            'order': _serialize_order_for_response(order)
         }), 200
         
     except Exception as e:
@@ -19331,7 +19430,10 @@ def create_payment():
                 corrected_days = int(current_plan_config.get('duration_days', WHITELIST_INTERNAL_DAYS) or WHITELIST_INTERNAL_DAYS)
             except (TypeError, ValueError):
                 corrected_days = WHITELIST_INTERNAL_DAYS
-            corrected_plan_name = f"{current_plan_config.get('name', order.plan_name or '套餐')}(永久)"
+            corrected_plan_name = to_db_safe_text(
+                f"{current_plan_config.get('name', order.plan_name or '套餐')}(永久)",
+                max_length=100
+            ) or '套餐(永久)'
 
             if (
                 abs(float(order.final_price or 0) - corrected_price) > 1e-9 or
@@ -20500,7 +20602,9 @@ def get_system_config_api():
 def save_system_config_api():
     """保存系统配置（管理员）"""
     try:
-        data = request.json
+        data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict):
+            return jsonify({'success': False, 'error': '请求数据格式错误'}), 400
         _pending_stream_sync = None  # 标记是否需要同步播放流数限制
         
         # 获取当前配置
@@ -20794,29 +20898,50 @@ def save_system_config_api():
             if 'ranking' in data:
                 _restart_ranking_scheduler(current_config['ranking'])
             
-            # 如果更新了Telegram配置，重新注册命令
+            # 如果更新了 Telegram 配置，后台异步重新注册命令，避免保存接口超时
             if 'telegram' in data and 'bot_token' in data['telegram']:
-                bot_token = current_config['telegram']['bot_token']
+                bot_token = current_config['telegram'].get('bot_token', '').strip()
                 if bot_token:
-                    try:
-                        register_telegram_commands_with_token(bot_token)
-                        app.logger.info('Telegram命令已重新注册')
-                    except Exception as e:
-                        app.logger.warning(f'重新注册Telegram命令失败: {e}')
+                    def _register_telegram_commands_async(_bot_token):
+                        try:
+                            with app.app_context():
+                                ok = register_telegram_commands_with_token(_bot_token)
+                                if ok:
+                                    app.logger.info('[Telegram] 命令已在后台重新注册')
+                                else:
+                                    app.logger.warning('[Telegram] 命令后台重注册失败')
+                        except Exception as _re:
+                            app.logger.warning(f'[Telegram] 命令后台重注册异常: {_re}')
+                    Thread(target=_register_telegram_commands_async, args=(bot_token,), daemon=True).start()
             
             app.logger.info(f'系统配置已更新')
             
-            # 如果最大同时播放流数发生变化，同步到所有已有 Emby 用户
+            # 如果最大同时播放流数发生变化，后台同步到所有已有 Emby 用户（避免请求超时）
             stream_sync_msg = ''
             if _pending_stream_sync:
-                try:
-                    sync_result = emby_client.sync_all_users_stream_limit(_pending_stream_sync['new'])
-                    stream_sync_msg = f'，播放流数限制已从 {_pending_stream_sync["old"]} 同步为 {_pending_stream_sync["new"]}（成功 {sync_result["success"]}/{sync_result["total"]} 人）'
-                    app.logger.info(f'最大同时播放流数已从 {_pending_stream_sync["old"]} 改为 {_pending_stream_sync["new"]}，'
-                                   f'同步结果: 成功{sync_result["success"]}/{sync_result["total"]}人')
-                except Exception as e:
-                    stream_sync_msg = f'，但同步播放限制到已有用户失败: {e}'
-                    app.logger.error(f'同步流数限制到已有用户失败: {e}')
+                _old_stream_limit = _pending_stream_sync['old']
+                _new_stream_limit = _pending_stream_sync['new']
+                stream_sync_msg = (
+                    f'，播放流数限制已从 {_old_stream_limit} 调整为 {_new_stream_limit}，'
+                    f'正在后台同步到现有 Emby 用户'
+                )
+
+                def _sync_stream_limit_async(_target_limit, _old_limit):
+                    try:
+                        with app.app_context():
+                            sync_result = emby_client.sync_all_users_stream_limit(_target_limit)
+                            app.logger.info(
+                                f'最大同时播放流数已从 {_old_limit} 改为 {_target_limit}，'
+                                f'后台同步结果: 成功{sync_result.get("success", 0)}/{sync_result.get("total", 0)}人'
+                            )
+                    except Exception as _se:
+                        app.logger.error(f'后台同步流数限制失败: {_se}')
+
+                Thread(
+                    target=_sync_stream_limit_async,
+                    args=(_new_stream_limit, _old_stream_limit),
+                    daemon=True
+                ).start()
             
             # 记录配置变更的审计日志
             changed_sections = [k for k in data.keys() if k not in ('_',)]

@@ -12,7 +12,7 @@ async function loadCheckinConfig() {
         await loadPlansConfigForSync();
         
         const response = await fetch('/api/admin/system-config');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success && data.config.checkin) {
             const config = data.config.checkin;
@@ -89,7 +89,7 @@ async function loadCheckinConfig() {
 async function loadPlansConfigForSync() {
     try {
         const response = await fetch('/api/admin/plans-config');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         if (data.success) {
             plansConfigCache = {};
             (data.plans || []).forEach(plan => {
@@ -203,7 +203,7 @@ async function openPlanSelectModal() {
     try {
         // 加载可用套餐列表
         const response = await fetch('/api/admin/plans-config');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             allAvailablePlans = data.plans || [];
@@ -434,7 +434,7 @@ async function saveCheckinConfig() {
             body: JSON.stringify(configData)
         });
         
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             window.showToast && window.showToast('成功', '签到配置已保存', 'success');

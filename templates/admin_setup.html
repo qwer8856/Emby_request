@@ -420,6 +420,23 @@
     
     <script>
         let newPath = '';
+
+        async function parseResponseData(response) {
+            if (!response || typeof response.text !== 'function') {
+                return { success: false, error: '未收到服务器响应' };
+            }
+
+            const text = (await response.text() || '').trim();
+            if (!text) {
+                return { success: false, error: `服务器返回空响应 (HTTP ${response.status || 0})` };
+            }
+
+            try {
+                return JSON.parse(text);
+            } catch (error) {
+                return { success: false, error: `服务器返回非 JSON 响应 (HTTP ${response.status || 0})` };
+            }
+        }
         
         // 路径预览
         document.getElementById('secret_path').addEventListener('input', function(e) {
@@ -465,7 +482,7 @@
                     })
                 });
                 
-                const result = await response.json();
+                const result = await parseResponseData(response);
                 
                 if (result.success) {
                     newPath = result.new_path;

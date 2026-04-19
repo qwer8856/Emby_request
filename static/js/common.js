@@ -124,6 +124,59 @@
     global.showToast = showToast;
     global.showConfirm = showConfirm;
 
+    function buildResponseError(response, message, detail = '', fallback = {}) {
+        const status = response && typeof response.status === 'number' ? response.status : 0;
+        const statusText = status ? ` (HTTP ${status})` : '';
+        const payload = Object.assign({}, fallback, {
+            success: false,
+            error: `${message}${statusText}`.trim()
+        });
+        if (detail) payload.detail = detail;
+        return payload;
+    }
+
+    async function parseResponseData(response, options = {}) {
+        const fallback = (options && typeof options.fallback === 'object' && options.fallback !== null)
+            ? options.fallback
+            : {};
+
+        if (!response || typeof response.text !== 'function') {
+            return buildResponseError(response, '未收到服务器响应', '', fallback);
+        }
+
+        let responseText = '';
+        try {
+            responseText = await response.text();
+        } catch (readError) {
+            return buildResponseError(
+                response,
+                '读取服务器响应失败',
+                String((readError && readError.message) || ''),
+                fallback
+            );
+        }
+
+        const trimmed = String(responseText || '').trim();
+        if (!trimmed) {
+            return buildResponseError(response, '服务器返回空响应', '', fallback);
+        }
+
+        try {
+            return JSON.parse(trimmed);
+        } catch (parseError) {
+            return buildResponseError(response, '服务器返回非 JSON 响应', trimmed.slice(0, 200), fallback);
+        }
+    }
+
+    async function fetchJsonSafe(input, init = {}, options = {}) {
+        const response = await global.fetch(input, init);
+        const data = await parseResponseData(response, options);
+        return { response, data };
+    }
+
+    global.parseResponseData = parseResponseData;
+    global.fetchJsonSafe = fetchJsonSafe;
+
     /**
      * HTML 转义函数（防 XSS）
      * @param {string} text - 需要转义的文本

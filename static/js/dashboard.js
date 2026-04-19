@@ -36,7 +36,7 @@ async function readResponseData(response) {
 async function checkEmbyBindStatus() {
     try {
         const response = await fetch('/api/emby/check-bindable');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success && !data.has_emby_account) {
             // 用户没有 Emby 账号，显示引导弹窗
@@ -112,7 +112,7 @@ async function showEmbyCreateDialog() {
     try {
         // 先检查是否有有效订阅
         const response = await fetch('/api/emby/check-bindable');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         // 使用 can_create 检查是否可以新建账号
         if (data.success && !data.can_create) {
@@ -205,7 +205,7 @@ function checkEmbyUsername() {
                 body: JSON.stringify({ username })
             });
             
-            const data = await response.json();
+            const data = await parseResponseData(response);
             
             if (data.success) {
                 if (data.available) {
@@ -408,7 +408,7 @@ async function submitEmbyUnbind(event) {
             body: JSON.stringify({ password })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('Emby 账号解绑成功！', 'success');
@@ -490,7 +490,7 @@ function initForceBindTelegram() {
     forceBindCheckTimer = setInterval(async () => {
         try {
             const resp = await fetch('/api/user/telegram');
-            const data = await resp.json();
+            const data = await parseResponseData(resp);
             if (data.success && data.is_bound) {
                 // 绑定成功，移除遮罩
                 clearInterval(forceBindCheckTimer);
@@ -518,7 +518,7 @@ async function generateForceBindCode(forceRegenerate) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ force_regenerate: !!forceRegenerate })
         });
-        const data = await resp.json();
+        const data = await parseResponseData(resp);
         if (data.success) {
             if (codeEl) codeEl.textContent = data.bind_code;
             if (instrEl) instrEl.textContent = '/bind ' + data.bind_code;
@@ -566,7 +566,7 @@ function copyForceBindCommand(event) {
 async function loadTelegramBindStatus() {
     try {
         const response = await fetch('/api/user/telegram');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         const sidebar = document.getElementById('telegramBindSidebar');
         const textEl = document.getElementById('telegramBindText');
@@ -633,7 +633,7 @@ function startBindStatusCheck() {
     bindStatusCheckTimer = setInterval(async () => {
         try {
             const response = await fetch('/api/user/telegram');
-            const data = await response.json();
+            const data = await parseResponseData(response);
             
             if (data.success && data.is_bound) {
                 // 绑定成功！
@@ -674,7 +674,7 @@ async function generateBindCode(forceRegenerate = false) {
             body: JSON.stringify({ force_regenerate: forceRegenerate })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             currentBindCode = data.bind_code;
@@ -845,7 +845,7 @@ async function unbindTelegramId() {
             headers: { 'Content-Type': 'application/json' }
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('Telegram 解绑成功', 'success');
@@ -962,7 +962,7 @@ async function unbindTelegramId() {
                     headers: { 'Content-Type': 'application/json' }
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showToast('账号已删除，正在跳转...', 'success');
@@ -1042,7 +1042,7 @@ async function unbindTelegramId() {
                     })
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showToast('修改成功', '密码已修改，正在跳转登录页...', 'success');
@@ -1117,7 +1117,7 @@ async function unbindTelegramId() {
                     })
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     if (data.partial) {
@@ -1308,7 +1308,7 @@ async function unbindTelegramId() {
         function showInviteDialog() {
             // 先从后端获取邀请码
             fetch('/api/invite/code')
-                .then(response => response.json())
+                .then(response => parseResponseData(response))
                 .then(data => {
                     if (data.success) {
                         showInviteModal(data);
@@ -1602,7 +1602,7 @@ async function unbindTelegramId() {
                 throw new Error(`HTTP ${response.status}`);
             }
 
-            const data = await response.json();
+            const data = await parseResponseData(response);
             if (!data.success) {
                 throw new Error(data.error || '获取求片数据失败');
             }
@@ -1621,7 +1621,7 @@ async function unbindTelegramId() {
             }
 
             if (subscriptionResult.status === 'fulfilled' && subscriptionResult.value && subscriptionResult.value.ok) {
-                const subscriptionData = await subscriptionResult.value.json();
+                const subscriptionData = await parseResponseData(subscriptionResult.value);
                 applySubscriptionMini(subscriptionData);
             }
         }
@@ -1815,7 +1815,7 @@ async function unbindTelegramId() {
                 const response = await fetch('/api/announcements');
                 if (!response.ok) return;
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 announcementsData = data.announcements || [];
                 
                 const container = document.getElementById('announcementsContainer');
@@ -2265,7 +2265,7 @@ async function unbindTelegramId() {
                 if (!response.ok) {
                     return;
                 }
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 if (!data.success || !data.task) {
                     return;
                 }
@@ -2797,7 +2797,7 @@ async function unbindTelegramId() {
         async function fetchEmbySeasonDetails(tmdbId) {
             try {
                 const response = await fetch(`/api/emby/season-details?tmdb_id=${tmdbId}`);
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (!response.ok) {
                     if (data.user_friendly && data.error) {
@@ -2824,7 +2824,7 @@ async function unbindTelegramId() {
             
             try {
                 const response = await fetch(`/api/tv/${tmdbId}/seasons`);
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success && data.seasons) {
                     tvSeasons = data.seasons;
@@ -2879,7 +2879,7 @@ async function unbindTelegramId() {
                 
                 try {
                     const response = await fetch(`/api/tv/${pendingRequest.tmdbId}/season/${seasonNumber}`);
-                    const data = await response.json();
+                    const data = await parseResponseData(response);
                     
                     if (data.success && data.episodes) {
                         tvEpisodes = data.episodes;
@@ -3710,7 +3710,7 @@ async function unbindTelegramId() {
         async function fetchEmbySeasonDetails(tmdbId) {
             try {
                 const response = await fetch(`/api/emby/season-details?tmdb_id=${tmdbId}`);
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (!response.ok) {
                     if (data.user_friendly && data.error) {
@@ -3769,7 +3769,7 @@ async function unbindTelegramId() {
                 
                 if (!response.ok) return;
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 if (!data.success) return;
                 
                 // 更新UI，为已入库的影片添加标签
@@ -3828,7 +3828,7 @@ async function unbindTelegramId() {
                     }
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showToast('重试成功', data.message, 'success');
@@ -3868,7 +3868,7 @@ async function unbindTelegramId() {
 
                 // 获取当前订阅
                 const response = await fetch('/api/subscription/current');
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 let planType = null;
                 let planName = null;
@@ -3917,7 +3917,7 @@ async function unbindTelegramId() {
                 
                 // 获取订阅历史
                 const historyResponse = await fetch('/api/subscription/history');
-                const historyData = await historyResponse.json();
+                const historyData = await parseResponseData(historyResponse);
                 const historyCount = document.getElementById('subscriptionHistoryCount');
                 
                 if (historyData.success && historyData.subscriptions.length > 0) {
@@ -4136,7 +4136,7 @@ async function unbindTelegramId() {
             
             try {
                 const response = await fetch('/api/lines');
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     serverLinesData = data;
@@ -4577,7 +4577,7 @@ async function unbindTelegramId() {
             
             try {
                 const response = await fetch('/api/plans');
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success && data.plans) {
                     plansData = data.plans;
@@ -4993,7 +4993,7 @@ async function unbindTelegramId() {
                         })
                     });
                     
-                    const payData = await payResponse.json();
+                    const payData = await parseResponseData(payResponse);
                     
                     if (payData.success) {
                         if (payData.payment_url) {
@@ -5071,7 +5071,7 @@ async function unbindTelegramId() {
             
             try {
                 const response = await fetch('/api/orders/my');
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success && data.orders) {
                     renderOrders(data.orders);
@@ -5162,12 +5162,12 @@ async function unbindTelegramId() {
                     })
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success && data.payment_url) {
                     // 获取订单信息用于显示
                     const orderResponse = await fetch('/api/orders/my');
-                    const orderData = await orderResponse.json();
+                    const orderData = await parseResponseData(orderResponse);
                     const order = orderData.orders?.find(o => o.order_no === orderNo);
                     
                     if (order) {
@@ -5237,7 +5237,7 @@ async function unbindTelegramId() {
                     body: JSON.stringify({ order_no: cancellingOrderNo })
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showMessage('订单已取消', 'success');
@@ -5332,7 +5332,7 @@ async function unbindTelegramId() {
             
             try {
                 const response = await fetch(`/api/payment/query?order_no=${orderNo}`);
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success && data.paid) {
                     closePaymentDialog();
@@ -5414,7 +5414,7 @@ async function unbindTelegramId() {
         async function loadInviteInfo() {
             try {
                 const response = await fetch('/api/invite/code');
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     document.getElementById('myInviteCode').textContent = data.invite_code;
@@ -5427,7 +5427,7 @@ async function unbindTelegramId() {
                 
                 // 加载邀请记录
                 const recordsResponse = await fetch('/api/invite/records');
-                const recordsData = await recordsResponse.json();
+                const recordsData = await parseResponseData(recordsResponse);
                 
                 if (recordsData.success && recordsData.records.length > 0) {
                     const recordsList = document.getElementById('inviteRecords');
@@ -5489,7 +5489,7 @@ async function unbindTelegramId() {
         async function loadFAQ() {
             try {
                 const response = await fetch('/api/knowledge');
-                const result = await response.json();
+                const result = await parseResponseData(response);
                 
                 if (result.success) {
                     faqData = result.items || [];
@@ -5590,7 +5590,7 @@ async function unbindTelegramId() {
         async function checkUnreadTickets() {
             try {
                 const response = await fetch('/api/support/unread-count');
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 const badge = document.getElementById('supportUnreadBadge');
                 if (badge && data.success) {
@@ -5626,7 +5626,7 @@ async function unbindTelegramId() {
                     body: JSON.stringify({ category, subject, description, priority })
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showMessage('工单提交成功！', 'success');
@@ -5646,7 +5646,7 @@ async function unbindTelegramId() {
         async function loadMyTickets() {
             try {
                 const response = await fetch('/api/support/my-tickets');
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 const ticketsList = document.getElementById('myTickets');
                 
@@ -5698,7 +5698,7 @@ async function unbindTelegramId() {
         async function showTicketDetail(ticketId) {
             try {
                 const response = await fetch(`/api/support/tickets/${ticketId}`);
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (!data.success) {
                     showMessage(data.error || '获取工单详情失败', 'error');
@@ -5818,7 +5818,7 @@ async function unbindTelegramId() {
                     body: JSON.stringify({ reply: content })
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showMessage('回复成功！', 'success');
@@ -5859,7 +5859,7 @@ async function unbindTelegramId() {
                     body: JSON.stringify({ reply: content })
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showMessage('回复成功！', 'success');
@@ -6054,8 +6054,8 @@ async function unbindTelegramId() {
                     fetch('/api/emby/playback-history?limit=20')
                 ]);
                 
-                const sessionsData = await sessionsRes.json();
-                const historyData = await historyRes.json();
+                const sessionsData = await parseResponseData(sessionsRes);
+                const historyData = await parseResponseData(historyRes);
                 
                 // 检查播放流数限制
                 if (sessionsData.stream_limit && sessionsData.stream_limit.exceeded) {
@@ -6486,7 +6486,7 @@ async function unbindTelegramId() {
             
             try {
                 const response = await fetch(`/api/emby/playback-history?limit=${limit}`);
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 renderPlaybackHistory(data);
             } catch (error) {
                 console.error('加载播放历史失败:', error);
@@ -6509,7 +6509,7 @@ async function unbindTelegramId() {
                     method: 'DELETE'
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showToast('设备已删除', 'success');
@@ -6552,7 +6552,7 @@ async function unbindTelegramId() {
             
             try {
                 const response = await fetch('/api/emby/devices');
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (!data.success) {
                     container.innerHTML = `
@@ -6657,7 +6657,7 @@ async function unbindTelegramId() {
                 const response = await fetch(`/api/emby/devices/${deviceId}`, {
                     method: 'DELETE'
                 });
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showToast('成功', '设备已删除', 'success');
@@ -6696,7 +6696,7 @@ async function unbindTelegramId() {
             if (days) url += `&days=${days}`;
             
             fetch(url)
-                .then(response => response.json())
+                .then(response => parseResponseData(response))
                 .then(data => {
                     if (data.success) {
                         renderMyActivityLogs(data.logs);
@@ -6984,7 +6984,7 @@ async function unbindTelegramId() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email })
                 });
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showMessage(data.message, 'success');
@@ -7029,7 +7029,7 @@ async function unbindTelegramId() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ code })
                 });
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showMessage('🎉 邮箱绑定成功！', 'success');
@@ -7057,7 +7057,7 @@ async function unbindTelegramId() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showMessage('邮箱已解绑', 'success');

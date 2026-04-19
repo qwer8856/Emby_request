@@ -596,6 +596,23 @@
     </div>
     
     <script>
+        async function parseResponseData(response) {
+            if (!response || typeof response.text !== 'function') {
+                return { success: false, error: '未收到服务器响应' };
+            }
+
+            const text = (await response.text() || '').trim();
+            if (!text) {
+                return { success: false, error: `服务器返回空响应 (HTTP ${response.status || 0})` };
+            }
+
+            try {
+                return JSON.parse(text);
+            } catch (error) {
+                return { success: false, error: `服务器返回非 JSON 响应 (HTTP ${response.status || 0})` };
+            }
+        }
+
         function showMessage(text, type) {
             const msg = document.getElementById('message');
             msg.textContent = text;
@@ -713,7 +730,7 @@
                     body: JSON.stringify(formData)
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showMessage('🎉 注册成功！正在跳转到登录页面...', 'success');
@@ -773,7 +790,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email })
                 });
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 if (data.success) {
                     showMessage('✉️ ' + (data.message || '验证码已发送'), 'success');

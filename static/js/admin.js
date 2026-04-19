@@ -79,7 +79,7 @@ let currentRequestId = null;
                 headers: { 'Content-Type': 'application/json' }
             });
             
-            const data = await response.json();
+            const data = await parseResponseData(response);
             
             if (data.success) {
                 // 退出成功，跳转到首页
@@ -155,7 +155,7 @@ let currentRequestId = null;
             // 获取每日趋势数据
             try {
                 const dailyRes = await fetch('/admin/stats/daily');
-                const dailyData = await dailyRes.json();
+                const dailyData = await parseResponseData(dailyRes);
                 
                 if (dailyData.success) {
                     const dailyCanvas = document.getElementById('dailyChart');
@@ -205,7 +205,7 @@ let currentRequestId = null;
             // 获取类型分布数据
             try {
                 const typeRes = await fetch('/admin/stats/type');
-                const typeData = await typeRes.json();
+                const typeData = await parseResponseData(typeRes);
                 
                 if (typeData.success) {
                     const typeCanvas = document.getElementById('typeChart');
@@ -334,7 +334,7 @@ let currentRequestId = null;
                     })
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 hideLoading();
                 
                 // 停止下载轮询
@@ -394,7 +394,7 @@ let currentRequestId = null;
                     body: JSON.stringify({ ids: ids })
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 hideLoading();
                 
                 // 停止下载轮询
@@ -628,7 +628,7 @@ let currentRequestId = null;
                         })
                     });
                     
-                    const data = await response.json();
+                    const data = await parseResponseData(response);
                     
                     // 隐藏加载动画
                     hideLoading();
@@ -666,7 +666,7 @@ let currentRequestId = null;
                     headers: { 'Content-Type': 'application/json' }
                 });
                 
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 hideLoading();
                 
@@ -712,7 +712,7 @@ let currentRequestId = null;
                 if (!response.ok) {
                     return;
                 }
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 if (!data.success || !data.task) {
                     return;
                 }
@@ -922,7 +922,7 @@ let currentRequestId = null;
                 const response = await fetch(`/api/pt/search?request_id=${ptCurrentRequestId}&keyword=${encodeURIComponent(query)}`);
                 
                 // 解析响应
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 
                 // 检查响应状态
                 if (!response.ok || !data.success) {
@@ -1159,7 +1159,7 @@ let currentRequestId = null;
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 if (!response.ok || !data.success) {
                     throw new Error(data.error || '推送失败');
                 }
@@ -1237,7 +1237,7 @@ let currentRequestId = null;
         function fixText(text) {
             if (text === undefined || text === null) return '';
             const raw = String(text);
-            if (!/[ÃÂ�æçåäöüß]/.test(raw)) return raw;
+            if (!/[\u00C3\u00C2\uFFFD\u00E6\u00E7\u00E5\u00E4\u00F6\u00FC\u00DF]/.test(raw)) return raw;
             try {
                 const decoded = decodeURIComponent(escape(raw));
                 if (decoded && decoded !== raw) return decoded;
@@ -1378,7 +1378,7 @@ let currentRequestId = null;
             try {
                 // 刷新统计数据
                 const statsResponse = await fetch('/admin/stats/summary');
-                const statsData = await statsResponse.json();
+                const statsData = await parseResponseData(statsResponse);
                 
                 if (statsData.success) {
                     // 更新统计卡片
@@ -1796,7 +1796,7 @@ async function loadSubscriptions() {
     const status = document.getElementById('subscriptionStatusFilter')?.value || '';
     try {
         const response = await fetch(`/api/admin/subscriptions?status=${status}`);
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             allSubscriptions = data.subscriptions || [];
@@ -1891,7 +1891,7 @@ async function loadOrders() {
     const status = document.getElementById('orderStatusFilter')?.value || '';
     try {
         const response = await fetch(`/api/admin/orders?status=${status}`);
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             allOrders = data.orders || [];
@@ -2116,7 +2116,7 @@ async function cancelOrder(orderNo) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '订单已取消', 'success');
@@ -2143,7 +2143,7 @@ async function markOrderPaid(orderNo) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '订单已标记为已支付', 'success');
@@ -2164,7 +2164,7 @@ async function loadTickets() {
     const status = document.getElementById('ticketStatusFilter')?.value || '';
     try {
         const response = await fetch(`/api/admin/tickets?status=${status}`);
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             allTickets = data.tickets || [];
@@ -2260,7 +2260,7 @@ async function openTicketDetail(ticketId) {
     try {
         // 获取工单详情（包含对话记录）
         const response = await fetch(`/api/admin/tickets/${ticketId}`);
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (!data.success) {
             showToast('错误', data.error || '找不到工单信息', 'error');
@@ -2332,7 +2332,7 @@ async function submitTicketReply() {
                 // 状态由后端自动管理，不再手动传递
             })
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '回复已提交，工单状态已自动更新为"处理中"', 'success');
@@ -2367,7 +2367,7 @@ async function closeCurrentTicket() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '工单已关闭', 'success');
@@ -2399,7 +2399,7 @@ async function loadInviteStats() {
             showToast('加载失败', errMsg, 'error');
             return;
         }
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             updateInviteStatsDisplay(data.stats || {});
@@ -2500,7 +2500,7 @@ async function approveInviteReward(recordId) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         if (data.success) {
             showToast('成功', data.message || '返利已发放', 'success');
             loadInviteStats(); // 刷新邀请列表
@@ -2527,7 +2527,7 @@ async function rejectInviteReward(recordId) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         if (data.success) {
             showToast('成功', data.message || '已拒绝', 'success');
             loadInviteStats(); // 刷新邀请列表
@@ -2637,7 +2637,7 @@ async function loadAuditLogs(page = 1) {
         });
         
         const response = await fetch(`/api/admin/audit-logs?${params}`);
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (!data.success) {
             container.innerHTML = `<div class="empty-state">加载失败: ${data.error}</div>`;
@@ -2810,7 +2810,7 @@ async function cleanupAuditLogs() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ keep_days: keepDays })
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', data.message, 'success');
@@ -2838,7 +2838,7 @@ async function loadUsers(page = 1, perPage = 20) {
     
     try {
         const response = await fetch(`/api/admin/users?role=${role}&status=${status}&search=${encodeURIComponent(search)}&page=${page}&per_page=${perPage}`);
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             // 更新货币名称
@@ -3044,7 +3044,7 @@ async function setUserLevel(userId, level) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ level: level })
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', data.message || '用户等级已更新', 'success');
@@ -3113,7 +3113,7 @@ async function setUserType(userId, userType, currentType) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', data.message || '用户类型已更新', 'success');
@@ -3144,7 +3144,7 @@ async function banWebsite(userId, userName) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ level: 'c' })
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '已禁用网站访问', 'success');
@@ -3172,7 +3172,7 @@ async function unbanWebsite(userId, userName) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ restore_original: true })
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             let message = data.message || '已解除网站封禁';
@@ -3205,7 +3205,7 @@ async function banEmby(userId, userName) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reason: '管理员手动封禁Emby' })
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', data.message || '已禁用Emby', 'success');
@@ -3232,7 +3232,7 @@ async function unbanEmby(userId, userName) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             let message = data.message || '已解除Emby封禁';
@@ -3255,7 +3255,7 @@ function giftSubscription() {
 async function loadPaymentConfig() {
     try {
         const response = await fetch('/api/admin/payment-config');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success && data.config) {
             const config = data.config;
@@ -3306,7 +3306,7 @@ async function savePaymentConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '易支付配置已保存', 'success');
@@ -3335,7 +3335,7 @@ async function testPaymentConfig() {
     try {
         // 检查当前配置状态
         const response = await fetch('/api/admin/payment-config');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success && data.config.configured) {
             showToast('成功', '易支付已配置，配置有效', 'success');
@@ -3351,7 +3351,7 @@ async function testPaymentConfig() {
 async function loadDownloadConfig() {
     try {
         const response = await fetch('/api/admin/download-config');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success && data.config) {
             const config = data.config;
@@ -3417,7 +3417,7 @@ async function saveMoviePilotConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', 'MoviePilot 配置已保存', 'success');
@@ -3461,7 +3461,7 @@ async function testMoviePilotConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', data.message, 'success');
@@ -3497,7 +3497,7 @@ async function saveQbittorrentConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', 'qBittorrent 配置已保存', 'success');
@@ -3539,7 +3539,7 @@ async function testQbittorrentConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', data.message, 'success');
@@ -3555,7 +3555,7 @@ async function testQbittorrentConfig() {
 async function loadSystemConfig() {
     try {
         const response = await fetch('/api/admin/system-config');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success && data.config) {
             const config = data.config;
@@ -3872,7 +3872,7 @@ async function saveEmbyConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', 'Emby 配置已保存', 'success');
@@ -3906,7 +3906,7 @@ async function saveLoginNotifyConfig() {
                 login_notify: { enabled, email, telegram }
             })
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         console.log('[LoginNotify] 保存响应:', data);
         if (data.success) {
             showToast('成功', '登录通知配置已保存', 'success');
@@ -3943,7 +3943,7 @@ async function saveExpireRemindConfig() {
                 expire_remind: { enabled, days, email, telegram }
             })
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         if (data.success) {
             showToast('成功', '到期提醒配置已保存', 'success');
             setTimeout(() => loadSystemConfig(), 500);
@@ -3984,7 +3984,7 @@ async function saveSubscriptionExpireConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '订阅过期配置已保存', 'success');
@@ -4046,7 +4046,7 @@ async function saveInviteRewardConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '邀请返利配置已保存', 'success');
@@ -4088,7 +4088,7 @@ async function testEmbyConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', data.message, 'success');
@@ -4131,7 +4131,7 @@ async function saveTelegramConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', 'Telegram 配置已保存', 'success');
@@ -4166,7 +4166,7 @@ async function testTelegramConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', data.message, 'success');
@@ -4204,7 +4204,7 @@ async function registerTelegramCommands() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             let message = data.message || '命令菜单注册成功';
@@ -4225,7 +4225,7 @@ async function checkWebhookStatus(botToken) {
     try {
         // 检查是否已设置 Webhook
         const modeResponse = await fetch('/api/webhook/telegram/mode');
-        const modeData = await modeResponse.json();
+        const modeData = await parseResponseData(modeResponse);
         
         // 如果从未设置过 Webhook，提示设置
         if (modeData.success && (!modeData.configured_url || modeData.configured_url === '')) {
@@ -4245,7 +4245,7 @@ async function checkWebhookStatus(botToken) {
         
         // 检查 Webhook 是否已设置
         const response = await fetch('/api/webhook/telegram/setup');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success && data.webhook_info) {
             const info = data.webhook_info;
@@ -4288,7 +4288,7 @@ async function setTelegramWebhook() {
     
     try {
         const modeResp = await fetch('/api/webhook/telegram/mode');
-        const modeData = await modeResp.json();
+        const modeData = await parseResponseData(modeResp);
         
         if (modeData.success && modeData.configured_url) {
             currentConfiguredUrl = modeData.configured_url;
@@ -4331,7 +4331,7 @@ async function setTelegramWebhook() {
             body: JSON.stringify({ url: baseUrl })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', `✅ Webhook 设置成功\n\n${data.webhook_url}\n\n💡 ${data.tip}`, 'success', 6000);
@@ -4357,7 +4357,7 @@ async function setTelegramWebhook() {
 async function checkTelegramMode() {
     try {
         const response = await fetch('/api/webhook/telegram/mode');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             const modeDisplay = document.getElementById('telegramModeDisplay');
@@ -4376,7 +4376,7 @@ async function checkTelegramMode() {
             // 检查 Webhook 是否已设置
             try {
                 const webhookResponse = await fetch('/api/webhook/telegram/setup');
-                const webhookData = await webhookResponse.json();
+                const webhookData = await parseResponseData(webhookResponse);
                 
                 if (webhookData.success && webhookData.webhook_info) {
                     const hasWebhook = webhookData.webhook_info.url && webhookData.webhook_info.url !== '';
@@ -4424,7 +4424,7 @@ async function saveTelegramTemplates() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '通知模板已保存', 'success');
@@ -4517,7 +4517,7 @@ async function saveLibraryNotificationConfig() {
             body: JSON.stringify(requestBody)
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '入库通知配置已保存', 'success');
@@ -4556,7 +4556,7 @@ async function saveSearchConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '搜索配置已保存', 'success');
@@ -4587,7 +4587,7 @@ async function saveTmdbConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', 'TMDB 配置已保存', 'success');
@@ -4634,7 +4634,7 @@ let categoryDictionaries = {};
 async function loadCategoryConfig() {
     try {
         const response = await fetch('/api/admin/category-config');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             categoryConfig = data.category;
@@ -4865,7 +4865,7 @@ async function saveCategoryConfig() {
             body: JSON.stringify({ category: categoryConfig })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '分类策略已保存', 'success');
@@ -4894,7 +4894,7 @@ async function resetCategoryConfig() {
             headers: { 'Content-Type': 'application/json' }
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '已恢复默认分类策略', 'success');
@@ -4934,7 +4934,7 @@ async function saveRequestLimitConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '求片限制配置已保存', 'success');
@@ -4954,7 +4954,7 @@ let customLinksData = [];
 async function loadSiteConfig() {
     try {
         const response = await fetch('/api/admin/site-config');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success && data.config) {
             const config = data.config;
@@ -5079,7 +5079,7 @@ async function saveSiteConfig() {
             })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '前端配置已保存，刷新页面后生效', 'success');
@@ -5150,7 +5150,7 @@ function updateBenefitCountBadge(type) {
 async function loadDefaultBenefits() {
     try {
         const response = await fetch('/api/admin/default-benefits');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             defaultBenefitsData = data.default_benefits || { unsubscribed: [], whitelist: [] };
@@ -5240,7 +5240,7 @@ async function saveDefaultBenefits() {
             body: JSON.stringify({ default_benefits: cleanData })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '默认权益配置已保存', 'success');
@@ -5329,7 +5329,7 @@ async function loadPlansConfig() {
     
     try {
         const response = await fetch('/api/admin/plans-config');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             plansConfigData = data.plans || [];
@@ -5787,7 +5787,7 @@ async function loadRedeemCodes() {
         if (params.toString()) url += '?' + params.toString();
         
         const response = await fetch(url);
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             redeemCodesData = data.codes || [];
@@ -5977,7 +5977,7 @@ async function confirmDeleteRedeemCodes() {
                 const response = await fetch(`/api/admin/redeem-codes/${id}`, {
                     method: 'DELETE'
                 });
-                const data = await response.json();
+                const data = await parseResponseData(response);
                 if (data.success) {
                     successCount++;
                 } else {
@@ -6146,7 +6146,7 @@ async function generateRedeemCodes() {
             body: JSON.stringify(body)
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', `成功生成 ${data.count} 个兑换码`, 'success');
@@ -6236,7 +6236,7 @@ async function toggleRedeemCode(codeId) {
             method: 'POST'
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', data.message || '状态已更新', 'success');
@@ -6262,7 +6262,7 @@ async function loadLines() {
     
     try {
         const response = await fetch('/api/admin/lines');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             allLines = data.lines || [];
@@ -6353,7 +6353,7 @@ async function loadGlobalPlanTypeOptions() {
     if (window._planTypeOptions && window._planTypeOptions.length > 0) return;
     try {
         const response = await fetch('/api/admin/plans-config');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         if (data.success && data.plans) {
             window._planTypeOptions = [];
             data.plans.forEach(plan => {
@@ -6378,7 +6378,7 @@ async function loadLinePlanTypeOptions(selectedTypes = []) {
     
     try {
         const response = await fetch('/api/admin/plans-config');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         if (data.success && data.plans) {
             data.plans.forEach(plan => {
                 const planId = getPlanConfigId(plan);
@@ -6475,7 +6475,7 @@ async function saveLine() {
             body: JSON.stringify(payload)
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', lineId ? '线路已更新' : '线路已添加', 'success');
@@ -6501,7 +6501,7 @@ async function toggleLine(lineId) {
             body: JSON.stringify({ is_active: !line.is_active })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', line.is_active ? '线路已禁用' : '线路已启用', 'success');
@@ -6529,7 +6529,7 @@ async function deleteLine(lineId) {
             method: 'DELETE'
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '线路已删除', 'success');
@@ -6588,7 +6588,7 @@ async function syncAllPlaybackHistory() {
         const response = await fetch('/api/admin/playback/sync-all', {
             method: 'POST'
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         hideLoading();
         
@@ -6663,7 +6663,7 @@ async function loadPlaybackRankings(days, btn) {
 
     try {
         const resp = await fetch(`/api/admin/playback/rankings?days=${days}`);
-        const data = await resp.json();
+        const data = await parseResponseData(resp);
 
         if (!data.success) {
             content.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><p>${data.error || '获取排行失败'}</p><p class="empty-hint">需要安装 Emby Playback Reporting 插件</p></div>`;
@@ -6773,7 +6773,7 @@ async function loadAdminSessions() {
     
     try {
         const response = await fetch('/api/admin/playback/all-sessions');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (!data.success) {
             container.innerHTML = `
@@ -6897,7 +6897,7 @@ async function loadAdminDevices(page = 1) {
     
     try {
         const response = await fetch(`/api/admin/playback/devices?page=${page}&per_page=${devPerPage}&search=${encodeURIComponent(search)}`);
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (!data.success) {
             document.getElementById('adminDevicesBody').innerHTML = 
@@ -6970,7 +6970,7 @@ async function toggleAdminDevice(deviceId, currentBlocked) {
             body: JSON.stringify({ block: !currentBlocked })
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', data.message, 'success');
@@ -6998,7 +6998,7 @@ async function deleteAdminDevice(deviceId) {
             method: 'DELETE'
         });
         
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '设备已删除', 'success');
@@ -7021,7 +7021,7 @@ async function loadAdminHistory(page = 1) {
     
     try {
         const response = await fetch(`/api/admin/playback/history?page=${page}&per_page=${histPerPage}&search=${encodeURIComponent(search)}`);
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (!data.success) {
             document.getElementById('adminHistoryBody').innerHTML = 
@@ -7132,7 +7132,7 @@ let allBlacklistRules = [];
 async function loadBlacklist() {
     try {
         const response = await fetch('/api/admin/device-blacklist');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             allBlacklistRules = data.rules || [];
@@ -7236,7 +7236,7 @@ async function saveBlacklistRule(event) {
             body: JSON.stringify(data)
         });
         
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             showToast('保存成功', ruleId ? '规则已更新' : '规则已创建', 'success');
@@ -7266,7 +7266,7 @@ async function deleteBlacklistRule(ruleId, ruleName) {
             method: 'DELETE'
         });
         
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             showToast('删除成功', '规则已删除', 'success');
@@ -7323,7 +7323,7 @@ async function doBatchAction(url, method, body, successMsg, failMsg, reloadFn) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         hideLoading();
         
         if (data.success) {
@@ -7365,7 +7365,7 @@ async function importUsersToEmby() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
 
         if (data.success) {
             let msg = `总计 ${data.total} 个用户\n✅ 新建: ${data.created}\n⏭️ 已存在: ${data.skipped}\n✏️ 更新映射: ${data.updated}\n❌ 失败: ${data.failed}`;
@@ -7873,7 +7873,7 @@ function switchUserDetailTab(tabName) {
 async function loadUserDetails(userId) {
     try {
         const response = await fetch(`/api/admin/users/${userId}/details`);
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (!result.success) {
             showToast('加载失败', result.error, 'error');
@@ -8048,7 +8048,7 @@ async function renderInviteRewardTab(userId) {
         // 如果没有缓存或缓存的用户不匹配，重新加载
         if (!_cachedUserDetailData || _cachedUserDetailData.user.id !== userId) {
             const response = await fetch(`/api/admin/users/${userId}/details`);
-            const result = await response.json();
+            const result = await parseResponseData(response);
             if (!result.success) {
                 container.innerHTML = '<div class="list-empty">加载失败</div>';
                 return;
@@ -8185,7 +8185,7 @@ async function saveUserInviteRewardConfig(userId) {
             })
         });
         
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             showToast('成功', result.message, 'success');
@@ -8303,7 +8303,7 @@ async function giftUserSubscription(userId) {
             body: JSON.stringify({ duration_months: Math.ceil(parseInt(days) / 30), duration_days: parseInt(days) })
         });
         
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             showToast('成功', result.message || '订阅赠送成功', 'success');
@@ -8340,7 +8340,7 @@ async function reduceUserSubscription(userId) {
             body: JSON.stringify({ duration_days: parseInt(days) })
         });
         
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             showToast('成功', result.message || '订阅时间已减少', 'success');
@@ -8393,7 +8393,7 @@ async function adjustUserCoins(userId, action, coinName) {
             })
         });
         
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             showToast('成功', result.message || `${coinName}已${isAdd ? '增加' : '减少'}`, 'success');
@@ -8433,7 +8433,7 @@ async function deleteUserAccount(userId, userName) {
             method: 'DELETE'
         });
         
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             showToast('成功', result.message || '用户已删除', 'success');
@@ -8455,7 +8455,7 @@ async function loadUserActivityLogs() {
     
     try {
         const response = await fetch(`/api/admin/users/${currentDetailUserId}/activity-logs?page=${activityPage}&action_type=${actionType}`);
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (!result.success) {
             document.getElementById('activityLogContent').innerHTML = '<div class="list-empty">加载失败</div>';
@@ -8525,7 +8525,7 @@ async function loadAllActivityLogs(page = 1) {
     try {
         const logsPerPage = window._logsShowAll ? 99999 : 30;
         const response = await fetch(`/api/admin/activity-logs?page=${page}&per_page=${logsPerPage}&action_type=${actionType}&user_name=${encodeURIComponent(userName)}&status=${status}`);
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (!result.success) {
             container.innerHTML = '<div class="empty-state">加载失败</div>';
@@ -8643,7 +8643,7 @@ async function loadAnnouncements() {
     
     try {
         const response = await fetch('/api/admin/announcements');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             allAnnouncements = data.announcements || [];
@@ -8808,7 +8808,7 @@ async function saveAnnouncement() {
             body: JSON.stringify(data)
         });
         
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             showToast('成功', id ? '公告更新成功' : '公告发布成功', 'success');
@@ -8828,7 +8828,7 @@ async function toggleAnnouncement(id) {
         const response = await fetch(`/api/admin/announcements/${id}/toggle`, {
             method: 'POST'
         });
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             showToast('成功', result.message, 'success');
@@ -8856,7 +8856,7 @@ async function deleteAnnouncement(id) {
         const response = await fetch(`/api/admin/announcements/${id}`, {
             method: 'DELETE'
         });
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             showToast('成功', '公告已删除', 'success');
@@ -8877,7 +8877,7 @@ let knowledgeCategories = [];
 async function loadKnowledge() {
     try {
         const response = await fetch('/api/admin/knowledge');
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             knowledgeList = result.items || [];
@@ -8895,7 +8895,7 @@ async function loadKnowledge() {
 async function loadKnowledgeCategories() {
     try {
         const response = await fetch('/api/admin/knowledge/categories');
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             knowledgeCategories = result.categories || [];
@@ -9040,7 +9040,7 @@ async function saveKnowledgeItem() {
             });
         }
         
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             showToast('成功', result.message, 'success');
@@ -9071,7 +9071,7 @@ async function confirmDeleteKnowledge() {
         const response = await fetch(`/api/admin/knowledge/item/${id}`, {
             method: 'DELETE'
         });
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             showToast('成功', '删除成功', 'success');
@@ -9144,7 +9144,7 @@ async function saveCategories() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ categories: knowledgeCategories })
         });
-        const result = await response.json();
+        const result = await parseResponseData(response);
         
         if (result.success) {
             showToast('成功', '分类保存成功', 'success');
@@ -9197,7 +9197,7 @@ async function saveEmailConfig() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(config)
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', '邮件配置已保存', 'success');
@@ -9244,7 +9244,7 @@ async function testEmailConfig() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ test_email: email })
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', data.message, 'success');
@@ -9293,7 +9293,7 @@ async function saveRankingConfig() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(config)
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
 
         if (data.success) {
             showToast('成功', '播放排行配置已保存', 'success');
@@ -9334,7 +9334,7 @@ async function testRankingPush() {
         const response = await fetch(`/api/admin/playback/rankings/push?days=${d}`, {
             method: 'POST'
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         if (data.success) {
             showToast('成功', data.message || '推送成功', 'success');
         } else {
@@ -9348,7 +9348,7 @@ async function testRankingPush() {
 async function loadEmailStats() {
     try {
         const response = await fetch('/api/admin/email/stats');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             const bound = document.getElementById('statBoundUsers');
@@ -9394,7 +9394,7 @@ async function sendBroadcastEmail() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ subject, content, target, custom_emails })
         });
-        const data = await response.json();
+        const data = await parseResponseData(response);
         
         if (data.success) {
             showToast('成功', data.message, 'success');
@@ -9426,7 +9426,7 @@ function switchDashTab(tab) {
 async function loadDashboardStats() {
     try {
         const response = await fetch('/api/admin/dashboard-stats');
-        const data = await response.json();
+        const data = await parseResponseData(response);
         if (!data.success) { showToast('错误', data.error || '获取仪表盘数据失败', 'error'); return; }
         const d = data.data;
 
@@ -9500,7 +9500,7 @@ async function loadRevenueChart() {
 
     try {
         const resp = await fetch(url);
-        const data = await resp.json();
+        const data = await parseResponseData(resp);
         if (!data.success) return;
 
         const d = data.data;
@@ -9637,7 +9637,7 @@ function renderCompositionBar(barId, legendId, segments) {
 async function loadSystemStats() {
     try {
         const resp = await fetch('/api/admin/dashboard-system');
-        const data = await resp.json();
+        const data = await parseResponseData(resp);
         if (!data.success) return;
         const d = data.data;
         if (d.unavailable) {
@@ -9669,7 +9669,7 @@ function setBar(barId, valId, pct) {
 async function loadFullActivities() {
     try {
         const resp = await fetch('/api/admin/dashboard-stats');
-        const data = await resp.json();
+        const data = await parseResponseData(resp);
         if (data.success) renderActivities('dash-full-activities', data.data.recent_activities);
     } catch (e) {
         console.error('加载活动日志失败:', e);
@@ -9688,7 +9688,7 @@ async function loadDashboardAnalytics() {
 
     try {
         const resp = await fetch(`/api/admin/dashboard-analytics?days=${days}`);
-        const data = await resp.json();
+        const data = await parseResponseData(resp);
         if (!data.success) return;
         const d = data.data;
 
@@ -9845,7 +9845,7 @@ async function loadAdminList() {
     
     try {
         const res = await fetch('/api/admin/admins');
-        const data = await res.json();
+        const data = await parseResponseData(res);
         
         if (!data.success) {
             container.innerHTML = `<div class="empty-state">${data.error || '加载失败'}</div>`;
@@ -10039,7 +10039,7 @@ async function saveAdmin() {
             body: JSON.stringify(body)
         });
         
-        const data = await res.json();
+        const data = await parseResponseData(res);
         
         if (data.success) {
             showToast('操作成功', id ? '管理员已更新' : '管理员已创建', 'success');
@@ -10070,7 +10070,7 @@ async function deleteAdmin(adminId) {
     
     try {
         const res = await fetch(`/api/admin/admins/${adminId}`, { method: 'DELETE' });
-        const data = await res.json();
+        const data = await parseResponseData(res);
         
         if (data.success) {
             showToast('删除成功', data.message || '管理员已删除', 'success');
@@ -10087,7 +10087,7 @@ async function deleteAdmin(adminId) {
 async function toggleAdminStatus(adminId) {
     try {
         const res = await fetch(`/api/admin/admins/${adminId}/toggle`, { method: 'POST' });
-        const data = await res.json();
+        const data = await parseResponseData(res);
         
         if (data.success) {
             showToast('操作成功', data.message || '状态已更新', 'success');
@@ -10178,7 +10178,7 @@ async function changeMyPassword() {
                 new_password: newPwd
             })
         });
-        const data = await res.json();
+        const data = await parseResponseData(res);
         
         if (data.success) {
             showToast('修改成功', data.message || '密码已修改，即将跳转...', 'success');
