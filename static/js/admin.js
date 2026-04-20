@@ -63,6 +63,10 @@ let currentRequestId = null;
     });
     
     // ==================== 管理员退出登录 ====================
+    function getAdminLoginRedirect(data) {
+        return (data && data.redirect) ? data.redirect : '/admin/setup';
+    }
+
     async function adminLogout() {
         const confirmed = await showConfirm({
             title: '退出确认',
@@ -82,15 +86,15 @@ let currentRequestId = null;
             const data = await parseResponseData(response);
             
             if (data.success) {
-                // 退出成功，跳转到首页
-                window.location.href = '/';
+                // 退出成功，跳转到管理员登录入口
+                window.location.href = getAdminLoginRedirect(data);
             } else {
                 showToast('错误', data.error || '退出失败', 'error');
             }
         } catch (error) {
             console.error('退出登录失败:', error);
-            // 即使失败也跳转
-            window.location.href = '/';
+            // 即使失败也跳转到管理员登录入口
+            window.location.href = '/admin/setup';
         }
     }
     
@@ -10550,9 +10554,9 @@ async function changeMyPassword() {
         if (data.success) {
             showToast('修改成功', data.message || '密码已修改，即将跳转...', 'success');
             closeChangePwdModal();
-            // 延迟后跳转到首页（后台登录路径为动态秘钥，不直接暴露）
+            // 延迟后跳转到管理员登录入口
             setTimeout(() => {
-                window.location.href = '/';
+                window.location.href = getAdminLoginRedirect(data);
             }, 1500);
         } else {
             showToast('修改失败', data.error || '未知错误', 'error');

@@ -14,9 +14,10 @@ from functools import wraps
 import logging
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
+import ipaddress
 
 # 应用版本号
-APP_VERSION = '2.2.62'
+APP_VERSION = '2.2.63'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -560,14 +561,8 @@ TMDB_API_KEY = os.getenv('TMDB_API_KEY', '')  # 从环境变量获取TMDB API密
 TMDB_BASE_URL = 'https://api.themoviedb.org/3'
 TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500'
 
-# 代理配置（如果需要）
-PROXY_URL = os.getenv('PROXY_URL', '')  # 例如: http://127.0.0.1:7890
-if PROXY_URL:
-    http_session.proxies = {
-        'http': PROXY_URL,
-        'https': PROXY_URL
-    }
-    app.logger.info(f'使用代理: {PROXY_URL}')
+# 兼容旧版单一代理变量（优先级低于新代理变量）
+PROXY_URL = os.getenv('PROXY_URL', '').strip()  # 例如: http://127.0.0.1:7890
 
 # 管理员配置 - 现在从配置文件读取，环境变量仅作为备用
 # 这些变量会在应用启动时被 init_admin_config() 更新
@@ -759,9 +754,9 @@ NO_PROXY = os.getenv('NO_PROXY', 'localhost,127.0.0.1') or os.getenv('no_proxy',
 
 
 def get_proxy_config():
-    """获取代理配置"""
+    """获取代理配置（统一入口）"""
     proxies = {}
-    
+
     # 优先使用 SOCKS5 代理
     if SOCKS5_PROXY:
         proxies = {
@@ -774,32 +769,100 @@ def get_proxy_config():
             'http': ALL_PROXY,
             'https': ALL_PROXY
         }
+    # 兼容旧版 PROXY_URL（低优先级）
+    elif PROXY_URL:
+        proxies = {
+            'http': PROXY_URL,
+            'https': PROXY_URL
+        }
     # 最后使用 HTTP/HTTPS 代理
     elif HTTP_PROXY or HTTPS_PROXY:
-        if HTTP_PROXY:
-            proxies['http'] = HTTP_PROXY
-        if HTTPS_PROXY:
-            proxies['https'] = HTTPS_PROXY
-    
+        # 若仅配置了其中一个，也同时兜底给 http/https，避免半代理状态
+        fallback = HTTPS_PROXY or HTTP_PROXY
+        proxies['http'] = HTTP_PROXY or fallback
+        proxies['https'] = HTTPS_PROXY or fallback
+
     return proxies if proxies else None
 
 
-def get_proxied_session():
-    """获取配置了代理的 requests Session"""
-    session = requests.Session()
+def _extract_host(target: str) -> str:
+    if not target:
+        return ''
+    value = target.strip()
+    if not value:
+        return ''
+    if '://' in value:
+        return (urlparse(value).hostname or '').strip().lower()
+    # 兼容 host:port 输入
+    if value.startswith('[') and ']' in value:
+        return value[1:value.find(']')].strip().lower()
+    return value.split(':', 1)[0].strip().lower()
+
+
+def should_bypass_proxy(target: str) -> bool:
+    """判断目标地址是否应绕过代理（NO_PROXY + 常见内网地址）"""
+    host = _extract_host(target)
+    if not host:
+        return False
+
+    if host == 'localhost':
+        return True
+
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_loopback or ip.is_private or ip.is_link_local:
+            return True
+    except ValueError:
+        pass
+
+    no_proxy_items = [item.strip().lower() for item in (NO_PROXY or '').split(',') if item.strip()]
+    for rule in no_proxy_items:
+        if rule == '*':
+            return True
+
+        normalized = _extract_host(rule) if '://' in rule else rule.split(':', 1)[0].strip()
+        normalized = normalized.lstrip('.')
+        if not normalized:
+            continue
+
+        if '/' in normalized:
+            try:
+                ip = ipaddress.ip_address(host)
+                network = ipaddress.ip_network(normalized, strict=False)
+                if ip in network:
+                    return True
+            except Exception:
+                continue
+
+        if host == normalized or host.endswith(f'.{normalized}'):
+            return True
+
+    return False
+
+
+def apply_proxy_to_session(session: requests.Session, target: str = '') -> requests.Session:
+    """按统一代理规则为 session 注入代理，并支持按目标地址绕过"""
     proxy_config = get_proxy_config()
-    if proxy_config:
-        session.proxies.update(proxy_config)
+    if not proxy_config:
+        return session
+    if target and should_bypass_proxy(target):
+        return session
+    session.proxies.update(proxy_config)
     return session
+
+
+def get_proxied_session(target: str = ''):
+    """获取按统一代理规则处理后的 requests Session"""
+    session = requests.Session()
+    return apply_proxy_to_session(session, target)
 
 
 # 创建全局代理 Session（用于访问外网服务如 Telegram、TMDB）
 PROXY_SESSION = get_proxied_session()
 
 # 更新 http_session 以使用代理配置（用于 TMDB API 等外网请求）
-_proxy_config = get_proxy_config()
-if _proxy_config:
-    http_session.proxies.update(_proxy_config)
+apply_proxy_to_session(http_session)
+if http_session.proxies:
     print("[CONFIG] 代理已配置")
 else:
     print("[CONFIG] 未配置代理，直连外网")
@@ -2109,8 +2172,7 @@ class MoviePilotClient:
             'Content-Type': 'application/json',
             'Accept': 'application/json',
         })
-        if PROXY_URL:
-            self.session.proxies = http_session.proxies
+        apply_proxy_to_session(self.session, self.base_url)
     
     def is_enabled(self) -> bool:
         return bool(self.base_url and (self.access_token or (self.username and self.password)))
@@ -2428,8 +2490,7 @@ class QbitClient:
         self.login_lock = Lock()
         self.max_retries = 3  # 最大重试次数
         self.retry_delay = 1  # 重试间隔（秒）
-        if PROXY_URL:
-            self.session.proxies = http_session.proxies
+        apply_proxy_to_session(self.session, self.base_url)
 
     def _with_retry(self, func, *args, **kwargs):
         """带重试的请求执行器"""
@@ -2582,6 +2643,7 @@ class EmbyClient:
             'X-Emby-Token': api_key,
             'Accept': 'application/json',
         })
+        apply_proxy_to_session(self.session, self.base_url)
         # 媒体库统计缓存（5分钟）
         self._library_counts_cache = None
         self._library_counts_cache_time = 0
@@ -3908,7 +3970,7 @@ class EmbyClient:
             }
             
             app.logger.info(f'Emby 认证请求: url={url}, username={username}')
-            response = requests.post(url, json=data, headers=headers, timeout=10)
+            response = self.session.post(url, json=data, headers=headers, timeout=10)
             app.logger.info(f'Emby 认证响应: status={response.status_code}, body={response.text[:500]}')
             
             if response.status_code == 200:
@@ -3935,7 +3997,7 @@ class EmbyClient:
                         
                         if self.enable_user(emby_user_id):
                             # 重试认证
-                            retry_resp = requests.post(url, json=data, headers=headers, timeout=10)
+                            retry_resp = self.session.post(url, json=data, headers=headers, timeout=10)
                             
                             if retry_resp.status_code == 200:
                                 result = retry_resp.json()
@@ -3976,7 +4038,7 @@ class EmbyClient:
                                 # 通过 ID 找到了禁用用户，临时启用后重试
                                 app.logger.info(f'通过 fallback ID 找到禁用用户 {username}，临时启用后重试认证')
                                 if self.enable_user(fallback_emby_id):
-                                    retry_resp = requests.post(url, json=data, headers=headers, timeout=10)
+                                    retry_resp = self.session.post(url, json=data, headers=headers, timeout=10)
                                     if retry_resp.status_code == 200:
                                         result = retry_resp.json()
                                         user_info = result.get('User', {})
@@ -4370,7 +4432,7 @@ class EmbyClient:
                         'Username': emby_username,
                         'Pw': current_password
                     }
-                    auth_resp = requests.post(auth_url, json=auth_data, headers=auth_headers, timeout=10)
+                    auth_resp = self.session.post(auth_url, json=auth_data, headers=auth_headers, timeout=10)
                     
                     if auth_resp.status_code in [401, 403]:
                         return False, '当前 Emby 密码不正确'
@@ -4382,7 +4444,7 @@ class EmbyClient:
                                 'Content-Type': 'application/json',
                                 'X-Emby-Token': user_token
                             }
-                            pwd_resp = requests.post(url, json=pwd_data, headers=pwd_headers, timeout=10)
+                            pwd_resp = self.session.post(url, json=pwd_data, headers=pwd_headers, timeout=10)
                             
                             if pwd_resp.status_code in [200, 204]:
                                 app.logger.info(f'Emby 密码修改成功 (方式2-用户token): user_id={user_id}')
@@ -4407,7 +4469,7 @@ class EmbyClient:
                     'Content-Type': 'application/json',
                     'X-Emby-Authorization': 'Emby Client="Emby Request Panel", Device="Server", DeviceId="emby-request-panel", Version="1.0.0"'
                 }
-                verify_resp = requests.post(verify_url, json={'Username': emby_username, 'Pw': current_password}, 
+                verify_resp = self.session.post(verify_url, json={'Username': emby_username, 'Pw': current_password}, 
                                           headers=verify_headers, timeout=10)
                 
                 password_verified = (verify_resp.status_code == 200)
@@ -4425,7 +4487,7 @@ class EmbyClient:
                             was_temporarily_enabled = True
                             import time
                             time.sleep(0.5)  # 等待 Emby 更新状态
-                            retry_verify = requests.post(verify_url, json={'Username': emby_username, 'Pw': current_password},
+                            retry_verify = self.session.post(verify_url, json={'Username': emby_username, 'Pw': current_password},
                                                        headers=verify_headers, timeout=10)
                             if retry_verify.status_code == 200:
                                 password_verified = True
@@ -4463,7 +4525,7 @@ class EmbyClient:
                 # 密码验证通过说明用户当前可认证，用 token 尝试修改
                 if password_verified:
                     try:
-                        token_resp = requests.post(verify_url, json={'Username': emby_username, 'Pw': current_password},
+                        token_resp = self.session.post(verify_url, json={'Username': emby_username, 'Pw': current_password},
                                                  headers=verify_headers, timeout=10)
                         if token_resp.status_code == 200:
                             user_token = token_resp.json().get('AccessToken')
@@ -4476,7 +4538,7 @@ class EmbyClient:
                                     'Content-Type': 'application/json',
                                     'X-Emby-Token': user_token
                                 }
-                                token_pwd_resp = requests.post(token_pwd_url, json=pwd_data, headers=token_headers, timeout=10)
+                                token_pwd_resp = self.session.post(token_pwd_url, json=pwd_data, headers=token_headers, timeout=10)
                                 
                                 if token_pwd_resp.status_code in [200, 204]:
                                     app.logger.info(f'Emby 密码修改成功 (方式3b-用户token): user_id={user_id}')
@@ -11938,7 +12000,11 @@ def admin_logout_api():
     session.pop('admin_user_id', None)
     session.pop('admin_is_super', None)
     app.logger.info(f'管理员 {username} 已登出')
-    return jsonify({'success': True, 'message': '已退出登录'})
+    return jsonify({
+        'success': True,
+        'message': '已退出登录',
+        'redirect': get_admin_login_redirect_path()
+    })
 
 
 # ==================== 多管理员管理 API ====================
@@ -12205,7 +12271,12 @@ def admin_change_my_password():
         for _k in ['admin_logged_in', 'admin_username', 'admin_user_id', 'admin_is_super', 'admin_login_time']:
             session.pop(_k, None)
         
-        return jsonify({'success': True, 'message': '密码修改成功，请重新登录', 'require_relogin': True})
+        return jsonify({
+            'success': True,
+            'message': '密码修改成功，请重新登录',
+            'require_relogin': True,
+            'redirect': get_admin_login_redirect_path()
+        })
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'管理员修改密码失败: {e}')
@@ -19748,7 +19819,7 @@ def query_payment():
                 params['sign'] = epay_sign(params, epay_key)
                 params['sign_type'] = 'MD5'
                 
-                response = requests.get(f'{epay_url}/api.php', params=params, timeout=10)
+                response = get_proxied_session(epay_url).get(f'{epay_url}/api.php', params=params, timeout=10)
                 result = response.json()
                 
                 if result.get('code') == 1 and result.get('status') == 1:
@@ -19905,8 +19976,7 @@ def test_payment_connection():
 
         test_session = requests.Session()
         test_session.headers.update({'User-Agent': 'EmbyRequest/1.0'})
-        if PROXY_URL:
-            test_session.proxies = http_session.proxies
+        apply_proxy_to_session(test_session, epay_url)
 
         # 依次测试常见网关入口；返回 4xx 也可视为网关可达（通常代表参数校验失败而非网络不可达）
         test_urls = [
@@ -20113,6 +20183,7 @@ def test_moviepilot_connection():
         
         session = requests.Session()
         session.headers.update({'User-Agent': 'EmbyRequest/1.0'})
+        apply_proxy_to_session(session, url)
         
         # 如果提供了 token，直接测试
         if token:
@@ -20185,6 +20256,7 @@ def test_qbittorrent_connection():
             'User-Agent': 'EmbyRequest/1.0',
             'Referer': url
         })
+        apply_proxy_to_session(session, url)
         
         # 尝试登录
         login_url = f"{url}/api/v2/auth/login"
@@ -21747,7 +21819,9 @@ def test_emby_connection():
         
         # 测试连接 - 获取系统信息
         test_url = f"{url}/System/Info?api_key={api_key}"
-        resp = requests.get(test_url, timeout=10)
+        emby_test_session = requests.Session()
+        apply_proxy_to_session(emby_test_session, test_url)
+        resp = emby_test_session.get(test_url, timeout=10)
         
         if resp.status_code == 200:
             info = resp.json()
