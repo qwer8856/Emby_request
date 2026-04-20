@@ -17395,3 +17395,216 @@
         font-size: 38px;
     }
 }
+
+/* ============================================
+   用户页满屏布局（桌面端）
+   邀请返利 / 播放监控 / 我的信息
+   ============================================ */
+@media (min-width: 1025px) {
+    body.page-dashboard.dashboard-no-page-scroll {
+        overflow: hidden;
+    }
+
+    body.page-dashboard.dashboard-no-page-scroll .main-content.main-content-fullscreen {
+        height: 100vh;
+        min-height: 100vh;
+        box-sizing: border-box;
+        overflow: hidden;
+    }
+
+    body.page-dashboard.dashboard-no-page-scroll .main-content.main-content-fullscreen .content-section.panel-fullscreen-active {
+        height: calc(100vh - 48px);
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .content-section.panel-fullscreen-active .section-header {
+        margin-bottom: 0;
+        flex-shrink: 0;
+    }
+
+    .content-section.panel-fullscreen-active .section-header h1 {
+        margin-bottom: 6px;
+    }
+
+    .content-section.panel-fullscreen-active .section-header p {
+        margin: 0;
+    }
+
+    #section-playback.panel-fullscreen-active {
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr) minmax(0, 1fr);
+        gap: 12px;
+    }
+
+    #section-playback.panel-fullscreen-active .section-header.playback-header,
+    #section-playback.panel-fullscreen-active .playback-stats-grid,
+    #section-playback.panel-fullscreen-active .playback-main-grid,
+    #section-playback.panel-fullscreen-active .playback-section-history {
+        margin: 0;
+    }
+
+    #section-playback.panel-fullscreen-active .playback-stats-grid {
+        gap: 12px;
+    }
+
+    #section-playback.panel-fullscreen-active .playback-stat-card {
+        padding: 16px 18px;
+    }
+
+    #section-playback.panel-fullscreen-active .playback-main-grid {
+        min-height: 0;
+        gap: 12px;
+    }
+
+    #section-playback.panel-fullscreen-active .playback-section {
+        margin: 0;
+        padding: 16px;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #section-playback.panel-fullscreen-active .playback-section-history {
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #section-playback.panel-fullscreen-active .section-title-bar {
+        margin-bottom: 10px;
+        padding-bottom: 10px;
+    }
+
+    #section-playback.panel-fullscreen-active #devicesContainer,
+    #section-playback.panel-fullscreen-active #myDevicesContainer,
+    #section-playback.panel-fullscreen-active #historyContainer {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding-right: 4px;
+    }
+
+    #section-invite.panel-fullscreen-active {
+        display: flex;
+        flex-direction: column;
+    }
+
+    #section-invite.panel-fullscreen-active .invite-container {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 12px;
+    }
+
+    #section-invite.panel-fullscreen-active .invite-code-card,
+    #section-invite.panel-fullscreen-active .reward-rules,
+    #section-invite.panel-fullscreen-active .invite-stats,
+    #section-invite.panel-fullscreen-active .invite-records {
+        margin: 0;
+        padding: 18px;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #section-invite.panel-fullscreen-active .invite-code-card {
+        grid-column: 1;
+        grid-row: 1;
+    }
+
+    #section-invite.panel-fullscreen-active .reward-rules {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+    #section-invite.panel-fullscreen-active .invite-stats {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    #section-invite.panel-fullscreen-active .invite-records {
+        grid-column: 2;
+        grid-row: 2;
+    }
+
+    #section-invite.panel-fullscreen-active .invite-stats .stats-grid {
+        gap: 10px;
+    }
+
+    #section-invite.panel-fullscreen-active .rules-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    #section-invite.panel-fullscreen-active .rule-item {
+        padding: 12px;
+    }
+
+    #section-invite.panel-fullscreen-active .rule-icon {
+        font-size: 24px;
+    }
+
+    #section-invite.panel-fullscreen-active .records-list {
+        flex: 1;
+        min-height: 0;
+        max-height: none;
+        overflow: auto;
+        padding-right: 4px;
+    }
+
+    #section-profile.panel-fullscreen-active {
+        display: flex;
+        flex-direction: column;
+    }
+
+    #section-profile.panel-fullscreen-active .profile-page-v2 {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr);
+        grid-template-rows: auto auto minmax(0, 1fr);
+        gap: 12px;
+    }
+
+    #section-profile.panel-fullscreen-active .user-profile-card {
+        grid-column: 1;
+        grid-row: 1;
+        margin: 0;
+        padding: 20px;
+    }
+
+    #section-profile.panel-fullscreen-active .stats-section-v2 {
+        grid-column: 1;
+        grid-row: 2;
+        margin: 0;
+        padding: 18px;
+    }
+
+    #section-profile.panel-fullscreen-active .danger-zone-v2 {
+        grid-column: 1;
+        grid-row: 3;
+        margin: 0;
+    }
+
+    #section-profile.panel-fullscreen-active .feature-cards-v2 {
+        grid-column: 2;
+        grid-row: 1 / span 3;
+        margin: 0;
+        min-height: 0;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding-right: 4px;
+    }
+
+    #section-profile.panel-fullscreen-active .feature-card-v2 {
+        flex: 0 0 auto;
+    }
+}

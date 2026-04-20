@@ -1207,6 +1207,7 @@ async function unbindTelegramId() {
             }
 
             currentDashboardSection = sectionName;
+            syncSectionFullscreenLayout(sectionName);
             
             // 移动端关闭侧边栏
             if (window.innerWidth <= 768) {
@@ -1456,7 +1457,9 @@ async function unbindTelegramId() {
         let dashboardRefreshInFlight = false;
         let dashboardRefreshSyncBound = false;
         let dashboardRefreshUnsubscribe = null;
-    let movieCurrentPage = 1;
+        let sectionLayoutResizeTimer = null;
+        const fullscreenSectionNames = new Set(['invite', 'playback', 'profile']);
+        let movieCurrentPage = 1;
         let tvCurrentPage = 1;
         let trendingLoaded = false;
         let isSearching = false;
@@ -1481,6 +1484,29 @@ async function unbindTelegramId() {
 
         function shouldAutoRefreshDashboardSection(sectionName = currentDashboardSection) {
             return ['home', 'search', 'subscription', 'purchase', 'trending', 'requests', 'playback', 'invite', 'support', 'activity-logs'].includes(sectionName);
+        }
+
+        function syncSectionFullscreenLayout(sectionName = currentDashboardSection) {
+            const body = document.body;
+            const mainContent = document.querySelector('.main-content');
+            if (!body || !mainContent) return;
+
+            document.querySelectorAll('.content-section').forEach(section => {
+                section.classList.remove('panel-fullscreen-active');
+            });
+
+            const isDesktop = window.matchMedia('(min-width: 1025px)').matches;
+            const shouldEnableFullscreen = isDesktop && fullscreenSectionNames.has(sectionName);
+
+            body.classList.toggle('dashboard-no-page-scroll', shouldEnableFullscreen);
+            mainContent.classList.toggle('main-content-fullscreen', shouldEnableFullscreen);
+
+            if (!shouldEnableFullscreen) return;
+
+            const activeSection = document.getElementById(`section-${sectionName}`);
+            if (activeSection) {
+                activeSection.classList.add('panel-fullscreen-active');
+            }
         }
 
         function setTextIfExists(id, value) {
@@ -2096,6 +2122,7 @@ async function unbindTelegramId() {
         window.addEventListener('DOMContentLoaded', () => {
             // 从URL hash恢复上次访问的页面
             restoreSectionFromHash();
+            syncSectionFullscreenLayout(currentDashboardSection);
             
             // 默认显示搜索标签
             initRequestPagination();
@@ -2129,6 +2156,13 @@ async function unbindTelegramId() {
             initDownloadProgressWatcher();
             bindDashboardRefreshSync();
             startDashboardAutoRefresh();
+        });
+
+        window.addEventListener('resize', () => {
+            clearTimeout(sectionLayoutResizeTimer);
+            sectionLayoutResizeTimer = setTimeout(() => {
+                syncSectionFullscreenLayout(currentDashboardSection);
+            }, 120);
         });
         
         // 初始化求片记录分页
@@ -6032,124 +6066,297 @@ async function unbindTelegramId() {
         let playbackHistoryData = [];  // 存储完整的播放历史数据
         let historyCurrentPage = 1;    // 当前页码
         const historyPageSize = 5;     // 每页显示条数
-        
-        async function loadPlaybackData() {
+
+        const PLAYBACK_REFRESH_INTERVAL_MS = 10000;
+        const PLAYBACK_DEVICES_REFRESH_GAP_MS = 30000;
+        const PLAYBACK_HISTORY_REFRESH_GAP_MS = 60000;
+
+        let playbackAutoRefreshEnabled = true;
+        let playbackLoadPromise = null;
+        let playbackCurrentHistoryLimit = 20;
+        let playbackLastStreamLimitNotice = '';
+        const playbackLastFetchedAt = {
+            sessions: 0,
+            devices: 0,
+            history: 0
+        };
+        const playbackStatsSnapshot = {
+            playing: 0,
+            devices: 0,
+            history: 0
+        };
+
+        function isPlaybackSectionActive() {
+            const playbackSection = document.getElementById('section-playback');
+            return !!(playbackSection && playbackSection.classList.contains('active'));
+        }
+
+        function getPlaybackHistoryLimit() {
+            const select = document.getElementById('historyLimitSelect');
+            const raw = parseInt(select?.value || '20', 10);
+            if (!Number.isFinite(raw) || raw <= 0) return 20;
+            return raw;
+        }
+
+        function setPlaybackLiveStatus(text, state = 'ok') {
+            const pill = document.getElementById('playbackLivePill');
+            const label = document.getElementById('playbackLiveStatus');
+            if (label) {
+                label.textContent = text;
+            }
+            if (pill) {
+                pill.classList.remove('is-loading', 'is-error');
+                if (state === 'loading') {
+                    pill.classList.add('is-loading');
+                } else if (state === 'error') {
+                    pill.classList.add('is-error');
+                }
+            }
+        }
+
+        function setPlaybackLastUpdated(at = null) {
+            const el = document.getElementById('playbackLastUpdated');
+            if (!el) return;
+            if (!at) {
+                el.textContent = '上次更新：--';
+                return;
+            }
+            const hh = String(at.getHours()).padStart(2, '0');
+            const mm = String(at.getMinutes()).padStart(2, '0');
+            const ss = String(at.getSeconds()).padStart(2, '0');
+            el.textContent = `上次更新：${hh}:${mm}:${ss}`;
+        }
+
+        function setPlaybackRefreshButtonLoading(isLoading) {
+            const btn = document.getElementById('playbackRefreshBtn');
+            if (!btn) return;
+            if (isLoading) {
+                btn.disabled = true;
+                btn.innerHTML = '<div class="loading-spinner" style="width:14px;height:14px;border-width:2px;"></div> 同步中...';
+                return;
+            }
+            btn.disabled = false;
+            btn.innerHTML = `
+                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/></svg>
+                手动刷新
+            `;
+        }
+
+        function updatePlaybackAutoRefreshButtonState() {
+            const btn = document.getElementById('playbackAutoRefreshBtn');
+            if (!btn) return;
+            btn.classList.toggle('on', playbackAutoRefreshEnabled);
+            btn.classList.toggle('off', !playbackAutoRefreshEnabled);
+            btn.textContent = `自动刷新：${playbackAutoRefreshEnabled ? '开' : '关'}`;
+        }
+
+        function renderPlaybackLoadingState() {
+            const tpl = `
+                <div class="loading-placeholder">
+                    <div class="loading-spinner"></div>
+                    <span>正在同步播放数据...</span>
+                </div>
+            `;
+            const devicesContainer = document.getElementById('devicesContainer');
+            const myDevicesContainer = document.getElementById('myDevicesContainer');
+            const historyContainer = document.getElementById('historyContainer');
+            if (devicesContainer) devicesContainer.innerHTML = tpl;
+            if (myDevicesContainer) myDevicesContainer.innerHTML = tpl;
+            if (historyContainer) historyContainer.innerHTML = tpl;
+        }
+
+        async function fetchPlaybackJson(url, fallbackError) {
             try {
-                // 显示加载状态
-                const devicesContainer = document.getElementById('devicesContainer');
-                const historyContainer = document.getElementById('historyContainer');
-                
-                if (devicesContainer) {
-                    devicesContainer.innerHTML = `
-                        <div class="loading-placeholder">
-                            <div class="loading-spinner"></div>
-                            <span>加载设备信息中...</span>
-                        </div>
-                    `;
-                }
-                
-                // 同时加载会话和历史
-                const [sessionsRes, historyRes] = await Promise.all([
-                    fetch('/api/emby/sessions'),
-                    fetch('/api/emby/playback-history?limit=20')
-                ]);
-                
-                const sessionsData = await parseResponseData(sessionsRes);
-                const historyData = await parseResponseData(historyRes);
-                
-                // 检查播放流数限制
-                if (sessionsData.stream_limit && sessionsData.stream_limit.exceeded) {
-                    const sl = sessionsData.stream_limit;
-                    const stoppedNames = sl.stopped_sessions.map(s => s.device || '未知设备').join('、');
-                    showMessage(`同时播放设备数超过限制（${sl.max_streams}），已自动停止: ${stoppedNames}`, 'warning');
-                }
-                
-                // 更新统计卡片
-                updatePlaybackStats(sessionsData);
-                
-                // 渲染设备列表
-                renderDevices(sessionsData);
-                
-                // 渲染播放历史
-                renderPlaybackHistory(historyData);
-                
-                // 加载用户设备列表
-                loadMyDevices();
-                
-                playbackDataLoaded = true;
-                
+                const response = await fetch(url);
+                return await parseResponseData(response);
             } catch (error) {
-                console.error('加载播放数据失败:', error);
-                const devicesContainer = document.getElementById('devicesContainer');
-                if (devicesContainer) {
-                    devicesContainer.innerHTML = `
-                        <div class="error-state">
-                            <div class="error-icon">❌</div>
-                            <h4>加载失败</h4>
-                            <p>无法获取播放数据，请检查 Emby 连接</p>
-                        </div>
-                    `;
-                }
+                console.error(`[Playback] 请求失败: ${url}`, error);
+                return { success: false, error: fallbackError || '请求失败' };
             }
         }
-        
-        function updatePlaybackStats(data) {
-            const onlineCountEl = document.getElementById('onlineDeviceCount');
+
+        function updatePlaybackStats({ sessionsData = null, devicesData = null, historyData = null } = {}) {
             const playingCountEl = document.getElementById('playingCount');
-            
-            // 统计正在播放的设备数量
-            const playingCount = data.success ? (data.playing_count || 0) : 0;
-            
-            if (onlineCountEl && data.success) {
-                onlineCountEl.textContent = playingCount;  // 改为显示播放中数量
+            const onlineCountEl = document.getElementById('onlineDeviceCount');
+            const historyCountEl = document.getElementById('historyCount');
+
+            if (sessionsData && sessionsData.success) {
+                playbackStatsSnapshot.playing = sessionsData.playing_count || 0;
             }
-            if (playingCountEl && data.success) {
-                playingCountEl.textContent = playingCount;
+            if (devicesData && devicesData.success) {
+                playbackStatsSnapshot.devices = devicesData.count || (devicesData.devices || []).length || 0;
             }
+            if (historyData && historyData.success) {
+                playbackStatsSnapshot.history = historyData.count || (historyData.history || []).length || 0;
+            }
+
+            if (playingCountEl) playingCountEl.textContent = playbackStatsSnapshot.playing;
+            if (onlineCountEl) onlineCountEl.textContent = playbackStatsSnapshot.devices;
+            if (historyCountEl) historyCountEl.textContent = playbackStatsSnapshot.history;
         }
-        
+
+        function maybeNotifyStreamLimitExceeded(sessionsData) {
+            const streamLimit = sessionsData?.stream_limit;
+            if (!streamLimit || !streamLimit.exceeded) {
+                playbackLastStreamLimitNotice = '';
+                return;
+            }
+
+            const stoppedSessions = Array.isArray(streamLimit.stopped_sessions) ? streamLimit.stopped_sessions : [];
+            const signature = `${streamLimit.max_streams || 0}|${stoppedSessions.map(s => `${s.device || ''}-${s.client || ''}-${s.content || ''}`).join('|')}`;
+            if (signature && signature === playbackLastStreamLimitNotice) {
+                return;
+            }
+
+            playbackLastStreamLimitNotice = signature;
+            const stoppedNames = stoppedSessions.map(s => s.device || '未知设备').join('、');
+            const extra = stoppedNames ? `，已自动停止: ${stoppedNames}` : '';
+            showMessage(`同时播放设备数超过限制（${streamLimit.max_streams || '--'}）${extra}`, 'warning');
+        }
+
+        async function loadPlaybackData(options = {}) {
+            const opts = Object.assign({
+                source: 'manual',      // manual | auto | section-switch | history-limit | device-refresh
+                forceDevices: false,
+                forceHistory: false,
+                silent: false,
+                manualToast: false
+            }, options);
+
+            if (playbackLoadPromise) {
+                return playbackLoadPromise;
+            }
+
+            const now = Date.now();
+            const historyLimit = getPlaybackHistoryLimit();
+            const shouldFetchDevices = opts.forceDevices ||
+                !playbackLastFetchedAt.devices ||
+                (now - playbackLastFetchedAt.devices) >= PLAYBACK_DEVICES_REFRESH_GAP_MS;
+            const shouldFetchHistory = opts.forceHistory ||
+                !playbackLastFetchedAt.history ||
+                historyLimit !== playbackCurrentHistoryLimit ||
+                (now - playbackLastFetchedAt.history) >= PLAYBACK_HISTORY_REFRESH_GAP_MS;
+
+            if (!playbackDataLoaded && !opts.silent) {
+                renderPlaybackLoadingState();
+            }
+
+            if (opts.source === 'manual') {
+                setPlaybackRefreshButtonLoading(true);
+            }
+            setPlaybackLiveStatus('同步中...', 'loading');
+
+            playbackLoadPromise = (async () => {
+                let allSuccess = true;
+
+                const [sessionsData, devicesData, historyData] = await Promise.all([
+                    fetchPlaybackJson('/api/emby/sessions', '无法获取实时会话'),
+                    shouldFetchDevices ? fetchPlaybackJson('/api/emby/devices', '无法获取设备列表') : Promise.resolve(null),
+                    shouldFetchHistory ? fetchPlaybackJson(`/api/emby/playback-history?limit=${historyLimit}`, '无法获取播放历史') : Promise.resolve(null)
+                ]);
+
+                if (sessionsData?.success) {
+                    renderDevices(sessionsData);
+                    playbackLastFetchedAt.sessions = now;
+                    maybeNotifyStreamLimitExceeded(sessionsData);
+                } else {
+                    allSuccess = false;
+                    renderDevices(sessionsData || { success: false, error: '无法获取实时会话' });
+                }
+
+                if (devicesData) {
+                    if (devicesData.success) {
+                        renderMyDevices(devicesData);
+                        playbackLastFetchedAt.devices = now;
+                    } else {
+                        allSuccess = false;
+                        renderMyDevices(devicesData);
+                    }
+                }
+
+                if (historyData) {
+                    if (historyData.success) {
+                        const resetPage = historyLimit !== playbackCurrentHistoryLimit;
+                        renderPlaybackHistory(historyData, { resetPage });
+                        playbackCurrentHistoryLimit = historyLimit;
+                        playbackLastFetchedAt.history = now;
+                    } else {
+                        allSuccess = false;
+                        renderPlaybackHistory(historyData, { resetPage: false });
+                    }
+                }
+
+                updatePlaybackStats({ sessionsData, devicesData, historyData });
+                playbackDataLoaded = playbackDataLoaded || allSuccess;
+
+                if (allSuccess) {
+                    setPlaybackLiveStatus('实时同步中', 'ok');
+                    setPlaybackLastUpdated(new Date());
+                } else {
+                    setPlaybackLiveStatus('连接异常', 'error');
+                }
+
+                if (opts.manualToast) {
+                    showToast(allSuccess ? '播放监控已刷新' : '部分数据刷新失败，请稍后重试', allSuccess ? 'success' : 'warning');
+                }
+
+                return allSuccess;
+            })().catch((error) => {
+                console.error('加载播放数据失败:', error);
+                setPlaybackLiveStatus('连接异常', 'error');
+                if (opts.manualToast) {
+                    showToast('刷新失败，请稍后重试', 'error');
+                }
+                return false;
+            }).finally(() => {
+                if (opts.source === 'manual') {
+                    setPlaybackRefreshButtonLoading(false);
+                }
+                playbackLoadPromise = null;
+            });
+
+            return playbackLoadPromise;
+        }
+
         function renderDevices(data) {
             const container = document.getElementById('devicesContainer');
             if (!container) return;
-            
+
             if (!data.success) {
                 container.innerHTML = `
                     <div class="error-state">
                         <div class="error-icon">⚠️</div>
-                        <h4>${data.error || '无法获取设备信息'}</h4>
-                        <p>请确保已绑定 Emby 账号</p>
+                        <h4>${data.error || '无法获取实时会话'}</h4>
+                        <p>请确认 Emby 可访问且当前账号已绑定。</p>
                     </div>
                 `;
                 return;
             }
-            
-            // 只显示正在播放的会话
+
             const sessions = (data.sessions || []).filter(s => s.is_playing);
-            
             if (sessions.length === 0) {
                 container.innerHTML = `
                     <div class="empty-devices">
                         <div class="empty-icon">📱</div>
                         <h4>暂无播放中的设备</h4>
-                        <p>当前没有正在播放的设备</p>
+                        <p>当前没有正在播放的设备，开始播放后会实时显示。</p>
                     </div>
                 `;
                 return;
             }
-            
+
             container.innerHTML = `
                 <div class="devices-grid">
                     ${sessions.map(session => renderDeviceCard(session)).join('')}
                 </div>
             `;
         }
-        
+
         function renderDeviceCard(session) {
-            const isPlaying = session.is_playing;
             const isPaused = session.play_state?.is_paused;
             const deviceIcon = getDeviceIcon(session.client);
-            
-            // 计算播放进度
+            const safeName = encodeURIComponent(session.device_name || '未知设备');
+
             let progressPercent = 0;
             let progressTime = '';
             if (session.now_playing && session.play_state) {
@@ -6160,26 +6367,23 @@ async function unbindTelegramId() {
                     progressTime = `${formatTicks(positionTicks)} / ${formatTicks(runTimeTicks)}`;
                 }
             }
-            
-            // 播放方式标签
+
             let playMethodTag = '';
-            if (session.play_state?.play_method) {
-                const method = session.play_state.play_method;
-                if (method === 'Transcode') {
-                    playMethodTag = '<span class="play-state-tag transcoding">🔄 转码播放</span>';
-                } else if (method === 'DirectPlay' || method === 'DirectStream') {
-                    playMethodTag = '<span class="play-state-tag direct">⚡ 直接播放</span>';
-                }
+            const method = session.play_state?.play_method;
+            if (method === 'Transcode') {
+                playMethodTag = '<span class="play-state-tag transcoding">🔄 转码播放</span>';
+            } else if (method === 'DirectPlay' || method === 'DirectStream') {
+                playMethodTag = '<span class="play-state-tag direct">⚡ 直接播放</span>';
             }
-            
+
             return `
-                <div class="device-card ${isPlaying ? 'playing' : ''}" data-device-id="${session.db_device_id || ''}">
+                <div class="device-card playing" data-device-id="${session.db_device_id || ''}">
                     <div class="device-header">
                         <div class="device-info">
                             <div class="device-icon">${deviceIcon}</div>
                             <div class="device-details">
-                                <h4>${escapeHtml(session.device_name)}</h4>
-                                <p>${escapeHtml(session.client)} ${session.app_version ? 'v' + session.app_version : ''}</p>
+                                <h4>${escapeHtml(session.device_name || '未知设备')}</h4>
+                                <p>${escapeHtml(session.client || '未知客户端')} ${session.app_version ? `v${session.app_version}` : ''}</p>
                             </div>
                         </div>
                         <div class="device-header-right">
@@ -6188,7 +6392,7 @@ async function unbindTelegramId() {
                                 ${isPaused ? '已暂停' : '播放中'}
                             </div>
                             ${session.db_device_id ? `
-                                <button class="device-delete-btn" onclick="deleteDevice(${session.db_device_id}, '${escapeHtml(session.device_name)}')" title="删除此设备">
+                                <button class="device-delete-btn" onclick="deleteDevice(${session.db_device_id}, decodeURIComponent('${safeName}'))" title="删除此设备">
                                     <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/></svg>
                                 </button>
                             ` : ''}
@@ -6196,23 +6400,23 @@ async function unbindTelegramId() {
                     </div>
                     ${session.remote_end_point ? `
                         <div class="device-ip">
-                            <span>📍 IP: ${session.remote_end_point}</span>
+                            <span>📍 IP: ${escapeHtml(session.remote_end_point)}</span>
                         </div>
                     ` : ''}
-                    ${isPlaying && session.now_playing ? `
+                    ${session.now_playing ? `
                         <div class="now-playing">
                             <div class="now-playing-header">
                                 <span>🎬</span> 正在播放
                             </div>
                             <div class="now-playing-content">
                                 <div class="now-playing-info">
-                                    <div class="now-playing-title">${escapeHtml(session.now_playing.display_name || session.now_playing.name)}</div>
+                                    <div class="now-playing-title">${escapeHtml(session.now_playing.display_name || session.now_playing.name || '未知内容')}</div>
                                     <div class="now-playing-meta">${session.now_playing.type === 'Episode' ? '剧集' : '电影'}</div>
                                     <div class="playback-progress">
                                         <div class="progress-bar">
-                                            <div class="progress-fill" style="width: ${progressPercent}%"></div>
+                                            <div class="progress-fill" style="width: ${Math.max(0, Math.min(progressPercent, 100))}%"></div>
                                         </div>
-                                        <span class="progress-time">${progressTime}</span>
+                                        <span class="progress-time">${progressTime || '--:-- / --:--'}</span>
                                     </div>
                                     ${playMethodTag}
                                 </div>
@@ -6222,7 +6426,7 @@ async function unbindTelegramId() {
                 </div>
             `;
         }
-        
+
         function getDeviceIcon(client) {
             const clientLower = (client || '').toLowerCase();
             if (clientLower.includes('android')) return '📱';
@@ -6234,68 +6438,65 @@ async function unbindTelegramId() {
             if (clientLower.includes('kodi') || clientLower.includes('infuse') || clientLower.includes('plex')) return '🎥';
             return '📱';
         }
-        
+
         function formatTicks(ticks) {
-            // Emby 使用 ticks (1 tick = 100 纳秒)
-            const seconds = Math.floor(ticks / 10000000);
+            const seconds = Math.floor((ticks || 0) / 10000000);
             const hours = Math.floor(seconds / 3600);
             const minutes = Math.floor((seconds % 3600) / 60);
             const secs = seconds % 60;
-            
             if (hours > 0) {
                 return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
             }
             return `${minutes}:${String(secs).padStart(2, '0')}`;
         }
-        
-        function renderPlaybackHistory(data) {
+
+        function renderPlaybackHistory(data, options = {}) {
             const container = document.getElementById('historyContainer');
             if (!container) return;
-            
-            // 更新历史数量
-            const historyCountEl = document.getElementById('historyCount');
-            if (historyCountEl && data.success) {
-                historyCountEl.textContent = data.count || 0;
-            }
-            
+
+            const resetPage = options.resetPage !== false;
+
             if (!data.success) {
-                container.innerHTML = `
-                    <div class="error-state">
-                        <div class="error-icon">⚠️</div>
-                        <h4>${data.error || '无法获取播放历史'}</h4>
-                        <p>请确保已绑定 Emby 账号</p>
-                    </div>
-                `;
+                if (!playbackHistoryData.length) {
+                    container.innerHTML = `
+                        <div class="error-state">
+                            <div class="error-icon">⚠️</div>
+                            <h4>${data.error || '无法获取播放历史'}</h4>
+                            <p>请稍后重试，或确认 Emby 账号绑定状态。</p>
+                        </div>
+                    `;
+                }
                 return;
             }
-            
-            const history = data.history || [];
-            playbackHistoryData = history;  // 存储完整数据
-            historyCurrentPage = 1;          // 重置到第一页
-            
-            if (history.length === 0) {
+
+            playbackHistoryData = data.history || [];
+            if (resetPage) {
+                historyCurrentPage = 1;
+            }
+
+            if (playbackHistoryData.length === 0) {
                 container.innerHTML = `
                     <div class="empty-devices">
                         <div class="empty-icon">📼</div>
                         <h4>暂无播放记录</h4>
-                        <p>开始观看内容后，播放历史将显示在这里</p>
+                        <p>开始观看内容后，历史会自动累计到这里。</p>
                     </div>
                 `;
                 return;
             }
-            
+
             renderHistoryPage();
         }
-        
+
         function renderHistoryPage() {
             const container = document.getElementById('historyContainer');
             if (!container || playbackHistoryData.length === 0) return;
-            
+
             const totalPages = Math.ceil(playbackHistoryData.length / historyPageSize);
             const startIndex = (historyCurrentPage - 1) * historyPageSize;
             const endIndex = Math.min(startIndex + historyPageSize, playbackHistoryData.length);
             const pageItems = playbackHistoryData.slice(startIndex, endIndex);
-            
+
             container.innerHTML = `
                 <div class="history-cards-grid">
                     ${pageItems.map(item => renderHistoryItem(item)).join('')}
@@ -6303,29 +6504,23 @@ async function unbindTelegramId() {
                 ${totalPages > 1 ? renderHistoryPagination(totalPages) : ''}
             `;
         }
-        
+
         function renderHistoryPagination(totalPages) {
             const total = playbackHistoryData.length;
             const startNum = (historyCurrentPage - 1) * historyPageSize + 1;
             const endNum = Math.min(historyCurrentPage * historyPageSize, total);
-            
             let pagesHtml = '';
-            
-            // 显示页码
+
             for (let i = 1; i <= totalPages; i++) {
                 if (totalPages <= 7) {
-                    // 页数少于7，全部显示
                     pagesHtml += `<button class="page-btn ${i === historyCurrentPage ? 'active' : ''}" onclick="goToHistoryPage(${i})">${i}</button>`;
-                } else {
-                    // 页数多，显示省略号
-                    if (i === 1 || i === totalPages || (i >= historyCurrentPage - 1 && i <= historyCurrentPage + 1)) {
-                        pagesHtml += `<button class="page-btn ${i === historyCurrentPage ? 'active' : ''}" onclick="goToHistoryPage(${i})">${i}</button>`;
-                    } else if (i === historyCurrentPage - 2 || i === historyCurrentPage + 2) {
-                        pagesHtml += `<span class="page-ellipsis">...</span>`;
-                    }
+                } else if (i === 1 || i === totalPages || (i >= historyCurrentPage - 1 && i <= historyCurrentPage + 1)) {
+                    pagesHtml += `<button class="page-btn ${i === historyCurrentPage ? 'active' : ''}" onclick="goToHistoryPage(${i})">${i}</button>`;
+                } else if (i === historyCurrentPage - 2 || i === historyCurrentPage + 2) {
+                    pagesHtml += `<span class="page-ellipsis">...</span>`;
                 }
             }
-            
+
             return `
                 <div class="history-pagination">
                     <div class="pagination-info">
@@ -6343,34 +6538,25 @@ async function unbindTelegramId() {
                 </div>
             `;
         }
-        
+
         function goToHistoryPage(page) {
             const totalPages = Math.ceil(playbackHistoryData.length / historyPageSize);
             if (page < 1 || page > totalPages) return;
-            
             historyCurrentPage = page;
             renderHistoryPage();
-            
-            // 滚动到历史区域顶部
-            const historySection = document.getElementById('historyContainer');
-            if (historySection) {
-                historySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
         }
-        
+
         function renderHistoryItem(item) {
             const typeLabel = item.type === 'Episode' ? '剧集' : '电影';
             const typeBadgeClass = item.type === 'Episode' ? 'episode' : 'movie';
             const typeIcon = item.type === 'Episode' ? '📺' : '🎬';
-            
-            // 格式化最后播放时间
+
             let lastPlayedText = '';
             if (item.last_played_date) {
                 const date = new Date(item.last_played_date);
                 const now = new Date();
                 const diffMs = now - date;
                 const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-                
                 if (diffDays === 0) {
                     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
                     if (diffHours === 0) {
@@ -6387,11 +6573,8 @@ async function unbindTelegramId() {
                     lastPlayedText = date.toLocaleDateString('zh-CN');
                 }
             }
-            
-            // 播放进度
-            const progressPercent = Math.round(item.played_percentage || 0);
-            
-            // 格式化时长
+
+            const progressPercent = Math.max(0, Math.min(Math.round(item.played_percentage || 0), 100));
             const formatDuration = (seconds) => {
                 if (!seconds || seconds <= 0) return '--:--';
                 const hours = Math.floor(seconds / 3600);
@@ -6402,30 +6585,28 @@ async function unbindTelegramId() {
                 }
                 return `${mins}:${secs.toString().padStart(2, '0')}`;
             };
-            
+
             const playDuration = formatDuration(item.play_duration);
             const totalDuration = formatDuration(item.total_duration);
-            
-            // 播放方式标签
+
             let playMethodBadge = '';
             if (item.play_method) {
                 const methodClass = item.play_method === 'DirectPlay' ? 'direct' : 'transcode';
                 const methodText = item.play_method === 'DirectPlay' ? '直播' : '转码';
                 playMethodBadge = `<span class="history-method-badge ${methodClass}">${methodText}</span>`;
             }
-            
-            // 设备信息
+
             let deviceInfo = '';
             if (item.device_name || item.client) {
-                deviceInfo = `<span class="history-device">${item.client || ''} ${item.device_name ? `· ${item.device_name}` : ''}</span>`;
+                deviceInfo = `<span class="history-device">${escapeHtml(item.client || '')} ${item.device_name ? `· ${escapeHtml(item.device_name)}` : ''}</span>`;
             }
-            
+
             return `
                 <div class="history-card">
                     <div class="history-card-header">
                         <div class="history-icon">${typeIcon}</div>
                         <div class="history-header-info">
-                            <div class="history-title">${escapeHtml(item.display_name || item.name)}</div>
+                            <div class="history-title">${escapeHtml(item.display_name || item.name || '未知内容')}</div>
                             <div class="history-subtitle">
                                 <span class="history-badge ${typeBadgeClass}">${typeLabel}</span>
                                 ${item.series_name ? `<span class="history-series">${escapeHtml(item.series_name)}</span>` : ''}
@@ -6459,43 +6640,60 @@ async function unbindTelegramId() {
                 </div>
             `;
         }
-        
+
         async function refreshPlaybackData() {
-            const btn = document.querySelector('.refresh-btn');
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<div class="loading-spinner" style="width:14px;height:14px;border-width:2px;"></div> 刷新中';
-            }
-            
-            await loadPlaybackData();
-            
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = `
-                    <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/></svg>
-                    刷新
-                `;
-            }
-            
-            showToast('数据已刷新', 'success');
+            await loadPlaybackData({
+                source: 'manual',
+                forceDevices: true,
+                forceHistory: true,
+                manualToast: true
+            });
         }
-        
+
         async function changeHistoryLimit() {
-            const select = document.getElementById('historyLimitSelect');
-            const limit = select ? select.value : 20;
-            
-            try {
-                const response = await fetch(`/api/emby/playback-history?limit=${limit}`);
-                const data = await parseResponseData(response);
-                renderPlaybackHistory(data);
-            } catch (error) {
-                console.error('加载播放历史失败:', error);
-                showToast('加载失败，请重试', 'error');
+            await loadPlaybackData({
+                source: 'history-limit',
+                forceHistory: true
+            });
+        }
+
+        function startPlaybackAutoRefresh() {
+            stopPlaybackAutoRefresh();
+            updatePlaybackAutoRefreshButtonState();
+            if (!playbackAutoRefreshEnabled) return;
+
+            playbackRefreshInterval = setInterval(() => {
+                if (!playbackAutoRefreshEnabled) return;
+                if (document.hidden || !isPlaybackSectionActive()) return;
+                loadPlaybackData({
+                    source: 'auto',
+                    silent: true
+                });
+            }, PLAYBACK_REFRESH_INTERVAL_MS);
+        }
+
+        function stopPlaybackAutoRefresh() {
+            if (playbackRefreshInterval) {
+                clearInterval(playbackRefreshInterval);
+                playbackRefreshInterval = null;
             }
         }
-        
-        // 删除设备
-        async function deleteDevice(deviceId, deviceName) {
+
+        function togglePlaybackAutoRefresh() {
+            playbackAutoRefreshEnabled = !playbackAutoRefreshEnabled;
+            updatePlaybackAutoRefreshButtonState();
+            if (playbackAutoRefreshEnabled) {
+                startPlaybackAutoRefresh();
+                if (isPlaybackSectionActive()) {
+                    loadPlaybackData({ source: 'manual', manualToast: false });
+                }
+            } else {
+                stopPlaybackAutoRefresh();
+            }
+            showToast(`播放监控自动刷新已${playbackAutoRefreshEnabled ? '开启' : '关闭'}`, 'info');
+        }
+
+        async function removeUserDevice(deviceId, deviceName) {
             const confirmed = await showConfirm({
                 title: '删除设备',
                 message: `确定要删除设备 "${deviceName}" 吗？\n\n删除后该设备的播放记录也会被清除。`,
@@ -6503,102 +6701,88 @@ async function unbindTelegramId() {
                 type: 'danger'
             });
             if (!confirmed) return;
-            
+
             try {
                 const response = await fetch(`/api/emby/devices/${deviceId}`, {
                     method: 'DELETE'
                 });
-                
                 const data = await parseResponseData(response);
-                
-                if (data.success) {
-                    showToast('设备已删除', 'success');
-                    loadPlaybackData();  // 刷新设备列表
-                } else {
+                if (!data.success) {
                     showToast(data.error || '删除失败', 'error');
+                    return;
                 }
+
+                showToast('设备已删除', 'success');
+                await loadPlaybackData({
+                    source: 'device-refresh',
+                    forceDevices: true,
+                    forceHistory: true,
+                    manualToast: false
+                });
             } catch (error) {
                 console.error('删除设备失败:', error);
                 showToast('删除失败，请重试', 'error');
             }
         }
-        
-        // 启动自动刷新 - 每 10 秒刷新一次（实时同步）
-        function startPlaybackAutoRefresh() {
-            if (playbackRefreshInterval) {
-                clearInterval(playbackRefreshInterval);
-            }
-            // 每 10 秒自动刷新（实时同步）
-            playbackRefreshInterval = setInterval(() => {
-                const playbackSection = document.getElementById('section-playback');
-                if (playbackSection && playbackSection.classList.contains('active')) {
-                    loadPlaybackData();
-                }
-            }, 10000);
+
+        async function deleteDevice(deviceId, deviceName) {
+            await removeUserDevice(deviceId, deviceName);
         }
-        
-        function stopPlaybackAutoRefresh() {
-            if (playbackRefreshInterval) {
-                clearInterval(playbackRefreshInterval);
-                playbackRefreshInterval = null;
-            }
+
+        async function confirmDeleteDevice(deviceId, deviceName) {
+            await removeUserDevice(deviceId, deviceName);
         }
-        
+
         // ==================== 我的设备列表 ====================
         async function loadMyDevices() {
+            const data = await fetchPlaybackJson('/api/emby/devices', '无法获取设备列表');
+            renderMyDevices(data);
+            updatePlaybackStats({ devicesData: data });
+            return data;
+        }
+
+        function renderMyDevices(data) {
             const container = document.getElementById('myDevicesContainer');
             const countBadge = document.getElementById('myDeviceCount');
             if (!container) return;
-            
-            try {
-                const response = await fetch('/api/emby/devices');
-                const data = await parseResponseData(response);
-                
-                if (!data.success) {
-                    container.innerHTML = `
-                        <div class="empty-devices">
-                            <div class="empty-icon">📱</div>
-                            <h4>无法获取设备</h4>
-                            <p>${data.error || '请稍后重试'}</p>
-                        </div>
-                    `;
-                    return;
-                }
-                
-                const devices = data.devices || [];
+
+            if (!data.success) {
                 if (countBadge) {
-                    countBadge.textContent = `${devices.length} 个设备`;
+                    countBadge.textContent = '--';
                 }
-                
-                if (devices.length === 0) {
-                    container.innerHTML = `
-                        <div class="empty-devices">
-                            <div class="empty-icon">📱</div>
-                            <h4>暂无设备记录</h4>
-                            <p>播放过内容的设备会自动记录在这里</p>
-                        </div>
-                    `;
-                    return;
-                }
-                
-                container.innerHTML = `
-                    <div class="my-devices-grid">
-                        ${devices.map(device => renderMyDeviceCard(device)).join('')}
-                    </div>
-                `;
-                
-            } catch (error) {
-                console.error('加载设备列表失败:', error);
                 container.innerHTML = `
                     <div class="empty-devices">
-                        <div class="empty-icon">❌</div>
-                        <h4>加载失败</h4>
-                        <p>请稍后重试</p>
+                        <div class="empty-icon">📱</div>
+                        <h4>无法获取设备</h4>
+                        <p>${data.error || '请稍后重试'}</p>
                     </div>
                 `;
+                return;
             }
+
+            const devices = data.devices || [];
+            if (countBadge) {
+                countBadge.textContent = `${devices.length} 个设备`;
+            }
+
+            if (devices.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-devices">
+                        <div class="empty-icon">📱</div>
+                        <h4>暂无设备记录</h4>
+                        <p>播放过内容的设备会自动记录在这里。</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="my-devices-grid">
+                    ${devices.map(device => renderMyDeviceCard(device)).join('')}
+                </div>
+            `;
         }
-        
+
         function renderMyDeviceCard(device) {
             const clientLower = (device.client || '').toLowerCase();
             let deviceIcon = '📱';
@@ -6606,69 +6790,42 @@ async function unbindTelegramId() {
             else if (clientLower.includes('web') || clientLower.includes('chrome')) deviceIcon = '🌐';
             else if (clientLower.includes('windows') || clientLower.includes('mac')) deviceIcon = '💻';
             else if (clientLower.includes('infuse') || clientLower.includes('plex') || clientLower.includes('senplayer')) deviceIcon = '🎥';
-            
+
             const lastActive = device.last_active ? formatTimeAgo(device.last_active) : '未知';
-            
+            const safeName = encodeURIComponent(device.device_name || '未知设备');
+
             return `
                 <div class="my-device-card" data-device-id="${device.id}">
                     <div class="device-main">
                         <div class="device-icon-large">${deviceIcon}</div>
                         <div class="device-details">
-                            <div class="device-name">${escapeHtml(device.device_name)}</div>
-                            <div class="device-client">${escapeHtml(device.client)} ${device.client_version ? 'v' + device.client_version : ''}</div>
+                            <div class="device-name">${escapeHtml(device.device_name || '未知设备')}</div>
+                            <div class="device-client">${escapeHtml(device.client || '未知客户端')} ${device.client_version ? `v${device.client_version}` : ''}</div>
                             <div class="device-meta">
                                 <span class="last-active">最后活跃: ${lastActive}</span>
-                                ${device.last_ip ? `<span class="last-ip">📍 ${device.last_ip}</span>` : ''}
+                                ${device.last_ip ? `<span class="last-ip">📍 ${escapeHtml(device.last_ip)}</span>` : ''}
                             </div>
                         </div>
                     </div>
                     <div class="device-actions">
-                        <button class="btn-delete-device" onclick="confirmDeleteDevice(${device.id}, '${escapeHtml(device.device_name)}')" title="删除此设备">
+                        <button class="btn-delete-device" onclick="confirmDeleteDevice(${device.id}, decodeURIComponent('${safeName}'))" title="删除此设备">
                             🗑️ 删除
                         </button>
                     </div>
                 </div>
             `;
         }
-        
+
         function formatTimeAgo(dateString) {
             const date = new Date(dateString);
+            if (!Number.isFinite(date.getTime())) return '未知';
             const now = new Date();
             const seconds = Math.floor((now - date) / 1000);
-            
             if (seconds < 60) return '刚刚';
-            if (seconds < 3600) return Math.floor(seconds / 60) + ' 分钟前';
-            if (seconds < 86400) return Math.floor(seconds / 3600) + ' 小时前';
-            if (seconds < 604800) return Math.floor(seconds / 86400) + ' 天前';
+            if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
+            if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
+            if (seconds < 604800) return `${Math.floor(seconds / 86400)} 天前`;
             return date.toLocaleDateString('zh-CN');
-        }
-        
-        async function confirmDeleteDevice(deviceId, deviceName) {
-            const confirmed = await showConfirm({
-                title: '删除设备',
-                message: `确定要删除设备 "${deviceName}" 吗？\n\n删除后该设备的播放记录也会被清除。`,
-                confirmText: '删除',
-                type: 'danger'
-            });
-            
-            if (!confirmed) return;
-            
-            try {
-                const response = await fetch(`/api/emby/devices/${deviceId}`, {
-                    method: 'DELETE'
-                });
-                const data = await parseResponseData(response);
-                
-                if (data.success) {
-                    showToast('成功', '设备已删除', 'success');
-                    loadMyDevices();  // 刷新设备列表
-                } else {
-                    showToast('失败', data.error || '删除失败', 'error');
-                }
-            } catch (error) {
-                console.error('删除设备失败:', error);
-                showToast('错误', '删除失败', 'error');
-            }
         }
 
 
