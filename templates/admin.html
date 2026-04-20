@@ -398,7 +398,10 @@
                                 <div class="analytics-card">
                                     <div class="analytics-card-head">
                                         <h4><span class="analytics-icon">👤</span>用户统计</h4>
-                                        <span class="analytics-badge">Users</span>
+                                        <div class="analytics-card-actions">
+                                            <button id="moreUsersBtn" class="analytics-more-btn" onclick="toggleDonutLegend('legendUsers', this)" style="display:none;">查看更多</button>
+                                            <span class="analytics-badge">Users</span>
+                                        </div>
                                     </div>
                                     <div class="donut-chart-wrap" id="donutUsers"></div>
                                     <div class="donut-legend" id="legendUsers"></div>
@@ -406,7 +409,10 @@
                                 <div class="analytics-card">
                                     <div class="analytics-card-head">
                                         <h4><span class="analytics-icon">📱</span>客户端统计</h4>
-                                        <span class="analytics-badge">Clients</span>
+                                        <div class="analytics-card-actions">
+                                            <button id="moreClientsBtn" class="analytics-more-btn" onclick="toggleDonutLegend('legendClients', this)" style="display:none;">查看更多</button>
+                                            <span class="analytics-badge">Clients</span>
+                                        </div>
                                     </div>
                                     <div class="donut-chart-wrap" id="donutClients"></div>
                                     <div class="donut-legend" id="legendClients"></div>
@@ -414,7 +420,10 @@
                                 <div class="analytics-card">
                                     <div class="analytics-card-head">
                                         <h4><span class="analytics-icon">🖥️</span>设备统计</h4>
-                                        <span class="analytics-badge">Devices</span>
+                                        <div class="analytics-card-actions">
+                                            <button id="moreDevicesBtn" class="analytics-more-btn" onclick="toggleDonutLegend('legendDevices', this)" style="display:none;">查看更多</button>
+                                            <span class="analytics-badge">Devices</span>
+                                        </div>
                                     </div>
                                     <div class="donut-chart-wrap" id="donutDevices"></div>
                                     <div class="donut-legend" id="legendDevices"></div>
@@ -434,18 +443,24 @@
                                 <div class="media-card">
                                     <div class="analytics-card-head">
                                         <h4><span class="analytics-icon">🎬</span>电影统计</h4>
-                                        <span class="analytics-badge">Movies</span>
+                                        <div class="analytics-card-actions">
+                                            <button id="moreMoviesBtn" class="analytics-more-btn" onclick="toggleDonutLegend('legendMovies', this)" style="display:none;">查看更多</button>
+                                            <span class="analytics-badge">Movies</span>
+                                        </div>
                                     </div>
                                     <div class="donut-chart-wrap donut-chart-lg" id="donutMovies"></div>
-                                    <div class="donut-legend donut-legend-paged" id="legendMovies"></div>
+                                    <div class="donut-legend" id="legendMovies"></div>
                                 </div>
                                 <div class="media-card">
                                     <div class="analytics-card-head">
                                         <h4><span class="analytics-icon">📺</span>剧集统计</h4>
-                                        <span class="analytics-badge">Series</span>
+                                        <div class="analytics-card-actions">
+                                            <button id="moreSeriesBtn" class="analytics-more-btn" onclick="toggleDonutLegend('legendSeries', this)" style="display:none;">查看更多</button>
+                                            <span class="analytics-badge">Series</span>
+                                        </div>
                                     </div>
                                     <div class="donut-chart-wrap donut-chart-lg" id="donutSeries"></div>
-                                    <div class="donut-legend donut-legend-paged" id="legendSeries"></div>
+                                    <div class="donut-legend" id="legendSeries"></div>
                                 </div>
                             </div>
                         </div>

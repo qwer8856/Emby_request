@@ -9254,6 +9254,31 @@ select.custom-select:focus,
     flex-shrink: 0;
 }
 
+.analytics-card-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.analytics-more-btn {
+    height: 24px;
+    padding: 0 10px;
+    border: 1px solid #dbeafe;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #2563eb;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.analytics-more-btn:hover {
+    background: #dbeafe;
+    border-color: #bfdbfe;
+}
+
 .dash-donut-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -9309,13 +9334,9 @@ select.custom-select:focus,
     fill: #94a3b8;
 }
 .donut-legend {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 8px 14px;
+    width: 100%;
     font-size: 12px;
     color: #64748b;
-    max-width: 100%;
 }
 .donut-legend-item {
     display: inline-flex;
@@ -9329,6 +9350,44 @@ select.custom-select:focus,
     border-radius: 50%;
     display: inline-block;
     flex-shrink: 0;
+}
+
+.donut-rank-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.donut-rank-item {
+    display: grid;
+    grid-template-columns: 20px 12px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid #eef2f7;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.donut-rank-no {
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    text-align: center;
+}
+
+.donut-rank-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #334155;
+}
+
+.donut-rank-value {
+    font-size: 11px;
+    color: #94a3b8;
+    white-space: nowrap;
 }
 /* 分页图例 */
 .donut-legend-paged {
@@ -9404,6 +9463,14 @@ select.custom-select:focus,
         height: 20px;
         padding: 0 8px;
     }
+    .analytics-card-actions {
+        gap: 6px;
+    }
+    .analytics-more-btn {
+        height: 22px;
+        padding: 0 8px;
+        font-size: 11px;
+    }
     .dash-donut-row {
         grid-template-columns: 1fr;
         gap: 12px;
@@ -9415,6 +9482,15 @@ select.custom-select:focus,
     .donut-chart-lg {
         width: 140px;
         height: 140px;
+    }
+    .donut-rank-item {
+        grid-template-columns: 18px 10px minmax(0, 1fr);
+        row-gap: 2px;
+    }
+    .donut-rank-value {
+        grid-column: 3;
+        justify-self: end;
+        font-size: 10px;
     }
 }
 
