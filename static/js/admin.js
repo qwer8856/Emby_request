@@ -3737,12 +3737,30 @@ async function loadSystemConfig() {
                 if (retRenewDays) retRenewDays.value = config.subscription_expire.retention_renew_days ?? 30;
                 
                 toggleRetentionSettings();
+
+                // 更新订阅过期管理状态徽章
+                const subscriptionExpireStatus = document.getElementById('subscriptionExpireStatus');
+                if (subscriptionExpireStatus) {
+                    const hasCustomPolicy = (
+                        config.subscription_expire.auto_disable === false ||
+                        (config.subscription_expire.delete_days || 0) > 0 ||
+                        (config.subscription_expire.retention_mode || 'off') !== 'off'
+                    );
+                    subscriptionExpireStatus.textContent = hasCustomPolicy ? '已配置' : '默认';
+                    subscriptionExpireStatus.className = 'status-badge ' + (hasCustomPolicy ? 'configured' : '');
+                }
             } else {
                 // 设置默认值
                 if (expireAutoDisable) expireAutoDisable.checked = true;
                 if (expireDeleteDays) expireDeleteDays.value = 0;
                 if (expireDeleteWebAccount) expireDeleteWebAccount.checked = false;
                 toggleRetentionSettings();
+
+                const subscriptionExpireStatus = document.getElementById('subscriptionExpireStatus');
+                if (subscriptionExpireStatus) {
+                    subscriptionExpireStatus.textContent = '默认';
+                    subscriptionExpireStatus.className = 'status-badge';
+                }
             }
             
             // 更新保号积分单位名称
@@ -4001,14 +4019,19 @@ async function saveExpireRemindConfig() {
 
 // 订阅过期配置
 async function saveSubscriptionExpireConfig() {
+    const parseIntOrDefault = (value, defaultValue) => {
+        const num = parseInt(value, 10);
+        return Number.isFinite(num) ? num : defaultValue;
+    };
+
     const autoDisable = document.getElementById('expireAutoDisable').checked;
-    const deleteDays = parseInt(document.getElementById('expireDeleteDays').value) || 0;
+    const deleteDays = parseIntOrDefault(document.getElementById('expireDeleteDays').value, 0);
     const deleteWebAccount = document.getElementById('expireDeleteWebAccount').checked;
     const retentionMode = document.getElementById('retentionMode')?.value || 'off';
-    const retentionCheckinCost = parseInt(document.getElementById('retentionCheckinCost')?.value) || 10;
-    const retentionWatchDays = parseInt(document.getElementById('retentionWatchDays')?.value) || 30;
-    const retentionWatchMinutes = parseInt(document.getElementById('retentionWatchMinutes')?.value) || 30;
-    const retentionRenewDays = parseInt(document.getElementById('retentionRenewDays')?.value) || 30;
+    const retentionCheckinCost = parseIntOrDefault(document.getElementById('retentionCheckinCost')?.value, 10);
+    const retentionWatchDays = parseIntOrDefault(document.getElementById('retentionWatchDays')?.value, 30);
+    const retentionWatchMinutes = parseIntOrDefault(document.getElementById('retentionWatchMinutes')?.value, 30);
+    const retentionRenewDays = parseIntOrDefault(document.getElementById('retentionRenewDays')?.value, 30);
     
     try {
         const response = await fetch('/api/admin/system-config', {

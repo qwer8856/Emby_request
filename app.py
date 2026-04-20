@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.50'
+APP_VERSION = '2.2.51'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -26737,10 +26737,15 @@ def check_expired_subscriptions():
                         continue
                     
                     # ==================== 保号检查 ====================
-                    # 仅对刚过期（3天内）的用户执行保号检查，避免对长期过期用户重复续期
-                    days_expired = (now - user.ex).days if user.ex else 999
+                    # 仅对刚过期（严格72小时内）的用户执行保号检查，避免对长期过期用户重复续期
+                    expired_seconds = (now - user.ex).total_seconds() if user.ex else None
+                    days_expired = int(expired_seconds // 86400) if expired_seconds is not None and expired_seconds >= 0 else 999
+                    recently_expired = (
+                        expired_seconds is not None and
+                        0 <= expired_seconds <= 3 * 24 * 3600
+                    )
                     
-                    if retention_mode != 'off' and user.ex and days_expired <= 3:
+                    if retention_mode != 'off' and recently_expired:
                         retention_ok = _check_user_retention(
                             user, now, retention_mode,
                             retention_checkin_days, retention_checkin_cost,
@@ -26858,6 +26863,31 @@ def _check_user_retention(user, now, mode, checkin_days, checkin_cost,
     user_name = user.emby_name or user.name
     
     try:
+        # 并发保护：对用户行加锁，避免多线程/多进程重复保号导致重复扣分
+        try:
+            locked_user = (
+                User.query.filter_by(tg=user.tg)
+                .with_for_update()
+                .populate_existing()
+                .first()
+            )
+        except Exception:
+            # 某些数据库（如 SQLite）不支持 FOR UPDATE，回退普通查询
+            locked_user = User.query.filter_by(tg=user.tg).first()
+
+        if not locked_user:
+            return False
+
+        user = locked_user
+        user_name = user.emby_name or user.name
+
+        # 二次校验：并发场景下，其他线程可能已完成续期
+        if not user.ex or user.ex > now:
+            return False
+        expired_seconds = (now - user.ex).total_seconds()
+        if expired_seconds < 0 or expired_seconds > 3 * 24 * 3600:
+            return False
+
         # ===== 签到保号检查 =====
         checkin_ok = False
         if mode in ('checkin', 'both'):
