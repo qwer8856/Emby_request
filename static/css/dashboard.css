@@ -3144,7 +3144,43 @@
         .user-profile-header {
             display: flex;
             align-items: center;
+            justify-content: space-between;
             gap: 20px;
+        }
+
+        .user-profile-main {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .user-profile-actions {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .user-delete-btn {
+            min-width: 110px;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.24);
+            box-shadow: 0 8px 18px rgba(185, 28, 28, 0.28);
+            backdrop-filter: blur(6px);
+        }
+
+        .user-delete-btn:hover {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%) !important;
+            box-shadow: 0 10px 20px rgba(127, 29, 29, 0.32);
+        }
+
+        .user-delete-hint {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.82);
+            white-space: nowrap;
         }
         
         .user-avatar-lg {
@@ -3479,6 +3515,22 @@
             grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
             gap: 16px;
             margin-bottom: 20px;
+        }
+
+        .feature-card-emby {
+            order: 1;
+        }
+
+        .feature-card-emby-password {
+            order: 2;
+        }
+
+        .feature-card-site-password {
+            order: 3;
+        }
+
+        .feature-card-email {
+            order: 4;
         }
         
         .feature-card-v2 {
@@ -3896,7 +3948,28 @@
             }
             
             .user-profile-header {
+                flex-direction: column;
+                align-items: flex-start;
                 gap: 16px;
+            }
+
+            .user-profile-main {
+                gap: 16px;
+                width: 100%;
+            }
+
+            .user-profile-actions {
+                width: 100%;
+                align-items: stretch;
+                gap: 6px;
+            }
+
+            .user-delete-btn {
+                width: 100%;
+            }
+
+            .user-delete-hint {
+                text-align: right;
             }
             
             .user-avatar-lg {
@@ -17567,44 +17640,77 @@
         flex: 1;
         min-height: 0;
         display: grid;
-        grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr);
-        grid-template-rows: auto auto minmax(0, 1fr);
+        grid-template-columns: minmax(320px, 0.95fr) minmax(320px, 1.05fr);
+        grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto;
+        grid-template-areas:
+            "profile profile"
+            "stats emby-password"
+            "emby-info site-password"
+            "email email";
         gap: 12px;
     }
 
+    #section-profile.panel-fullscreen-active .profile-page-v2.profile-no-emby-password {
+        grid-template-areas:
+            "profile profile"
+            "stats site-password"
+            "emby-info site-password"
+            "email email";
+    }
+
+    #section-profile.panel-fullscreen-active .profile-page-v2.profile-no-email {
+        grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-areas:
+            "profile profile"
+            "stats emby-password"
+            "emby-info site-password";
+    }
+
+    #section-profile.panel-fullscreen-active .profile-page-v2.profile-no-emby-password.profile-no-email {
+        grid-template-areas:
+            "profile profile"
+            "stats site-password"
+            "emby-info site-password";
+    }
+
     #section-profile.panel-fullscreen-active .user-profile-card {
-        grid-column: 1;
-        grid-row: 1;
+        grid-area: profile;
         margin: 0;
         padding: 20px;
     }
 
     #section-profile.panel-fullscreen-active .stats-section-v2 {
-        grid-column: 1;
-        grid-row: 2;
+        grid-area: stats;
         margin: 0;
         padding: 18px;
-    }
-
-    #section-profile.panel-fullscreen-active .danger-zone-v2 {
-        grid-column: 1;
-        grid-row: 3;
-        margin: 0;
+        min-height: 0;
+        overflow: auto;
     }
 
     #section-profile.panel-fullscreen-active .feature-cards-v2 {
-        grid-column: 2;
-        grid-row: 1 / span 3;
+        display: contents;
         margin: 0;
-        min-height: 0;
-        overflow: auto;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        padding-right: 4px;
     }
 
     #section-profile.panel-fullscreen-active .feature-card-v2 {
-        flex: 0 0 auto;
+        min-height: 0;
+        max-height: 100%;
+        overflow: auto;
+    }
+
+    #section-profile.panel-fullscreen-active .feature-card-emby {
+        grid-area: emby-info;
+    }
+
+    #section-profile.panel-fullscreen-active .feature-card-emby-password {
+        grid-area: emby-password;
+    }
+
+    #section-profile.panel-fullscreen-active .feature-card-site-password {
+        grid-area: site-password;
+    }
+
+    #section-profile.panel-fullscreen-active .feature-card-email {
+        grid-area: email;
     }
 }

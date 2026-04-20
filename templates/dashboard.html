@@ -811,23 +811,29 @@
             </div>
             
             <!-- 新设计的个人信息页面 -->
-            <div class="profile-page-v2">
+            <div class="profile-page-v2 {% if user.embyid %}profile-has-emby-password{% else %}profile-no-emby-password{% endif %} {% if email_enabled %}profile-has-email{% else %}profile-no-email{% endif %}">
                 <!-- 顶部用户卡片 -->
                 <div class="user-profile-card">
                     <div class="user-profile-header">
-                        <div class="user-avatar-lg">{{ (user.name or 'U')[0].upper() }}</div>
-                        <div class="user-profile-info">
-                            <h2 class="user-display-name">{{ user.name or '用户' }}</h2>
-                            <div class="user-badges">
-                                <span class="user-badge {% if user.lv == 'c' %}badge-banned{% elif is_whitelist %}badge-vip{% elif user.ex and user.ex > now %}badge-sub{% else %}badge-normal{% endif %}">
-                                    {% if user.lv == 'c' %}🚫 已封禁{% elif is_whitelist %}👑 白名单{% elif user.ex and user.ex > now %}⭐ 订阅中{% else %}普通用户{% endif %}
-                                </span>
-                                {% if user.embyid %}
-                                <span class="user-badge badge-emby">✓ Emby 已绑定</span>
-                                {% else %}
-                                <span class="user-badge badge-warning">⚠ 未绑定Emby</span>
-                                {% endif %}
+                        <div class="user-profile-main">
+                            <div class="user-avatar-lg">{{ (user.name or 'U')[0].upper() }}</div>
+                            <div class="user-profile-info">
+                                <h2 class="user-display-name">{{ user.name or '用户' }}</h2>
+                                <div class="user-badges">
+                                    <span class="user-badge {% if user.lv == 'c' %}badge-banned{% elif is_whitelist %}badge-vip{% elif user.ex and user.ex > now %}badge-sub{% else %}badge-normal{% endif %}">
+                                        {% if user.lv == 'c' %}🚫 已封禁{% elif is_whitelist %}👑 白名单{% elif user.ex and user.ex > now %}⭐ 订阅中{% else %}普通用户{% endif %}
+                                    </span>
+                                    {% if user.embyid %}
+                                    <span class="user-badge badge-emby">✓ Emby 已绑定</span>
+                                    {% else %}
+                                    <span class="user-badge badge-warning">⚠ 未绑定Emby</span>
+                                    {% endif %}
+                                </div>
                             </div>
+                        </div>
+                        <div class="user-profile-actions">
+                            <button class="btn-v2 btn-danger-v2 user-delete-btn" onclick="showDeleteAccountDialog()">删除账号</button>
+                            <span class="user-delete-hint">此操作不可撤销</span>
                         </div>
                     </div>
                 </div>
@@ -908,7 +914,7 @@
                 <!-- 功能卡片区域 -->
                 <div class="feature-cards-v2">
                     <!-- Emby 账号管理 -->
-                    <div class="feature-card-v2">
+                    <div class="feature-card-v2 feature-card-emby">
                         <div class="feature-card-header-v2">
                             <span class="feature-icon-v2">🎬</span>
                             <span class="feature-title-v2">Emby 账号</span>
@@ -974,7 +980,7 @@
                     </div>
                     
                     <!-- 修改网站登录密码 -->
-                    <div class="feature-card-v2">
+                    <div class="feature-card-v2 feature-card-site-password">
                         <div class="feature-card-header-v2">
                             <span class="feature-icon-v2">🔐</span>
                             <span class="feature-title-v2">修改网站密码</span>
@@ -1015,7 +1021,7 @@
                     
                     <!-- 邮箱绑定 -->
                     {% if email_enabled %}
-                    <div class="feature-card-v2">
+                    <div class="feature-card-v2 feature-card-email">
                         <div class="feature-card-header-v2">
                             <span class="feature-icon-v2">📧</span>
                             <span class="feature-title-v2">绑定邮箱</span>
@@ -1062,7 +1068,7 @@
                     
                     <!-- 修改 Emby 密码 -->
                     {% if user.embyid %}
-                    <div class="feature-card-v2">
+                    <div class="feature-card-v2 feature-card-emby-password">
                         <div class="feature-card-header-v2">
                             <span class="feature-icon-v2">🎬</span>
                             <span class="feature-title-v2">修改 Emby 密码</span>
@@ -1101,22 +1107,6 @@
                         </div>
                     </div>
                     {% endif %}
-                </div>
-                
-                <!-- 危险操作区域 -->
-                <div class="danger-zone-v2">
-                    <div class="danger-zone-header-v2">
-                        <span>⚠️</span> 危险操作
-                    </div>
-                    <div class="danger-zone-content-v2">
-                        <div class="danger-item-v2">
-                            <div class="danger-text">
-                                <strong>删除账号</strong>
-                                <span>永久删除您的账号及所有数据，此操作不可撤销</span>
-                            </div>
-                            <button class="btn-v2 btn-danger-v2" onclick="showDeleteAccountDialog()">删除账号</button>
-                        </div>
-                    </div>
                 </div>
             </div>
         </section>
