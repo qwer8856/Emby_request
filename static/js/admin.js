@@ -2441,7 +2441,12 @@ async function loadInviteStats() {
 function updateInviteStatsDisplay(stats) {
     document.getElementById('totalInvites').textContent = stats.total || 0;
     document.getElementById('successfulInvites').textContent = stats.successful || 0;
-    document.getElementById('totalRewards').textContent = '¥' + (stats.total_rewards || 0).toFixed(2);
+    document.getElementById('totalRewards').textContent = formatDayInt(stats.total_rewards) + ' 天';
+}
+
+function formatDayInt(value) {
+    const num = Number(value) || 0;
+    return Math.max(0, Math.round(num));
 }
 
 function renderInviteRecords(records) {
@@ -2478,8 +2483,8 @@ function renderInviteRecords(records) {
                 <td data-label="被邀请人">${record.invitee_name || record.invitee_tg || '-'}</td>
                 <td data-label="邀请码"><code>${record.invite_code || '-'}</code></td>
                 <td data-label="奖励类型">${record.reward_type_display || record.reward_type || '-'}</td>
-                <td data-label="奖励金额">${record.reward_value ? record.reward_value.toFixed(1) + ' 天' : '-'}</td>
-                <td data-label="待审核">${record.pending_reward > 0 ? '<strong style="color:#f59e0b;">' + record.pending_reward.toFixed(1) + ' 天</strong>' : '-'}</td>
+                <td data-label="奖励天数">${record.reward_value ? formatDayInt(record.reward_value) + ' 天' : '-'}</td>
+                <td data-label="待审核">${record.pending_reward > 0 ? '<strong style="color:#f59e0b;">' + formatDayInt(record.pending_reward) + ' 天</strong>' : '-'}</td>
                 <td data-label="状态"><span class="status-badge ${statusClass}">${statusText}</span></td>
                 <td data-label="时间">${record.created_at ? new Date(record.created_at).toLocaleString() : '-'}</td>
                 <td data-label="操作">${actionHtml}</td>
@@ -5862,13 +5867,11 @@ function renderRedeemCodesTable() {
         const usedInfo = code.is_used ? `${code.used_by_name || '-'}` : '-';
         const usedTime = code.is_used && code.used_at ? new Date(code.used_at).toLocaleString() : '-';
         
-        // 智能显示天数/月数
-        let durationText;
+        // 统一显示：优先天数，并补充月数换算
+        let durationText = `${code.duration_days}天`;
         if (code.duration_days % 30 === 0 && code.duration_days >= 30) {
             const months = code.duration_days / 30;
-            durationText = `${months}个月`;
-        } else {
-            durationText = `${code.duration_days}天`;
+            durationText = `${code.duration_days}天（${months}个月）`;
         }
         
         return `
@@ -6044,9 +6047,9 @@ function showGenerateRedeemDialog() {
     document.getElementById('redeemPlanMode').style.display = 'none';
     document.getElementById('redeemCodeType').value = 'new';
     document.getElementById('redeemCustomDays').value = '30';
-    document.getElementById('redeemCustomPlan').value = 'custom';
+    document.getElementById('redeemCustomPlan').value = '';
     document.getElementById('redeemPlanType').value = '';
-    document.getElementById('redeemExpiresDays').value = '';
+    updateRedeemExpiresOptions('custom', '');
     document.getElementById('redeemCount').value = '1';
     document.getElementById('redeemRemark').value = '';
     const planInfo = document.getElementById('redeemPlanInfo');
@@ -6062,6 +6065,36 @@ function hideGenerateRedeemDialog() {
 
 // ==================== 兑换码生成模式切换 ====================
 let _redeemMode = 'custom'; // 'custom' 或 'plan'
+const REDEEM_EXPIRES_OPTIONS = {
+    custom: [1, 3, 7, 15, 30],
+    plan: [1, 3, 7, 15, 30, 60, 90, 180, 360]
+};
+
+function getRedeemExpiresAllowedSet(mode) {
+    const values = REDEEM_EXPIRES_OPTIONS[mode] || REDEEM_EXPIRES_OPTIONS.custom;
+    return new Set(values.map(v => String(v)));
+}
+
+function updateRedeemExpiresOptions(mode, preferredValue = '') {
+    const select = document.getElementById('redeemExpiresDays');
+    if (!select) return;
+    const values = REDEEM_EXPIRES_OPTIONS[mode] || REDEEM_EXPIRES_OPTIONS.custom;
+    const current = preferredValue !== undefined && preferredValue !== null
+        ? String(preferredValue)
+        : String(select.value || '');
+
+    const opts = [`<option value="">永不过期</option>`];
+    values.forEach(v => {
+        opts.push(`<option value="${v}">${v}天内有效</option>`);
+    });
+    select.innerHTML = opts.join('');
+
+    if (current && getRedeemExpiresAllowedSet(mode).has(current)) {
+        select.value = current;
+    } else {
+        select.value = '';
+    }
+}
 
 function switchRedeemMode(mode, btn) {
     _redeemMode = mode;
@@ -6077,6 +6110,7 @@ function switchRedeemMode(mode, btn) {
         customDiv.style.display = 'none';
         planDiv.style.display = '';
     }
+    updateRedeemExpiresOptions(mode, document.getElementById('redeemExpiresDays')?.value || '');
 }
 
 function onRedeemPlanChange() {
@@ -6103,7 +6137,7 @@ function onRedeemPlanChange() {
 async function generateRedeemCodes() {
     const codeType = document.getElementById('redeemCodeType').value;
     const count = parseInt(document.getElementById('redeemCount').value);
-    const expiresDays = document.getElementById('redeemExpiresDays').value;
+    const expiresDays = String(document.getElementById('redeemExpiresDays').value || '');
     const remark = (document.getElementById('redeemRemark').value || '').trim();
     
     if (count < 1 || count > 100) {
@@ -6111,15 +6145,22 @@ async function generateRedeemCodes() {
         return;
     }
     
-    let planType, durationDays;
+    let planType, durationDays, planName;
     
     if (_redeemMode === 'custom') {
         // 自定义天数模式
         durationDays = parseInt(document.getElementById('redeemCustomDays').value);
         planType = document.getElementById('redeemCustomPlan').value;
+        const planSel = document.getElementById('redeemCustomPlan');
+        const planOpt = planSel ? planSel.options[planSel.selectedIndex] : null;
+        planName = planOpt && planOpt.value ? planOpt.textContent.split('（')[0] : '';
         
         if (!durationDays || durationDays < 1 || durationDays > 3650) {
             showToast('警告', '请输入有效的天数（1-3650）', 'error');
+            return;
+        }
+        if (!planType) {
+            showToast('警告', '自定义时长模式必须选择绑定套餐', 'error');
             return;
         }
     } else {
@@ -6132,6 +6173,15 @@ async function generateRedeemCodes() {
         }
         const opt = sel.options[sel.selectedIndex];
         durationDays = parseInt(opt.dataset.durationDays) || 30;
+        planName = opt && opt.value ? opt.textContent.split(' - ')[0] : '';
+    }
+
+    if (expiresDays) {
+        const allowedSet = getRedeemExpiresAllowedSet(_redeemMode);
+        if (!allowedSet.has(expiresDays)) {
+            showToast('警告', '当前模式下兑换码有效期不在允许范围内，请重新选择', 'error');
+            return;
+        }
     }
     
     const btn = document.querySelector('#generateRedeemOverlay .btn-primary');
@@ -6143,6 +6193,7 @@ async function generateRedeemCodes() {
         showLoading(`正在生成 ${count} 个兑换码...`);
         const body = {
             code_type: codeType,
+            redeem_mode: _redeemMode,
             plan_type: planType,
             duration_days: durationDays,
             count: count,
@@ -6164,7 +6215,14 @@ async function generateRedeemCodes() {
             loadRedeemCodes();
             
             if (data.codes && data.codes.length > 0) {
-                showGeneratedCodes(data.codes.map(c => c.code));
+                showGeneratedCodes(data.codes, {
+                    mode: _redeemMode,
+                    codeType,
+                    planType,
+                    planName: (data.meta && data.meta.plan_name) || planName || planType,
+                    durationDays: (data.meta && data.meta.duration_days) || durationDays,
+                    expiresDays: (data.meta && data.meta.expires_days !== undefined) ? data.meta.expires_days : (expiresDays ? parseInt(expiresDays, 10) : null)
+                });
             }
         } else {
             showToast('失败', data.error || '生成失败', 'error');
@@ -6180,8 +6238,25 @@ async function generateRedeemCodes() {
 }
 
 // 显示生成的兑换码
-function showGeneratedCodes(codes) {
-    const codesText = codes.join('\n');
+function showGeneratedCodes(codeItems, meta = {}) {
+    const rawCodes = Array.isArray(codeItems) ? codeItems : [];
+    const codes = rawCodes.map(item => (typeof item === 'string' ? item : item.code)).filter(Boolean);
+    const codeLines = codes.map((code, idx) => `${idx + 1}. ${code}`);
+    const codeTypeText = meta.codeType === 'renew' ? '续费码' : '新购码';
+    const modeText = meta.mode === 'plan' ? '套餐兑换码' : '自定义时长 + 绑定套餐';
+    const durationText = `${parseInt(meta.durationDays || 0, 10) || 0}天`;
+    const expiresText = meta.expiresDays ? `${meta.expiresDays}天内有效` : '永不过期';
+    const planName = meta.planName || meta.planType || '-';
+    const summaryText = [
+        `生成数量：${codes.length}个`,
+        `兑换类型：${codeTypeText}`,
+        `生成模式：${modeText}`,
+        `绑定套餐：${planName}`,
+        `订阅时长：${durationText}`,
+        `兑换码有效期：${expiresText}`
+    ].join('\n');
+    const summaryHtml = (typeof escapeHtml === 'function') ? escapeHtml(summaryText) : summaryText;
+    const codesText = `${summaryText}\n\n兑换码列表：\n${codeLines.join('\n')}`;
     const dialog = document.createElement('div');
     dialog.className = 'modal-overlay show';
     // 点击遮罩层关闭
@@ -6195,7 +6270,10 @@ function showGeneratedCodes(codes) {
                 <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
             </div>
             <div class="modal-body">
-                <p style="margin-bottom:12px;color:#6b7280;">已生成 ${codes.length} 个兑换码：</p>
+                <div style="margin-bottom:12px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+                    <div style="white-space:pre-line;color:#334155;line-height:1.6;font-size:13px;">${summaryHtml}</div>
+                </div>
+                <p style="margin-bottom:12px;color:#6b7280;">兑换码列表：</p>
                 <textarea readonly style="width:100%;height:200px;font-family:monospace;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;resize:none;">${codesText}</textarea>
             </div>
             <div class="modal-footer">
@@ -8144,7 +8222,7 @@ async function renderInviteRewardTab(userId) {
                 </div>
                 <div class="info-item">
                     <div class="label">返利状态</div>
-                    <div class="value">${invitedBy.status_display || (invitedBy.reward_claimed ? '✅ 已发放' : '⏳ 待审核')} | 累计返利: ${invitedBy.reward_value || 0} 天${invitedBy.pending_reward > 0 ? ' | 待审核: ' + invitedBy.pending_reward + ' 天' : ''}</div>
+                    <div class="value">${invitedBy.status_display || (invitedBy.reward_claimed ? '✅ 已发放' : '⏳ 待审核')} | 累计返利: ${formatDayInt(invitedBy.reward_value)} 天${invitedBy.pending_reward > 0 ? ' | 待审核: ' + formatDayInt(invitedBy.pending_reward) + ' 天' : ''}</div>
                 </div>
                 <div class="info-item">
                     <div class="label">返利模式</div>
@@ -8168,14 +8246,14 @@ async function renderInviteRewardTab(userId) {
             for (const inv of invites) {
                 const modeLabel = inv.reward_mode === 'once' ? '一次性' : inv.reward_mode === 'recurring' ? '循环' : '全局';
                 const pctLabel = inv.custom_reward_percent !== null ? inv.custom_reward_percent + '%' : '全局';
-                const statusLabel = inv.status === 'pending' ? '⏳ 待审核(' + (inv.pending_reward || 0) + '天)' : 
+                const statusLabel = inv.status === 'pending' ? '⏳ 待审核(' + formatDayInt(inv.pending_reward) + '天)' : 
                                    inv.status === 'approved' ? '✅ 已发放' : '🕐 等待购买';
                 const badgeClass = inv.status === 'approved' ? 'active' : 'pending';
                 html += `<div class="list-item" style="padding: 8px 12px;">
                     <div class="list-item-main">
                         <div class="list-item-title">${inv.invitee_name || '未知'} (ID: ${inv.invitee_tg})</div>
                         <div class="list-item-subtitle">
-                            模式: ${modeLabel} | 比例: ${pctLabel} | 累计返利: ${inv.reward_value || 0}天 | 
+                            模式: ${modeLabel} | 比例: ${pctLabel} | 累计返利: ${formatDayInt(inv.reward_value)}天 | 
                             ${inv.created_at ? new Date(inv.created_at).toLocaleDateString('zh-CN') : ''}
                         </div>
                     </div>

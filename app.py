@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.51'
+APP_VERSION = '2.2.54'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -10494,13 +10494,9 @@ _ranking_timer_lock = threading.Lock()  # 保护 _ranking_timers 的线程锁
 _ranking_schedule_version = {'daily': 0, 'weekly': 0}  # 调度版本号，防止旧Timer回调覆盖新调度
 
 def _build_ranking_text(days, ranking_config):
-    """构建排行榜文本消息（供定时推送使用）
-    
-    模板风格借鉴 embyboss (Sakura_embyboss)：
-    - 播放日榜/周榜：电影 + 电视剧，含播放次数和时长
-    - 用户观影榜：用户观影时长排名，含奖牌和中文名次
-    """
+    """构建排行榜文本消息（供定时推送使用）"""
     from datetime import timezone as tz, date as dt_date
+    import html
     import requests as req_lib
 
     if not emby_client.is_enabled():
@@ -10519,9 +10515,11 @@ def _build_ranking_text(days, ranking_config):
         site_name = ''
     if not site_name:
         site_name = 'Emby'
+    safe_site_name = html.escape(site_name)
 
     end_dt = datetime.now(tz(timedelta(hours=8)))
-    start_time = (end_dt - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    start_dt = end_dt - timedelta(days=days)
+    start_time = start_dt.strftime("%Y-%m-%d %H:%M:%S")
     end_time = end_dt.strftime("%Y-%m-%d %H:%M:%S")
     today_str = dt_date.today().strftime('%Y-%m-%d')
 
@@ -10549,7 +10547,7 @@ def _build_ranking_text(days, ranking_config):
         exclude_clause = f" AND UserId NOT IN ({ids_str})"
 
     def format_duration(seconds):
-        """格式化秒数为可读时长（与 embyboss convert_s 风格一致）"""
+        """格式化秒数为可读时长"""
         try:
             s = int(float(seconds))
         except (ValueError, TypeError):
@@ -10568,19 +10566,16 @@ def _build_ranking_text(days, ranking_config):
         parts.append(f'{minutes} 分钟')
         return ' '.join(parts)
 
-    # 中文数字映射（类似 embyboss 的 cn2an）
-    cn_nums = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十',
-               '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十']
-
-    def rank_to_cn(n):
-        """数字转中文名次"""
-        if 1 <= n <= len(cn_nums):
-            return cn_nums[n - 1]
-        return str(n)
+    def short_title(name, limit=36):
+        txt = ' '.join(str(name or '').split()).strip()
+        if len(txt) <= limit:
+            return txt
+        return txt[: max(1, limit - 1)] + '…'
 
     submit_url = f"{base}/emby/user_usage_stats/submit_custom_query"
-    rank_medals = ['🥇', '🥈', '🥉', '🏅']
-    period_name = '日' if days == 1 else '周'
+    rank_medals = ['🥇', '🥈', '🥉']
+    period_name = '日榜' if days == 1 else '周榜'
+    period_tag = '#DayRanks' if days == 1 else '#WeekRanks'
 
     # ====== 查询数据 ======
     movie_sql = (
@@ -10657,84 +10652,92 @@ def _build_ranking_text(days, ranking_config):
         pass
 
     def get_user_display(uid):
-        """根据 Emby UserId 返回带 TG 链接的用户显示名"""
+        """根据 Emby UserId 返回带 TG 链接的用户显示名（HTML安全）"""
         local = local_user_map.get(uid)
-        if local and local['name']:
-            name = local['name']
+        if local:
+            name = (local.get('name') or emby_user_map.get(uid) or '未知用户')
             tg_id = local.get('tg_id')
             if tg_id:
-                return f'<a href="tg://user?id={tg_id}">{name}</a>'
-            return name
+                return f'<a href="tg://user?id={tg_id}">{html.escape(name)}</a>'
+            return html.escape(name)
         # 回退到 Emby 用户名
         emby_name = emby_user_map.get(uid)
         if emby_name:
-            return emby_name
+            return html.escape(emby_name)
         return '未知用户'
 
     has_data = bool(movies or episodes or users)
     if not has_data:
         return None
 
-    # ====== 组装文本（embyboss 风格）======
-    # 使用 HTML parse_mode，用 <b> 模拟 Markdown 的 ** 粗体
-
+    # ====== 组装文本（结构化、紧凑、可读）======
+    max_chars = 3900  # Telegram 单条消息 4096 限制，预留安全余量
     lines = []
+    truncated = False
+    current_size = 0
 
-    # ---------- 播放榜（电影 + 电视剧）----------
-    # 标题：【站名 播放日榜/周榜】
-    lines.append(f'<b>【{site_name} 播放{period_name}榜】</b>')
-    lines.append('')
+    def append_line(line=''):
+        nonlocal truncated, current_size
+        extra = len(line) + (1 if lines else 0)
+        if current_size + extra > max_chars:
+            truncated = True
+            return False
+        lines.append(line)
+        current_size += extra
+        return True
+
+    def render_rank_icon(rank_no):
+        if rank_no <= 3:
+            return rank_medals[rank_no - 1]
+        return f'{rank_no}.'
+
+    append_line(f'<b>🏆 {safe_site_name} 播放{period_name}</b>')
+    append_line(f'📅 统计区间：{start_dt.strftime("%m-%d %H:%M")} ~ {end_dt.strftime("%m-%d %H:%M")} (UTC+8)')
+    append_line()
 
     # 电影部分
+    append_line(f'<b>🎬 电影 TOP {min(movie_limit, len(movies)) if movies else movie_limit}</b>')
     if movies:
-        lines.append('<b>▎电影:</b>')
-        lines.append('')
-        for i, row in enumerate(movies):
+        for i, row in enumerate(movies, start=1):
             try:
                 name = str(row[3]).strip() if row[3] else ''
                 count = int(row[4]) if row[4] else 0
                 duration = format_duration(row[5])
                 if not name:
                     continue
-                lines.append(f'{i + 1}. {name}')
-                lines.append(f'播放次数: {count}  时长:{duration}')
+                title = html.escape(short_title(name))
+                icon = render_rank_icon(i)
+                if not append_line(f'{icon} {title} · {count}次 · {duration}'):
+                    break
             except (IndexError, ValueError):
                 continue
+    else:
+        append_line('暂无数据')
 
     # 电视剧部分
+    append_line()
+    append_line(f'<b>📺 剧集 TOP {min(episode_limit, len(episodes)) if episodes else episode_limit}</b>')
     if episodes:
-        lines.append('')
-        lines.append('<b>▎电视剧:</b>')
-        lines.append('')
-        for i, row in enumerate(episodes):
+        for i, row in enumerate(episodes, start=1):
             try:
                 name = str(row[3]).strip() if row[3] else ''
                 count = int(row[4]) if row[4] else 0
                 duration = format_duration(row[5])
                 if not name:
                     continue
-                lines.append(f'{i + 1}. {name}')
-                lines.append(f'播放次数: {count}  时长:{duration}')
+                title = html.escape(short_title(name))
+                icon = render_rank_icon(i)
+                if not append_line(f'{icon} {title} · {count}次 · {duration}'):
+                    break
             except (IndexError, ValueError):
                 continue
-
-    # hashtag + 日期
-    if movies or episodes:
-        tag = '#DayRanks' if days == 1 else '#WeekRanks'
-        lines.append('')
-        lines.append(f'{tag}  {today_str}')
+    else:
+        append_line('暂无数据')
 
     # ---------- 用户观影时长榜 ----------
+    append_line()
+    append_line(f'<b>👤 用户观影 TOP {min(user_limit, len(users)) if users else user_limit}</b>')
     if users:
-        # 如果前面有电影/剧集榜，空两行分隔
-        if movies or episodes:
-            lines.append('')
-            lines.append('━━━━━━━━━━━━━━━')
-            lines.append('')
-
-        lines.append(f'<b>▎🏆{site_name} {days} 天观影榜</b>')
-        lines.append('')
-
         for rank, row in enumerate(users, start=1):
             try:
                 uid = str(row[0]) if row[0] else ''
@@ -10742,16 +10745,19 @@ def _build_ranking_text(days, ranking_config):
                 if secs <= 0:
                     continue
                 display_name = get_user_display(uid)
-                medal = rank_medals[rank - 1] if rank <= 3 else rank_medals[3]
-                cn_rank = rank_to_cn(rank)
+                medal = render_rank_icon(rank)
                 duration_str = format_duration(secs)
-                lines.append(f'{medal}<b>第{cn_rank}名</b> | {display_name}')
-                lines.append(f'  观影时长 | {duration_str}')
+                if not append_line(f'{medal} {display_name} · {duration_str}'):
+                    break
             except (IndexError, ValueError):
                 continue
+    else:
+        append_line('暂无数据')
 
-        lines.append('')
-        lines.append(f'#UPlaysRank {today_str}')
+    append_line()
+    append_line(f'{period_tag} #UPlaysRank {today_str}')
+    if truncated:
+        append_line('…内容较多，已自动截断')
 
     return '\n'.join(lines)
 
@@ -23577,7 +23583,8 @@ def admin_generate_redeem_code():
     try:
         data = request.get_json(silent=True) or {}
         code_type = str(data.get('code_type', 'new')).strip().lower()  # new: 新订阅, renew: 续费
-        plan_type = str(data.get('plan_type', 'standard')).strip()
+        redeem_mode = str(data.get('redeem_mode', '')).strip().lower()  # custom / plan
+        plan_type = str(data.get('plan_type', '')).strip()
         remark = (data.get('remark', '') or '').strip()
         expires_days = data.get('expires_days')  # 兑换码有效期（天）
 
@@ -23585,16 +23592,41 @@ def admin_generate_redeem_code():
         if code_type not in {'new', 'renew'}:
             return jsonify({'error': '兑换类型无效，仅支持 new 或 renew'}), 400
 
-        try:
-            duration_days = int(data.get('duration_days', 30))
-        except (TypeError, ValueError):
-            return jsonify({'error': '订阅天数格式错误'}), 400
-        if duration_days <= 0 or duration_days > 99999:
-            return jsonify({'error': '订阅天数需在 1-99999 之间'}), 400
+        if redeem_mode not in {'custom', 'plan'}:
+            redeem_mode = 'custom' if 'duration_days' in data else 'plan'
 
-        valid_plan_ids = {str(p.get('id')) for p in load_plans_config() if p.get('id')}
-        if plan_type != 'custom' and plan_type not in valid_plan_ids:
-            return jsonify({'error': '关联套餐无效'}), 400
+        plans_config = load_plans_config()
+        plan_map = {str(p.get('id')): p for p in plans_config if p.get('id')}
+
+        if not plan_type:
+            return jsonify({'error': '请先选择绑定套餐'}), 400
+        if plan_type not in plan_map:
+            return jsonify({'error': '绑定套餐无效，请重新选择'}), 400
+        selected_plan = plan_map[plan_type]
+        selected_plan_name = selected_plan.get('name', plan_type)
+
+        def _plan_duration_days(plan_item):
+            try:
+                days = int(plan_item.get('duration_days') or 0)
+            except (TypeError, ValueError):
+                days = 0
+            if days > 0:
+                return days
+            try:
+                months = int(plan_item.get('duration') or 1)
+            except (TypeError, ValueError):
+                months = 1
+            return max(1, months * 30)
+
+        if redeem_mode == 'plan':
+            duration_days = _plan_duration_days(selected_plan)
+        else:
+            try:
+                duration_days = int(data.get('duration_days', 30))
+            except (TypeError, ValueError):
+                return jsonify({'error': '订阅天数格式错误'}), 400
+            if duration_days <= 0 or duration_days > 99999:
+                return jsonify({'error': '订阅天数需在 1-99999 之间'}), 400
         
         # 生成唯一兑换码
         import string
@@ -23610,8 +23642,9 @@ def admin_generate_redeem_code():
                 expires_days = int(expires_days)
             except (TypeError, ValueError):
                 return jsonify({'error': '兑换码有效期格式错误'}), 400
-            if expires_days <= 0 or expires_days > 3650:
-                return jsonify({'error': '兑换码有效期需在 1-3650 天之间'}), 400
+            allowed_expires = {1, 3, 7, 15, 30} if redeem_mode == 'custom' else {1, 3, 7, 15, 30, 60, 90, 180, 360}
+            if expires_days not in allowed_expires:
+                return jsonify({'error': '当前模式下兑换码有效期不在允许范围内'}), 400
             expires_at = datetime.now() + timedelta(days=expires_days)
         
         redeem = RedeemCode(
@@ -23626,12 +23659,23 @@ def admin_generate_redeem_code():
         db.session.add(redeem)
         db.session.commit()
         
-        app.logger.info(f'生成兑换码: {code}, 类型: {code_type}, 套餐: {plan_type}, 天数: {duration_days}')
+        app.logger.info(
+            f'生成兑换码: {code}, 类型: {code_type}, 模式: {redeem_mode}, '
+            f'套餐: {plan_type}({selected_plan_name}), 天数: {duration_days}'
+        )
         log_admin_audit('redeem_create', detail=f'生成兑换码 {code}，{duration_days}天', target_type='redeem', target_id=code)
         
         return jsonify({
             'success': True,
-            'code': redeem.to_dict()
+            'code': redeem.to_dict(),
+            'meta': {
+                'code_type': code_type,
+                'redeem_mode': redeem_mode,
+                'plan_type': plan_type,
+                'plan_name': selected_plan_name,
+                'duration_days': duration_days,
+                'expires_days': expires_days if expires_days not in [None, ''] else None
+            }
         }), 200
     except Exception as e:
         app.logger.error(f'生成兑换码失败: {e}')
@@ -23646,7 +23690,8 @@ def admin_batch_generate_redeem_codes():
     try:
         data = request.get_json(silent=True) or {}
         code_type = str(data.get('code_type', 'new')).strip().lower()
-        plan_type = str(data.get('plan_type', 'standard')).strip()
+        redeem_mode = str(data.get('redeem_mode', '')).strip().lower()  # custom / plan
+        plan_type = str(data.get('plan_type', '')).strip()
         remark = (data.get('remark', '') or '').strip()
         expires_days = data.get('expires_days')
 
@@ -23654,12 +23699,41 @@ def admin_batch_generate_redeem_codes():
         if code_type not in {'new', 'renew'}:
             return jsonify({'error': '兑换类型无效，仅支持 new 或 renew'}), 400
 
-        try:
-            duration_days = int(data.get('duration_days', 30))
-        except (TypeError, ValueError):
-            return jsonify({'error': '订阅天数格式错误'}), 400
-        if duration_days <= 0 or duration_days > 99999:
-            return jsonify({'error': '订阅天数需在 1-99999 之间'}), 400
+        if redeem_mode not in {'custom', 'plan'}:
+            redeem_mode = 'custom' if 'duration_days' in data else 'plan'
+
+        plans_config = load_plans_config()
+        plan_map = {str(p.get('id')): p for p in plans_config if p.get('id')}
+
+        if not plan_type:
+            return jsonify({'error': '请先选择绑定套餐'}), 400
+        if plan_type not in plan_map:
+            return jsonify({'error': '绑定套餐无效，请重新选择'}), 400
+        selected_plan = plan_map[plan_type]
+        selected_plan_name = selected_plan.get('name', plan_type)
+
+        def _plan_duration_days(plan_item):
+            try:
+                days = int(plan_item.get('duration_days') or 0)
+            except (TypeError, ValueError):
+                days = 0
+            if days > 0:
+                return days
+            try:
+                months = int(plan_item.get('duration') or 1)
+            except (TypeError, ValueError):
+                months = 1
+            return max(1, months * 30)
+
+        if redeem_mode == 'plan':
+            duration_days = _plan_duration_days(selected_plan)
+        else:
+            try:
+                duration_days = int(data.get('duration_days', 30))
+            except (TypeError, ValueError):
+                return jsonify({'error': '订阅天数格式错误'}), 400
+            if duration_days <= 0 or duration_days > 99999:
+                return jsonify({'error': '订阅天数需在 1-99999 之间'}), 400
 
         try:
             count = int(data.get('count', 10))
@@ -23667,10 +23741,6 @@ def admin_batch_generate_redeem_codes():
             return jsonify({'error': '生成数量格式错误'}), 400
         if count < 1 or count > 100:
             return jsonify({'error': '生成数量需在 1-100 之间'}), 400
-
-        valid_plan_ids = {str(p.get('id')) for p in load_plans_config() if p.get('id')}
-        if plan_type != 'custom' and plan_type not in valid_plan_ids:
-            return jsonify({'error': '关联套餐无效'}), 400
         
         expires_at = None
         if expires_days not in [None, '']:
@@ -23678,8 +23748,9 @@ def admin_batch_generate_redeem_codes():
                 expires_days = int(expires_days)
             except (TypeError, ValueError):
                 return jsonify({'error': '兑换码有效期格式错误'}), 400
-            if expires_days <= 0 or expires_days > 3650:
-                return jsonify({'error': '兑换码有效期需在 1-3650 天之间'}), 400
+            allowed_expires = {1, 3, 7, 15, 30} if redeem_mode == 'custom' else {1, 3, 7, 15, 30, 60, 90, 180, 360}
+            if expires_days not in allowed_expires:
+                return jsonify({'error': '当前模式下兑换码有效期不在允许范围内'}), 400
             expires_at = datetime.now() + timedelta(days=expires_days)
         
         import string
@@ -23704,13 +23775,24 @@ def admin_batch_generate_redeem_codes():
         
         db.session.commit()
         
-        app.logger.info(f'批量生成兑换码: {count}个, 类型: {code_type}, 套餐: {plan_type}, 天数: {duration_days}')
+        app.logger.info(
+            f'批量生成兑换码: {count}个, 类型: {code_type}, 模式: {redeem_mode}, '
+            f'套餐: {plan_type}({selected_plan_name}), 天数: {duration_days}'
+        )
         log_admin_audit('redeem_create', detail=f'批量生成{count}个兑换码，{duration_days}天', target_type='redeem')
         
         return jsonify({
             'success': True,
             'codes': generated_codes,
-            'count': len(generated_codes)
+            'count': len(generated_codes),
+            'meta': {
+                'code_type': code_type,
+                'redeem_mode': redeem_mode,
+                'plan_type': plan_type,
+                'plan_name': selected_plan_name,
+                'duration_days': duration_days,
+                'expires_days': expires_days if expires_days not in [None, ''] else None
+            }
         }), 200
     except Exception as e:
         app.logger.error(f'批量生成兑换码失败: {e}')
@@ -24323,7 +24405,7 @@ def admin_get_invite_stats():
         # 成功邀请数（已领取奖励）
         successful_invites = InviteRecord.query.filter_by(reward_claimed=True).count()
         
-        # 总奖励金额
+        # 总奖励天数
         total_rewards = db.session.query(
             func.sum(InviteRecord.reward_value)
         ).filter(InviteRecord.reward_claimed == True).scalar() or 0
