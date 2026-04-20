@@ -17,7 +17,7 @@ import hashlib
 import ipaddress
 
 # 应用版本号
-APP_VERSION = '2.2.65'
+APP_VERSION = '2.2.66'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -20653,6 +20653,45 @@ def _parse_header_lines(header_text):
     return headers
 
 
+def _extract_response_error_detail(response, max_len=240):
+    """提取上游错误详情，便于前端和日志展示具体失败原因。"""
+    detail = ''
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            parts = []
+            for key in ('message', 'error', 'detail', 'reason', 'status'):
+                val = payload.get(key)
+                if val:
+                    parts.append(str(val).strip())
+            doc_url = payload.get('documentation_url')
+            if doc_url:
+                parts.append(f'doc={doc_url}')
+            errors = payload.get('errors')
+            if isinstance(errors, list) and errors:
+                first = errors[0]
+                if isinstance(first, dict):
+                    nested = first.get('message') or first.get('code') or first.get('field')
+                    if nested:
+                        parts.append(str(nested).strip())
+                elif isinstance(first, str):
+                    parts.append(first.strip())
+            detail = ' | '.join([p for p in parts if p])
+    except Exception:
+        detail = ''
+
+    if not detail:
+        try:
+            detail = (response.text or '').strip()
+        except Exception:
+            detail = ''
+
+    detail = detail.replace('\r', ' ').replace('\n', ' ').strip()
+    if len(detail) > max_len:
+        detail = detail[:max_len] + '...'
+    return detail
+
+
 def _check_latest_release(upgrade_cfg):
     check_url = upgrade_cfg.get('check_url', '').strip()
     if not check_url:
@@ -20669,7 +20708,17 @@ def _check_latest_release(upgrade_cfg):
         return {'success': False, 'error': f'请求检查地址失败: {e}'}
 
     if response.status_code >= 400:
-        return {'success': False, 'error': f'检查地址返回错误: HTTP {response.status_code}'}
+        detail = _extract_response_error_detail(response)
+        error_text = f'检查地址返回错误: HTTP {response.status_code}'
+        if detail:
+            error_text += f'，原因: {detail}'
+        return {
+            'success': False,
+            'error': error_text,
+            'status_code': response.status_code,
+            'error_detail': detail,
+            'check_url': check_url
+        }
 
     latest_version = ''
     release_url = check_url

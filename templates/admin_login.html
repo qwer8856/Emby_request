@@ -29,14 +29,18 @@
         }
 
         html, body {
-            min-height: 100%;
+            width: 100%;
+            height: 100%;
         }
 
         body {
             position: relative;
-            overflow: hidden;
-            display: grid;
-            place-items: center;
+            overflow: auto;
+            min-height: 100vh;
+            min-height: 100dvh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             padding: 24px;
             background:
                 radial-gradient(80% 60% at 10% 0%, #dbeafe 0%, rgba(219, 234, 254, 0) 60%),
@@ -212,6 +216,35 @@
             letter-spacing: 0.4px;
         }
 
+        .dev-tags {
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .dev-tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 11px;
+            color: #475569;
+            background: #f1f5f9;
+            border: 1px solid #dbe3ef;
+            letter-spacing: 0.2px;
+        }
+
+        .compliance-note {
+            margin-top: 10px;
+            text-align: center;
+            font-size: 11px;
+            line-height: 1.5;
+            color: #64748b;
+        }
+
         .spinner {
             display: inline-block;
             width: 16px;
@@ -248,12 +281,13 @@
         @media (max-width: 560px) {
             body {
                 padding: 16px;
-                align-items: end;
+                align-items: center;
+                justify-content: center;
             }
 
             .login-container {
                 max-width: 100%;
-                border-radius: 22px 22px 0 0;
+                border-radius: 22px;
                 padding: 30px 22px 26px;
                 box-shadow: 0 10px 28px rgba(15, 23, 42, 0.1);
             }
@@ -300,7 +334,13 @@
             <button type="submit" class="login-btn" id="loginBtn">登录</button>
         </form>
 
-        <div class="footer-text">Secure Admin Portal</div>
+        <div class="footer-text">Emby 管理系统</div>
+        <div class="dev-tags">
+            <span class="dev-tag">Flask</span>
+            <span class="dev-tag">Admin UI</span>
+            <span class="dev-tag">Build Stable</span>
+        </div>
+        <div class="compliance-note">禁止将本系统用于违反当地法律法规的用途。</div>
     </div>
 
     <script>
