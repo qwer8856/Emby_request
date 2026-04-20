@@ -2014,6 +2014,247 @@ body.page-admin {
     background: rgba(102, 126, 234, 0.05);
 }
 
+/* ==================== 求片管理 UI 重构 ==================== */
+.request-admin-section {
+    --request-border: #dbe4f1;
+    --request-soft-bg: #f8fbff;
+    --request-shadow: 0 14px 32px rgba(15, 23, 42, 0.06);
+}
+
+.request-admin-section .quick-actions {
+    gap: 14px;
+    margin-bottom: 22px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.request-admin-section .action-item {
+    padding: 16px 18px;
+    border-radius: 18px;
+    border-color: var(--request-border);
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow: 0 8px 18px rgba(148, 163, 184, 0.12);
+}
+
+.request-admin-section .action-icon {
+    width: 50px;
+    height: 50px;
+    font-size: 24px;
+    border-radius: 12px;
+}
+
+.request-admin-section .action-info h4 {
+    font-size: 30px;
+    line-height: 1;
+    letter-spacing: -0.3px;
+}
+
+.request-admin-section .action-info p {
+    font-size: 13px;
+}
+
+.request-admin-section .stats {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 22px;
+}
+
+.request-admin-section .stat-card {
+    align-items: flex-start;
+    text-align: left;
+    min-height: 98px;
+    padding: 14px 16px 14px 52px;
+}
+
+.request-admin-section .stat-icon {
+    position: absolute;
+    left: 16px;
+    top: 14px;
+    margin: 0;
+    font-size: 22px;
+}
+
+.request-admin-section .stat-content h3 {
+    font-size: 28px;
+    line-height: 1;
+}
+
+.request-admin-section .stat-content p {
+    font-size: 12px;
+}
+
+.request-admin-section .chart-section {
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+.request-admin-section .chart-container {
+    border-radius: 16px;
+    padding: 18px;
+    border-color: var(--request-border);
+    box-shadow: var(--request-shadow);
+}
+
+.request-admin-section .requests-section {
+    padding: 20px;
+    border-radius: 18px;
+    border-color: var(--request-border);
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    box-shadow: var(--request-shadow);
+}
+
+.request-admin-section .section-header {
+    margin-bottom: 14px;
+    padding: 16px;
+    border-radius: 14px;
+    border-color: #e3ebf7;
+    background: var(--request-soft-bg);
+}
+
+.request-admin-section .section-header h2 {
+    font-size: 24px;
+    margin: 0;
+}
+
+.request-admin-section .header-actions {
+    gap: 10px;
+}
+
+.request-admin-section .search-box input {
+    width: min(340px, 62vw);
+    height: 40px;
+}
+
+.request-admin-section .filter-tabs {
+    margin-bottom: 16px;
+    padding: 8px;
+    border: 1px solid #e3ebf7;
+    border-radius: 12px;
+    background: var(--request-soft-bg);
+}
+
+.request-admin-section .filter-tabs button {
+    padding: 8px 14px;
+    border-radius: 9px;
+    border-color: transparent;
+    background: transparent;
+    font-size: 13px;
+}
+
+.request-admin-section .filter-tabs button:hover {
+    background: rgba(102, 126, 234, 0.1);
+    border-color: transparent;
+}
+
+.request-admin-section .filter-tabs button.active {
+    box-shadow: none;
+}
+
+.request-admin-section .request-table-shell {
+    border: 1px solid #e5edf8;
+    border-radius: 14px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background: #ffffff;
+}
+
+.request-admin-section .request-table {
+    min-width: 980px;
+}
+
+.request-admin-section .request-table th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #f8fbff;
+}
+
+@media (max-width: 768px) {
+    .request-admin-section .quick-actions {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+
+    .request-admin-section .action-item {
+        padding: 14px 12px;
+        border-radius: 12px;
+        gap: 10px;
+    }
+
+    .request-admin-section .action-icon {
+        font-size: 22px;
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+    }
+
+    .request-admin-section .action-info h4 {
+        font-size: 20px;
+        letter-spacing: 0;
+    }
+
+    .request-admin-section .action-info p {
+        font-size: 12px;
+    }
+
+    .request-admin-section .stats {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+
+    .request-admin-section .stat-card {
+        min-height: 90px;
+        padding: 14px 10px;
+        align-items: center;
+        text-align: center;
+    }
+
+    .request-admin-section .stat-icon {
+        position: static;
+        margin-bottom: 4px;
+        font-size: 22px;
+    }
+
+    .request-admin-section .stat-content h3 {
+        font-size: 22px;
+        margin: 4px 0 2px 0;
+    }
+
+    .request-admin-section .stat-content p {
+        font-size: 11px;
+    }
+
+    .request-admin-section .chart-section {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+
+    .request-admin-section .chart-container {
+        padding: 14px;
+        border-radius: 12px;
+    }
+
+    .request-admin-section .requests-section {
+        padding: 14px;
+        border-radius: 12px;
+    }
+
+    .request-admin-section .section-header h2 {
+        font-size: 20px;
+    }
+
+    .request-admin-section .request-table-shell {
+        border: none;
+        background: transparent;
+    }
+
+    .request-admin-section .request-table {
+        min-width: 0;
+    }
+}
+
 .movie-info {
     display: flex;
     gap: 15px;

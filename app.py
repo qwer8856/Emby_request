@@ -17,7 +17,7 @@ import hashlib
 import ipaddress
 
 # 应用版本号
-APP_VERSION = '2.2.66'
+APP_VERSION = '2.2.67'
 import time
 import threading
 from threading import Lock, Thread, Event

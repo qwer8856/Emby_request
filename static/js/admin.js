@@ -245,6 +245,8 @@ let currentRequestId = null;
         // 从URL hash恢复页面
         function restoreAdminSectionFromHash() {
             const hash = window.location.hash.slice(1); // 移除 # 号
+            const searchParams = new URLSearchParams(window.location.search);
+            const hasRequestStatusParam = searchParams.has('status');
             
             // 移除预加载样式（防止刷新闪屏用）
             const preloadStyle = document.getElementById('preload-style');
@@ -258,6 +260,12 @@ let currentRequestId = null;
                     switchAdminSection(hash, null, false);
                     return true;
                 }
+            }
+
+            // 兼容旧版求片筛选链接（?status=...），自动定位到求片管理
+            if (hasRequestStatusParam) {
+                switchAdminSection('requests', null, false);
+                return true;
             }
             return false;
         }
@@ -425,8 +433,8 @@ let currentRequestId = null;
         }
         
         function filterRequests(status) {
-            // 跳转到带状态参数的URL（服务端过滤）
-            window.location.href = `/admin?status=${status}&page=1`;
+            // 跳转到带状态参数的 URL（服务端过滤），并固定回到求片管理模块
+            window.location.href = `/admin?status=${encodeURIComponent(status)}&page=1#requests`;
         }
         
         function showNoteModal(requestId, status) {
@@ -1647,14 +1655,10 @@ function switchAdminSection(section, event, updateHash = true) {
     document.getElementById('pageTitle').textContent = titles[section] || section;
     
     currentAdminSection = section;
-    if (section === 'requests' && updateHash !== false) {
-        if (updateHash) {
-            history.replaceState(null, '', `#${section}`);
-        }
-        window.location.reload();
-        return;
+    if (section !== 'requests' && downloadPollTimer) {
+        clearInterval(downloadPollTimer);
+        downloadPollTimer = null;
     }
-    
     // 更新URL hash（记住当前页面）
     if (updateHash) {
         history.replaceState(null, '', `#${section}`);
@@ -1664,6 +1668,9 @@ function switchAdminSection(section, event, updateHash = true) {
     switch(section) {
         case 'dashboard':
             loadDashboardStats();
+            break;
+        case 'requests':
+            initDownloadPolling();
             break;
         case 'subscriptions':
             loadSubscriptions();

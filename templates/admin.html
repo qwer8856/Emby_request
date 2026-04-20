@@ -506,7 +506,7 @@
                 </section>
 
                 <!-- 求片管理部分 -->
-                <section id="section-requests" class="admin-section">
+                <section id="section-requests" class="admin-section request-admin-section">
                     <!-- 快捷操作区 -->
                     <div class="quick-actions">
                         <div class="action-item" onclick="filterRequests('pending')">
@@ -665,6 +665,7 @@
                                 onclick="filterRequests('failed')">失败</button>
                         </div>
 
+                        <div class="request-table-shell">
                         <table class="request-table">
                             <thead>
                                 <tr>
@@ -811,12 +812,13 @@
                                 {% endfor %}
                             </tbody>
                         </table>
+                        </div>
 
                         <!-- 分页导航 -->
                         {% if pagination and pagination.pages > 1 %}
                         <div class="pagination">
                             {% if pagination.has_prev %}
-                            <a href="?status={{ current_status }}&page={{ pagination.prev_num }}"
+                            <a href="?status={{ current_status }}&page={{ pagination.prev_num }}#requests"
                                 class="page-btn">上一页</a>
                             {% endif %}
 
@@ -826,7 +828,7 @@
                             {% if page_num == pagination.page %}
                             <span class="page-btn active">{{ page_num }}</span>
                             {% else %}
-                            <a href="?status={{ current_status }}&page={{ page_num }}" class="page-btn">{{ page_num
+                            <a href="?status={{ current_status }}&page={{ page_num }}#requests" class="page-btn">{{ page_num
                                 }}</a>
                             {% endif %}
                             {% else %}
@@ -835,7 +837,7 @@
                             {% endfor %}
 
                             {% if pagination.has_next %}
-                            <a href="?status={{ current_status }}&page={{ pagination.next_num }}"
+                            <a href="?status={{ current_status }}&page={{ pagination.next_num }}#requests"
                                 class="page-btn">下一页</a>
                             {% endif %}
                         </div>
