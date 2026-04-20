@@ -1506,8 +1506,9 @@ async function refreshAdminCurrentSection(reason = 'auto') {
                 await loadDashboardStats();
                 break;
             case 'requests':
-                window.location.reload();
-                return;
+                // 求片页存在本地操作后的手动重载逻辑，自动刷新再次 reload 会造成双刷新体验。
+                // 这里跳过自动重载，避免重复刷新。
+                break;
             case 'subscriptions':
                 await loadSubscriptions();
                 break;
@@ -2248,12 +2249,15 @@ function getCategoryText(category) {
 }
 
 function getPriorityText(priority) {
+    const normalized = String(priority || '').toLowerCase();
     const texts = {
+        'urgent': '紧急',
         'high': '高',
         'medium': '中',
-        'low': '低'
+        'low': '低',
+        'normal': '普通'
     };
-    return texts[priority] || priority;
+    return texts[normalized] || priority || '-';
 }
 
 function getTicketStatusText(status) {
