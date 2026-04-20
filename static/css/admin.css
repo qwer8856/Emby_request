@@ -4891,6 +4891,12 @@ body.page-admin {
     display: flex;
 }
 
+/* 兑换码生成成功弹窗：降低遮罩强度，避免“黑屏”感 */
+.modal-overlay.generated-codes-overlay {
+    background: rgba(15, 23, 42, 0.42);
+    backdrop-filter: blur(2px);
+}
+
 .modal-content {
     background: #ffffff;
     border-radius: 16px;

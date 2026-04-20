@@ -6487,7 +6487,6 @@ async function generateRedeemCodes() {
     btn.innerHTML = '生成中...';
     
     try {
-        showLoading(`正在生成 ${count} 个兑换码...`);
         const body = {
             code_type: codeType,
             redeem_mode: _redeemMode,
@@ -6528,7 +6527,6 @@ async function generateRedeemCodes() {
         console.error('生成兑换码失败:', error);
         showToast('错误', '生成失败: ' + error.message, 'error');
     } finally {
-        hideLoading();
         btn.disabled = false;
         btn.innerHTML = originalText;
     }
@@ -6536,6 +6534,9 @@ async function generateRedeemCodes() {
 
 // 显示生成的兑换码
 function showGeneratedCodes(codeItems, meta = {}) {
+    // 避免重复叠加多个成功弹窗导致遮罩层变深
+    document.querySelectorAll('.generated-codes-overlay').forEach(el => el.remove());
+
     const rawCodes = Array.isArray(codeItems) ? codeItems : [];
     const codes = rawCodes.map(item => (typeof item === 'string' ? item : item.code)).filter(Boolean);
     const codeLines = codes.map((code, idx) => `${idx + 1}. ${code}`);
@@ -6553,9 +6554,9 @@ function showGeneratedCodes(codeItems, meta = {}) {
         `兑换码有效期：${expiresText}`
     ].join('\n');
     const summaryHtml = (typeof escapeHtml === 'function') ? escapeHtml(summaryText) : summaryText;
-    const codesText = `${summaryText}\n\n兑换码列表：\n${codeLines.join('\n')}`;
+    const codesOnlyText = codeLines.length > 0 ? codeLines.join('\n') : '（无）';
     const dialog = document.createElement('div');
-    dialog.className = 'modal-overlay show';
+    dialog.className = 'modal-overlay show generated-codes-overlay';
     // 点击遮罩层关闭
     dialog.onclick = function(e) {
         if (e.target === dialog) dialog.remove();
@@ -6571,7 +6572,7 @@ function showGeneratedCodes(codeItems, meta = {}) {
                     <div style="white-space:pre-line;color:#334155;line-height:1.6;font-size:13px;">${summaryHtml}</div>
                 </div>
                 <p style="margin-bottom:12px;color:#6b7280;">兑换码列表：</p>
-                <textarea readonly style="width:100%;height:200px;font-family:monospace;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;resize:none;">${codesText}</textarea>
+                <textarea readonly style="width:100%;height:200px;font-family:monospace;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;resize:none;">${codesOnlyText}</textarea>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">关闭</button>
@@ -6581,8 +6582,8 @@ function showGeneratedCodes(codeItems, meta = {}) {
             </div>
         </div>
     `;
-    // 存储codes数据到DOM元素上，供复制使用
-    dialog._codesText = codesText;
+    // 仅复制兑换码行，避免把摘要信息混入
+    dialog._codesText = codesOnlyText;
     document.body.appendChild(dialog);
 }
 
