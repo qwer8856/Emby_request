@@ -5818,7 +5818,7 @@ async function unbindTelegramId() {
                                     <span class="btn-text">发送回复</span>
                                 </button>
                             </div>
-                            ` : '<div class="ticket-closed-notice">该工单已关闭，无法继续回复</div>'}
+                            ` : '<div class="ticket-closed-notice">该工单已关闭，无法继续回复，请重新发起新工单</div>'}
                         </div>
                     </div>
                 `;
@@ -5839,7 +5839,13 @@ async function unbindTelegramId() {
         
         // 从详情弹窗回复工单
         async function replyTicketFromDetail(ticketId) {
-            const content = document.getElementById('ticketReplyContent')?.value?.trim();
+            const replyInput = document.getElementById('ticketReplyContent');
+            if (!replyInput) {
+                showMessage('工单已关闭，无法回复，请重新发起新工单', 'warning');
+                return;
+            }
+
+            const content = replyInput.value.trim();
             if (!content) {
                 showMessage('请输入回复内容', 'warning');
                 return;

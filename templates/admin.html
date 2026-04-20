@@ -3711,7 +3711,7 @@
                             <span class="note-icon">ℹ️</span>
                             <span class="note-text">状态自动管理：回复→处理中，用户回复→待处理，3天无回复→关闭</span>
                         </div>
-                        <button class="btn-close-ticket" onclick="closeCurrentTicket()">关闭工单</button>
+                        <button id="ticketCloseBtn" class="btn-close-ticket" onclick="closeCurrentTicket()">关闭工单</button>
                     </div>
                 </div>
 
@@ -3725,7 +3725,8 @@
                     <div class="ticket-reply-section">
                         <label>✉️ 回复工单</label>
                         <textarea id="ticketReplyInput" placeholder="请输入您的回复内容..." rows="3"></textarea>
-                        <button class="ticket-send-btn" onclick="submitTicketReply()">
+                        <div id="ticketReplyClosedNotice" class="ticket-reply-closed-notice">工单已关闭，管理员与用户都不能继续回复，请让用户重新发起新工单。</div>
+                        <button id="ticketSendBtn" class="ticket-send-btn" onclick="submitTicketReply()">
                             <span class="btn-icon">✉️</span>
                             <span class="btn-text">发送回复</span>
                         </button>

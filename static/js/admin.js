@@ -2180,6 +2180,7 @@ async function markOrderPaid(orderNo) {
 // ==================== 工单管理 ====================
 let allTickets = [];
 let currentTicketId = null;
+let currentTicketStatus = '';
 
 async function loadTickets() {
     const status = document.getElementById('ticketStatusFilter')?.value || '';
@@ -2290,6 +2291,7 @@ async function openTicketDetail(ticketId) {
         
         const ticket = data.ticket;
         currentTicketId = ticketId;
+        currentTicketStatus = ticket.status || '';
         
         document.getElementById('ticketDetailNo').textContent = ticket.ticket_no;
         document.getElementById('ticketDetailUser').textContent = ticket.user_name || ticket.user_tg || '未知用户';
@@ -2320,6 +2322,7 @@ async function openTicketDetail(ticketId) {
         }
         
         document.getElementById('ticketReplyInput').value = '';
+        updateTicketReplyControls(currentTicketStatus);
         
         document.getElementById('ticketDetailModal').classList.add('show');
         
@@ -2332,10 +2335,48 @@ async function openTicketDetail(ticketId) {
 function closeTicketDetailModal() {
     document.getElementById('ticketDetailModal').classList.remove('show');
     currentTicketId = null;
+    currentTicketStatus = '';
+}
+
+function updateTicketReplyControls(status) {
+    const isClosed = status === 'closed';
+    const replyInput = document.getElementById('ticketReplyInput');
+    const sendBtn = document.getElementById('ticketSendBtn');
+    const closeBtn = document.getElementById('ticketCloseBtn');
+    const closedNotice = document.getElementById('ticketReplyClosedNotice');
+
+    if (replyInput) {
+        replyInput.disabled = isClosed;
+        replyInput.placeholder = isClosed
+            ? '工单已关闭，无法继续回复，请让用户重新发起新工单。'
+            : '请输入您的回复内容...';
+        if (isClosed) {
+            replyInput.value = '';
+        }
+    }
+
+    if (sendBtn) {
+        sendBtn.disabled = isClosed;
+        sendBtn.title = isClosed ? '工单已关闭，不能继续回复' : '';
+    }
+
+    if (closeBtn) {
+        closeBtn.disabled = isClosed;
+        closeBtn.title = isClosed ? '工单已关闭' : '';
+    }
+
+    if (closedNotice) {
+        closedNotice.style.display = isClosed ? 'block' : 'none';
+    }
 }
 
 async function submitTicketReply() {
     if (!currentTicketId) return;
+
+    if (currentTicketStatus === 'closed') {
+        showToast('提示', '工单已关闭，无法回复，请让用户重新发起新工单', 'warning');
+        return;
+    }
     
     const reply = document.getElementById('ticketReplyInput').value.trim();
     
@@ -2370,6 +2411,11 @@ async function submitTicketReply() {
 // 手动关闭当前工单
 async function closeCurrentTicket() {
     if (!currentTicketId) return;
+
+    if (currentTicketStatus === 'closed') {
+        showToast('提示', '该工单已关闭', 'info');
+        return;
+    }
     
     const confirmed = await showConfirm({
         title: '关闭工单',
@@ -2391,6 +2437,7 @@ async function closeCurrentTicket() {
         const data = await parseResponseData(response);
         
         if (data.success) {
+            currentTicketStatus = 'closed';
             showToast('成功', '工单已关闭', 'success');
             closeTicketDetailModal();
             loadTickets();

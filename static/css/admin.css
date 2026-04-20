@@ -1,4 +1,4 @@
-﻿body.page-admin {
+body.page-admin {
     background: #ffffff;
     min-height: 100vh;
     margin: 0;
@@ -6,13 +6,12 @@
     color: #1e293b;
 }
 
-/* ==================== 绠＄悊鍚庡彴甯冨眬 ==================== */
+/* ==================== 管理后台布局 ==================== */
 .admin-layout {
     display: flex;
     min-height: 100vh;
 }
 
-/* 渚ц竟鏍?- 涔崇櫧鑹蹭富棰?*/
 .admin-sidebar {
     width: 240px;
     background: #f8f9fa;
@@ -121,7 +120,6 @@
     color: #1e293b;
 }
 
-/* 渚ц竟鏍忓簳閮ㄦí鍚戞帓鍒?*/
 .sidebar-footer-row {
     display: flex;
     gap: 8px;
@@ -154,7 +152,7 @@
     font-size: 11px;
 }
 
-/* 涓诲唴瀹瑰尯 */
+/* 主内容区 */
 .admin-main {
     flex: 1;
     margin-left: 240px;
@@ -164,7 +162,6 @@
     background: #ffffff;
 }
 
-/* 椤堕儴瀵艰埅鏍?*/
 .admin-topbar {
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(20px);
@@ -216,14 +213,13 @@
     border-radius: 20px;
 }
 
-/* 绠＄悊鍐呭鍖?*/
 .admin-content {
     flex: 1;
     padding: 24px;
     background: #f8f9fa;
 }
 
-/* 绠＄悊妯″潡鍖哄潡 */
+/* 管理模块区块 */
 .admin-section {
     display: none;
 }
@@ -232,7 +228,6 @@
     display: block;
 }
 
-/* 淇℃伅鎻愮ず妗?*/
 .info-box {
     padding: 16px 20px;
     border-radius: 14px;
@@ -274,7 +269,7 @@
     color: #22c55e;
 }
 
-/* 缁熻鍗＄墖缃戞牸 */
+/* 统计卡片网格 */
 .admin-stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -324,7 +319,7 @@
     font-size: 13px;
 }
 
-/* 閫氱敤绠＄悊琛ㄦ牸 - 鐧借壊涓婚 */
+/* 通用管理表格 - 白色主题 */
 .admin-table {
     width: 100%;
     background: #ffffff;
@@ -374,7 +369,6 @@
     color: #64748b;
 }
 
-/* 鐘舵€佸窘绔?- 娣辫壊涓婚 */
 .status-badge {
     display: inline-flex;
     align-items: center;
@@ -429,7 +423,7 @@
     color: #94a3b8;
 }
 
-/* 濂楅绫诲瀷寰界珷 - 娣辫壊涓婚 */
+/* 套餐类型徽章 - 深色主题 */
 .plan-badge {
     display: inline-flex;
     align-items: center;
@@ -454,7 +448,6 @@
     color: #94a3b8;
 }
 
-/* 浼樺厛绾у窘绔?- 娣辫壊涓婚 */
 .priority-badge {
     display: inline-flex;
     align-items: center;
@@ -479,7 +472,7 @@
     color: #22c55e;
 }
 
-/* 鎿嶄綔鎸夐挳 - 娣辫壊涓婚 */
+/* 操作按钮 - 深色主题 */
 .btn-action {
     padding: 6px 12px;
     border: none;
@@ -556,7 +549,6 @@
     background: rgba(255, 152, 0, 0.3);
 }
 
-/* 绛夌骇涓嬫媺閫夋嫨妗?- 鐧借壊涓婚 */
 .level-select {
     padding: 5px 8px;
     border: 1px solid #e2e8f0;
@@ -584,7 +576,6 @@
     color: #1e293b;
 }
 
-/* 涓绘寜閽?- 娣辫壊涓婚 */
 .btn-primary {
     padding: 10px 20px;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -618,7 +609,7 @@
     color: #1e293b;
 }
 
-/* 宸ュ崟璇︽儏寮圭獥 - 妯増甯冨眬 */
+/* 工单详情弹窗 - 横版布局 */
 .modal-content.ticket-detail-modal {
     max-width: 1400px !important;
     width: 95% !important;
@@ -724,7 +715,7 @@
     overflow-y: auto;
 }
 
-/* 妯増甯冨眬鍐呯殑鍥炲鍖哄煙 */
+/* 横版布局内的回复区域 */
 .ticket-detail-right .ticket-reply-section {
     margin-bottom: 0;
 }
@@ -892,7 +883,7 @@
     color: #94a3b8;
 }
 
-/* 宸ュ崟瀵硅瘽璁板綍鍖哄煙 */
+/* 工单对话记录区域 */
 .ticket-messages-section {
     margin-bottom: 20px;
 }
@@ -990,7 +981,24 @@
     color: #94a3b8;
 }
 
-/* 宸ュ崟鍙戦€佸洖澶嶆寜閽?*/
+.ticket-reply-section textarea:disabled {
+    background: #f8fafc;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+
+.ticket-reply-closed-notice {
+    display: none;
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid #fed7aa;
+    background: #fff7ed;
+    color: #9a3412;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
 .ticket-send-btn {
     display: flex;
     align-items: center;
@@ -1017,6 +1025,18 @@
 
 .ticket-send-btn:active {
     transform: translateY(0);
+}
+
+.ticket-send-btn:disabled {
+    background: #cbd5e1;
+    box-shadow: none;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.ticket-send-btn:disabled:hover {
+    transform: none;
+    box-shadow: none;
 }
 
 .ticket-send-btn .btn-icon {
@@ -1059,7 +1079,6 @@
     color: #1e293b;
 }
 
-/* 宸ュ崟鐘舵€佽嚜鍔ㄧ鐞嗘彁绀?*/
 .ticket-status-info {
     display: flex;
     justify-content: space-between;
@@ -1110,7 +1129,14 @@
     border-color: rgba(239, 68, 68, 0.5);
 }
 
-/* 鐢ㄦ埛璇︽儏寮圭獥 - 娣辫壊涓婚 */
+.btn-close-ticket:disabled {
+    background: #f1f5f9;
+    color: #94a3b8;
+    border-color: #e2e8f0;
+    cursor: not-allowed;
+}
+
+/* 用户详情弹窗 - 深色主题 */
 .user-detail-modal {
     max-width: 500px;
     width: 90%;
@@ -1162,7 +1188,6 @@
     justify-content: center;
 }
 
-/* 鎺掕姒滄牱寮?- 鐧借壊涓婚 */
 .rank-list {
     padding: 10px 0;
 }
@@ -1226,7 +1251,7 @@
     color: #667eea;
 }
 
-/* 閭€璇峰浘琛ㄥ尯 - 鐧借壊涓婚 */
+/* 邀请图表区 - 白色主题 */
 .invite-charts {
     display: grid;
     grid-template-columns: 2fr 1fr;
@@ -1247,7 +1272,7 @@
     color: #1e293b;
 }
 
-/* 渚ц竟鏍忛伄缃╁眰锛堢Щ鍔ㄧ鐢級 */
+/* 侧边栏遮罩层（移动端用） */
 .sidebar-overlay {
     display: none;
     position: fixed;
@@ -1267,10 +1292,9 @@
     opacity: 1;
 }
 
-/* 鍝嶅簲寮忚璁?*/
 
 
-/* ==================== 鍘熸湁鏍峰紡淇濈暀 ==================== */
+/* ==================== 原有样式保留 ==================== */
 
 .navbar {
     background: rgba(255, 255, 255, 0.95);
@@ -1342,7 +1366,6 @@
     padding: 0 20px;
 }
 
-/* 蹇嵎鎿嶄綔鍖?- 鐧借壊涓婚 */
 .quick-actions {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -1577,7 +1600,7 @@
     font-weight: 500;
 }
 
-/* 涓嶅悓鐘舵€佺殑棰滆壊 - 娣辫壊涓婚 */
+/* 不同状态的颜色 - 深色主题 */
 .stat-card.total:hover {
     border-color: rgba(102, 126, 234, 0.5);
 }
@@ -1686,7 +1709,7 @@
     color: #fb7185;
 }
 
-/* 缁熻鍥捐〃鍖哄煙 */
+/* 统计图表区域 */
 .chart-section {
     display: grid;
     grid-template-columns: 2fr 1fr;
@@ -1712,7 +1735,7 @@
     max-height: 250px;
 }
 
-/* 鎵归噺鎿嶄綔鍖哄煙 - 鐧借壊涓婚 */
+/* 批量操作区域 - 白色主题 */
 .section-header {
     display: flex;
     justify-content: space-between;
@@ -1739,7 +1762,6 @@
     flex-wrap: wrap;
 }
 
-/* 鎼滅储妗嗘牱寮?- 鐧借壊涓婚 */
 .search-box {
     position: relative;
 }
@@ -1766,7 +1788,7 @@
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
 }
 
-/* 瀵煎嚭鎸夐挳 */
+/* 导出按钮 */
 .export-btn {
     padding: 10px 20px;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -2234,7 +2256,7 @@
     display: none;
 }
 
-/* ==================== PT 鎼滅储寮圭獥鏍峰紡 - 娴呰壊涓婚 ==================== */
+/* ==================== PT 搜索弹窗样式 - 浅色主题 ==================== */
 .pt-modal {
     max-width: 1300px;
     min-width: min(900px, 95vw);
@@ -2438,7 +2460,7 @@
     color: white;
 }
 
-/* PT 鍗＄墖鏍峰紡 - 娴呰壊涓婚 */
+/* PT 卡片样式 - 浅色主题 */
 .pt-card {
     border: 1px solid #e2e8f0;
     border-radius: 16px;
@@ -2473,7 +2495,7 @@
     flex: 1;
 }
 
-/* 濯掍綋淇℃伅鏍囩 */
+/* 媒体信息标签 */
 .pt-media-tags {
     display: flex;
     flex-wrap: wrap;
@@ -2513,7 +2535,7 @@
     color: white;
 }
 
-/* 鏉ユ簮绔欑偣寰界珷 */
+/* 来源站点徽章 */
 .pt-source-badge {
     font-size: 10px;
     padding: 3px 8px;
@@ -2672,7 +2694,6 @@
     opacity: 0.5;
 }
 
-/* 楠ㄦ灦灞忓姞杞藉姩鐢?- 娴呰壊涓婚 */
 .skeleton-loader {
     padding: 20px;
 }
@@ -2778,7 +2799,7 @@
     }
 }
 
-/* 鎼滅储鎻愮ず鏍峰紡 - 娴呰壊涓婚 */
+/* 搜索提示样式 - 浅色主题 */
 .pt-search-hint {
     background: #fef3c7;
     color: #92400e;
@@ -2794,7 +2815,7 @@
     font-weight: 600;
 }
 
-/* 鍔犺浇鍔ㄧ敾閬僵 */
+/* 加载动画遮罩 */
 .loading-overlay {
     display: none;
     position: fixed;
@@ -2841,7 +2862,7 @@
     }
 }
 
-/* 鍒犻櫎纭寮圭獥 - 娴呰壊涓婚 */
+/* 删除确认弹窗 - 浅色主题 */
 .confirm-overlay {
     display: none;
     position: fixed;
@@ -3062,7 +3083,7 @@
     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
 }
 
-/* 鍒嗛〉鏍峰紡 - 鐧借壊涓婚 */
+/* 分页样式 - 白色主题 */
 .pagination {
     display: flex;
     justify-content: center;
@@ -3106,14 +3127,13 @@
     font-size: 14px;
 }
 
-/* ==================== 绉诲姩绔搷搴斿紡璁捐 - 娣辫壊涓婚 ==================== */
+/* ==================== 移动端响应式设计 - 深色主题 ==================== */
 
 
-/* 灏忓睆骞曟墜鏈轰紭鍖?*/
 
-/* ==================== 绯荤粺璁剧疆椤甸潰鏍峰紡 - 鐧借壊涓婚 ==================== */
+/* ==================== 系统设置页面样式 - 白色主题 ==================== */
 
-/* 瀹氫箟鐧借壊涓婚鐨凜SS鍙橀噺 */
+/* 定义白色主题的CSS变量 */
 body.page-admin {
     --card-bg: #ffffff;
     --border-color: #e2e8f0;
@@ -3124,7 +3144,7 @@ body.page-admin {
     --hover-bg: rgba(102, 126, 234, 0.08);
 }
 
-/* 璁剧疆椤甸潰鍒嗙被鏍囩瀵艰埅 */
+/* 设置页面分类标签导航 */
 .settings-tabs {
     display: flex;
     gap: 8px;
@@ -3169,7 +3189,7 @@ body.page-admin {
     font-size: 15px;
 }
 
-/* 闅愯棌闈炲綋鍓嶅垎缁勭殑璁剧疆鍗＄墖 */
+/* 隐藏非当前分组的设置卡片 */
 .settings-card[data-settings-group] {
     display: none;
 }
@@ -3396,9 +3416,8 @@ body.page-admin {
     color: var(--text-primary);
 }
 
-/* 璁剧疆椤甸潰鍝嶅簲寮?*/
 
-/* ==================== 濂楅閰嶇疆鏍峰紡 ==================== */
+/* ==================== 套餐配置样式 ==================== */
 .plans-config-list {
     display: flex;
     flex-direction: column;
@@ -3408,7 +3427,7 @@ body.page-admin {
     overflow-y: visible;
 }
 
-/* 鎶樺彔鍗＄墖鏍峰紡 */
+/* 折叠卡片样式 */
 .plan-config-item.collapsible-card {
     background: #f8fafc;
     border: 1px solid #e2e8f0;
@@ -3687,7 +3706,7 @@ body.page-admin {
 }
 
 
-/* 璁㈤槄鏉冪泭閰嶇疆鍗＄墖 */
+/* 订阅权益配置卡片 */
 .benefits-config-card {
     background: #ffffff;
     border-radius: 16px;
@@ -3801,7 +3820,7 @@ body.page-admin {
     font-size: 13px;
 }
 
-/* 榛樿鏉冪泭閰嶇疆鍗＄墖 */
+/* 默认权益配置卡片 */
 .default-benefits-card {
     background: #ffffff;
     border-radius: 16px;
@@ -3845,7 +3864,7 @@ body.page-admin {
     margin-bottom: 12px;
 }
 
-/* 榛樿鏉冪泭鎶樺彔鍗＄墖 */
+/* 默认权益折叠卡片 */
 .benefit-collapsible-card {
     background: #f8fafc;
     border: 1px solid #e2e8f0;
@@ -3934,7 +3953,6 @@ body.page-admin {
     border-top: 1px solid #e2e8f0;
 }
 
-/* 濂楅鍐呮潈鐩婇厤缃?*/
 .plan-benefits-section {
     margin-top: 20px;
     padding: 16px;
@@ -3961,7 +3979,7 @@ body.page-admin {
 }
 
 
-/* 濂楅閰嶇疆椤甸潰瀹瑰櫒 */
+/* 套餐配置页面容器 */
 .plans-config-container {
     background: #ffffff;
     border-radius: 16px;
@@ -4022,7 +4040,7 @@ body.page-admin {
     color: #1a202c;
 }
 
-/* ==================== 濂楅浠锋牸閰嶇疆鏍峰紡 ==================== */
+/* ==================== 套餐价格配置样式 ==================== */
 .plan-prices-section {
     background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
     border: 1px solid #e2e8f0;
@@ -4137,7 +4155,6 @@ body.page-admin {
 }
 
 
-/* ==================== 鍏戞崲鐮佺鐞嗘牱寮?==================== */
 .redeem-codes-header {
     display: flex;
     justify-content: space-between;
@@ -4242,7 +4259,7 @@ body.page-admin {
     width: 138px;
 }
 
-/* 寰界珷鏍峰紡 */
+/* 徽章样式 */
 .badge {
     display: inline-block;
     padding: 4px 10px;
@@ -4276,7 +4293,7 @@ body.page-admin {
     color: #64748b;
 }
 
-/* 鎿嶄綔鎸夐挳 */
+/* 操作按钮 */
 .btn-action {
     padding: 6px 12px;
     border: none;
@@ -4319,7 +4336,7 @@ body.page-admin {
     background: rgba(239, 68, 68, 0.3);
 }
 
-/* 鍒嗛〉 */
+/* 分页 */
 .redeem-pagination {
     display: flex;
     justify-content: center;
@@ -4353,7 +4370,6 @@ body.page-admin {
     color: #64748b;
 }
 
-/* 鍏戞崲鐮佹ā寮忓垏鎹?*/
 .redeem-mode-tabs {
     display: flex;
     gap: 8px;
@@ -4415,7 +4431,7 @@ body.page-admin {
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 
-/* 鎵归噺鍒犻櫎鎸夐挳 */
+/* 批量删除按钮 */
 .btn-danger {
     background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
     color: white;
@@ -4429,7 +4445,7 @@ body.page-admin {
     box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
 }
 
-/* 纭寮圭獥鏍峰紡 */
+/* 确认弹窗样式 */
 .confirm-overlay {
     position: fixed;
     top: 0;
@@ -4536,7 +4552,7 @@ body.page-admin {
     box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
 }
 
-/* 寮圭獥鏍峰紡 */
+/* 弹窗样式 */
 .modal-overlay {
     position: fixed;
     top: 0;
@@ -4636,7 +4652,7 @@ body.page-admin {
     border-top: 1px solid #e2e8f0;
 }
 
-/* 琛ㄥ崟鏍峰紡 - 鐧借壊涓婚 */
+/* 表单样式 - 白色主题 */
 .form-group {
     margin-bottom: 20px;
 }
@@ -4700,7 +4716,7 @@ body.page-admin {
     margin-top: 6px;
 }
 
-/* 鎸夐挳 */
+/* 按钮 */
 .btn {
     padding: 12px 24px;
     border: none;
@@ -4727,7 +4743,6 @@ body.page-admin {
     transform: none;
 }
 
-/* ==================== 鍙姌鍙犺缃崱鐗?- 鐧借壊涓婚 ==================== */
 .settings-card.collapsible {
     margin-bottom: 16px;
     border-radius: 14px;
@@ -4798,7 +4813,7 @@ body.page-admin {
     font-weight: 500;
 }
 
-/* ==================== 鎶樺彔鍗＄墖鍐呯殑杩蜂綘缁熻 - 鐧借壊涓婚 ==================== */
+/* ==================== 折叠卡片内的迷你统计 - 白色主题 ==================== */
 .lines-stats-mini {
     display: flex;
     gap: 24px;
@@ -4826,7 +4841,7 @@ body.page-admin {
     color: #64748b;
 }
 
-/* ==================== 鎶樺彔鍗＄墖鍐呯殑绾胯矾鍒楄〃 - 娣辫壊涓婚 ==================== */
+/* ==================== 折叠卡片内的线路列表 - 深色主题 ==================== */
 .lines-list-compact {
     display: flex;
     flex-direction: column;
@@ -4970,7 +4985,7 @@ body.page-admin {
     background: #e2e8f0;
 }
 
-/* 鍚敤鎸夐挳 */
+/* 启用按钮 */
 .line-item-actions .btn-enable,
 .announcement-item-actions .btn-enable {
     background: rgba(16, 185, 129, 0.2);
@@ -4982,7 +4997,7 @@ body.page-admin {
     background: rgba(16, 185, 129, 0.3);
 }
 
-/* 绂佺敤鎸夐挳 */
+/* 禁用按钮 */
 .line-item-actions .btn-disable,
 .announcement-item-actions .btn-disable {
     background: rgba(251, 191, 36, 0.2);
@@ -4994,7 +5009,7 @@ body.page-admin {
     background: rgba(251, 191, 36, 0.3);
 }
 
-/* 璁块棶绾у埆鎸夐挳 */
+/* 访问级别按钮 */
 .line-item-actions .btn-access {
     background: rgba(99, 102, 241, 0.2);
     color: #818cf8;
@@ -5004,7 +5019,7 @@ body.page-admin {
     background: rgba(99, 102, 241, 0.3);
 }
 
-/* ==================== 鎶樺彔鍗＄墖鍐呯殑鍏憡鍒楄〃 ==================== */
+/* ==================== 折叠卡片内的公告列表 ==================== */
 .announcements-list-compact {
     display: flex;
     flex-direction: column;
@@ -5151,7 +5166,6 @@ body.page-admin {
     background: #e2e8f0;
 }
 
-/* 绌虹姸鎬佹彁绀?*/
 .empty-state-compact {
     text-align: center;
     padding: 24px;
@@ -5165,7 +5179,7 @@ body.page-admin {
     opacity: 0.5;
 }
 
-/* ==================== 绾胯矾绠＄悊鏍峰紡 ==================== */
+/* ==================== 线路管理样式 ==================== */
 .lines-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
@@ -5340,7 +5354,7 @@ body.page-admin {
     background: rgba(239, 68, 68, 0.3);
 }
 
-/* 绾胯矾寮圭獥琛ㄥ崟 */
+/* 线路弹窗表单 */
 .form-row {
     display: flex;
     gap: 16px;
@@ -5354,11 +5368,9 @@ body.page-admin {
     max-width: 500px;
 }
 
-/* 鍝嶅簲寮?*/
 
-/* ==================== 绠＄悊鍛樻挱鏀剧洃鎺ф牱寮?==================== */
 
-/* 鎾斁缁熻鍗＄墖 */
+/* 播放统计卡片 */
 .playback-stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -5407,7 +5419,7 @@ body.page-admin {
     opacity: 0.9;
 }
 
-/* 鐢ㄦ埛鎾斁鍒楄〃 */
+/* 用户播放列表 */
 .user-playback-section {
     background: #ffffff;
     border-radius: 16px;
@@ -5524,7 +5536,7 @@ body.page-admin {
     font-size: 18px;
 }
 
-/* 鐢ㄦ埛鎾斁璇︽儏寮圭獥 */
+/* 用户播放详情弹窗 */
 .user-playback-modal .modal-content {
     max-width: 800px;
     max-height: 90vh;
@@ -5570,7 +5582,7 @@ body.page-admin {
     padding: 24px;
 }
 
-/* 鐢ㄦ埛鎾斁璇︽儏鍐呭 */
+/* 用户播放详情内容 */
 .user-detail-header {
     display: flex;
     align-items: center;
@@ -5606,7 +5618,7 @@ body.page-admin {
     margin: 0;
 }
 
-/* 璇︽儏 Tab */
+/* 详情 Tab */
 .detail-tabs {
     display: flex;
     gap: 8px;
@@ -5645,7 +5657,7 @@ body.page-admin {
     background: #667eea;
 }
 
-/* 璁惧鍒楄〃 */
+/* 设备列表 */
 .admin-devices-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -5745,7 +5757,7 @@ body.page-admin {
     background: rgba(239, 68, 68, 0.3);
 }
 
-/* 鎾斁鍘嗗彶鍒楄〃 */
+/* 播放历史列表 */
 .admin-history-list {
     display: flex;
     flex-direction: column;
@@ -5816,7 +5828,6 @@ body.page-admin {
     white-space: nowrap;
 }
 
-/* 绌虹姸鎬?*/
 .admin-playback-empty {
     text-align: center;
     padding: 60px 20px;
@@ -5833,7 +5844,7 @@ body.page-admin {
     font-size: 14px;
 }
 
-/* 鎾斁绠＄悊 - Tab 鍒囨崲 */
+/* 播放管理 - Tab 切换 */
 .playback-tabs {
     display: flex;
     gap: 8px;
@@ -5883,7 +5894,7 @@ body.page-admin {
     display: block;
 }
 
-/* 鎾斁绠＄悊 - 缁熻鍗＄墖 */
+/* 播放管理 - 统计卡片 */
 .playback-admin-stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -5921,7 +5932,6 @@ body.page-admin {
     opacity: 0.9;
 }
 
-/* 鎾斁绠＄悊 - 琛ㄦ牸鐘舵€佹爣绛?*/
 .status-badge {
     display: inline-flex;
     align-items: center;
@@ -5956,7 +5966,6 @@ body.page-admin {
     color: #f87171;
 }
 
-/* 鎾斁绠＄悊 - 杩囨护鏉?*/
 .filter-bar {
     margin-bottom: 16px;
     display: flex;
@@ -5987,7 +5996,6 @@ body.page-admin {
     color: #94a3b8;
 }
 
-/* 缇庡寲涓嬫媺閫夋嫨妗?- 鍏ㄥ眬 */
 .filter-bar select,
 select.custom-select,
 .plan-config-field select,
@@ -6032,7 +6040,7 @@ select.custom-select:focus,
     background-color: #ffffff;
 }
 
-/* 鎾斁绠＄悊 - 鍒嗛〉 */
+/* 播放管理 - 分页 */
 .pagination-controls {
     display: flex;
     justify-content: center;
@@ -6072,7 +6080,6 @@ select.custom-select:focus,
     color: #64748b;
 }
 
-/* 鎾斁绠＄悊 - 琛ㄦ牸鍗曞厓鏍兼牱寮?*/
 .nowrap {
     white-space: nowrap;
 }
@@ -6089,9 +6096,8 @@ select.custom-select:focus,
     color: #f87171;
 }
 
-/* 鍝嶅簲寮?*/
 
-/* ==================== 瀹炴椂浼氳瘽鍗＄墖鏍峰紡 ==================== */
+/* ==================== 实时会话卡片样式 ==================== */
 .admin-sessions-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
@@ -6241,7 +6247,7 @@ select.custom-select:focus,
     margin-bottom: 12px;
     line-height: 1.5;
     word-break: break-word;
-    /* 鍏佽涓よ鏄剧ず */
+    /* 允许两行显示 */
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -6341,7 +6347,7 @@ select.custom-select:focus,
     }
 }
 
-/* ==================== 鐢ㄦ埛璇︽儏寮圭獥鏍峰紡 ==================== */
+/* ==================== 用户详情弹窗样式 ==================== */
 .modal-lg {
     max-width: 900px;
     width: 95%;
@@ -6384,7 +6390,7 @@ select.custom-select:focus,
     display: block;
 }
 
-/* 鐢ㄦ埛淇℃伅缃戞牸 */
+/* 用户信息网格 */
 .user-info-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -6418,7 +6424,6 @@ select.custom-select:focus,
     color: #ef4444;
 }
 
-/* 鐢ㄦ埛璇︽儏鎿嶄綔鎸夐挳琛?*/
 .user-actions-row {
     display: flex;
     gap: 10px;
@@ -6455,7 +6460,6 @@ select.custom-select:focus,
     background: rgba(245, 158, 11, 0.3);
 }
 
-/* 鑷畾涔夐摼鎺ラ厤缃牱寮?*/
 .custom-links-container {
     border: 1px solid #e2e8f0;
     border-radius: 8px;
@@ -6512,7 +6516,7 @@ select.custom-select:focus,
     color: #64748b;
 }
 
-/* 鎿嶄綔璁板綍鏍峰紡 */
+/* 操作记录样式 */
 .activity-filter {
     margin-bottom: 16px;
 }
@@ -6591,7 +6595,7 @@ select.custom-select:focus,
     color: #94a3b8;
 }
 
-/* 璁㈤槄/璁惧/姹傜墖鍒楄〃鏍峰紡 */
+/* 订阅/设备/求片列表样式 */
 .subscriptions-list,
 .devices-list,
 .requests-list {
@@ -6654,7 +6658,7 @@ select.custom-select:focus,
     color: #64748b;
 }
 
-/* 鍒嗛〉鏍峰紡 */
+/* 分页样式 */
 .pagination {
     display: flex;
     justify-content: center;
@@ -6687,9 +6691,8 @@ select.custom-select:focus,
     border-color: #667eea;
 }
 
-/* ==================== 鎶樺彔鍗＄墖鍐呭鍝嶅簲寮?==================== */
 
-/* ==================== 璁㈠崟璇︽儏寮圭獥鏍峰紡 ==================== */
+/* ==================== 订单详情弹窗样式 ==================== */
 .order-detail-modal {
     max-width: 500px;
 }
@@ -6813,7 +6816,6 @@ select.custom-select:focus,
 }
 
 
-/* ==================== 鎿嶄綔鏃ュ織鏂版牱寮?==================== */
 .activity-logs-filters {
     display: flex;
     flex-wrap: wrap;
@@ -6865,7 +6867,7 @@ select.custom-select:focus,
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
-/* 鏃ュ織鍗＄墖鍒楄〃 */
+/* 日志卡片列表 */
 .activity-logs-list {
     display: flex;
     flex-direction: column;
@@ -6882,7 +6884,7 @@ select.custom-select:focus,
     font-size: 14px;
 }
 
-/* 鍗曟潯鏃ュ織鍗＄墖 */
+/* 单条日志卡片 */
 .activity-log-card {
     background: #ffffff;
     border-radius: 12px;
@@ -6993,9 +6995,9 @@ select.custom-select:focus,
     color: #f87171;
 }
 
-/* 绉诲姩绔€傞厤 */
+/* 移动端适配 */
 
-/* ==================== 浜岀骇鍒嗙被绛栫暐閰嶇疆鏍峰紡 ==================== */
+/* ==================== 二级分类策略配置样式 ==================== */
 .category-section {
     background: var(--card-bg, rgba(255, 255, 255, 0.03));
     border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
@@ -7107,7 +7109,7 @@ select.custom-select:focus,
 }
 
 .category-item.default-category::before {
-    content: '榛樿鍒嗙被';
+    content: '默认分类';
     position: absolute;
     top: -8px;
     right: 10px;
@@ -7123,7 +7125,7 @@ select.custom-select:focus,
     font-size: 13px;
 }
 
-/* 鎷栨嫿鎺掑簭鏃剁殑鏍峰紡 */
+/* 拖拽排序时的样式 */
 .category-item.dragging {
     opacity: 0.5;
     border: 2px dashed #6366f1;
@@ -7133,8 +7135,7 @@ select.custom-select:focus,
     border-top: 3px solid #6366f1;
 }
 
-/* ==================== 绉诲姩绔畬鏁撮€傞厤 ==================== */
-/* 閬僵灞?*/
+/* ==================== 移动端完整适配 ==================== */
 .sidebar-overlay {
     display: none;
     position: fixed;
@@ -7152,12 +7153,11 @@ select.custom-select:focus,
     display: block;
 }
 
-/* 榛樿闅愯棌绉诲姩绔厓绱狅紙妗岄潰绔笉鏄剧ず锛?*/
 .mobile-header {
     display: none;
 }
 
-/* ==================== 骞虫澘閫傞厤 (769px - 1024px) ==================== */
+/* ==================== 平板适配 (769px - 1024px) ==================== */
 @media (max-width: 1024px) {
     .admin-sidebar {
         transform: translateX(-100%);
@@ -7241,9 +7241,8 @@ select.custom-select:focus,
     }
 }
 
-/* ==================== 鎵嬫満绔牱寮?(max-width: 768px) ==================== */
 @media (max-width: 768px) {
-    /* --- 甯冨眬鍩虹 --- */
+    /* --- 布局基础 --- */
     .admin-layout {
         flex-direction: column;
     }
@@ -7274,7 +7273,7 @@ select.custom-select:focus,
         width: 100%;
     }
     
-    /* --- 绉诲姩绔《閮ㄦ爮 --- */
+    /* --- 移动端顶部栏 --- */
     .mobile-header {
         display: flex;
         position: fixed;
@@ -7350,17 +7349,16 @@ select.custom-select:focus,
         font-weight: 600;
     }
     
-    /* --- 闅愯棌妗岄潰绔《閮ㄦ爮 --- */
+    /* --- 隐藏桌面端顶部栏 --- */
     .admin-topbar {
         display: none;
     }
     
-    /* --- 鍐呭鍖哄煙 --- */
+    /* --- 内容区域 --- */
     .admin-content {
         padding: 12px;
     }
     
-    /* --- 蹇嵎鎿嶄綔鍖?--- */
     .quick-actions {
         grid-template-columns: repeat(2, 1fr);
         gap: 10px;
@@ -7396,7 +7394,7 @@ select.custom-select:focus,
         transform: none;
     }
     
-    /* --- 缁熻鍗＄墖 --- */
+    /* --- 统计卡片 --- */
     .stats {
         grid-template-columns: repeat(2, 1fr);
         gap: 10px;
@@ -7431,7 +7429,7 @@ select.custom-select:focus,
         transform: none;
     }
     
-    /* --- 缁熻鍥捐〃 --- */
+    /* --- 统计图表 --- */
     .chart-section {
         grid-template-columns: 1fr;
         gap: 12px;
@@ -7452,7 +7450,7 @@ select.custom-select:focus,
         max-height: 200px;
     }
     
-    /* --- 绔犺妭澶撮儴 --- */
+    /* --- 章节头部 --- */
     .section-header {
         flex-direction: column;
         align-items: stretch;
@@ -7504,7 +7502,6 @@ select.custom-select:focus,
         padding: 12px 16px;
     }
     
-    /* --- 鎼滅储妗?--- */
     .search-box input {
         width: 100%;
         font-size: 14px;
@@ -7512,7 +7509,6 @@ select.custom-select:focus,
         border-radius: 10px;
     }
     
-    /* --- 绛涢€夋爣绛?--- */
     .filter-tabs {
         gap: 6px;
         margin-bottom: 14px;
@@ -7527,7 +7523,7 @@ select.custom-select:focus,
         flex-shrink: 0;
     }
     
-    /* --- 绛涢€夋爮 --- */
+    /* --- 筛选栏 --- */
     .filter-bar {
         flex-direction: column;
         gap: 8px;
@@ -7541,7 +7537,7 @@ select.custom-select:focus,
         border-radius: 8px;
     }
     
-    /* --- 姹傜墖绠＄悊鍖哄煙 --- */
+    /* --- 求片管理区域 --- */
     .requests-section {
         padding: 14px;
         border-radius: 12px;
@@ -7551,7 +7547,6 @@ select.custom-select:focus,
         font-size: 17px;
     }
     
-    /* --- 琛ㄦ牸鍗＄墖鍖?--- */
     .request-table,
     .admin-table {
         border: none;
@@ -7611,7 +7606,7 @@ select.custom-select:focus,
         margin-right: 12px;
     }
 
-    /* 娌℃湁 data-label 鎴栦负绌虹殑 td 涓嶆樉绀轰吉鍏冪礌 */
+    /* 没有 data-label 或为空的 td 不显示伪元素 */
     .request-table td:not([data-label])::before,
     .admin-table td:not([data-label])::before,
     .request-table td[data-label=""]::before,
@@ -7619,29 +7614,29 @@ select.custom-select:focus,
         display: none;
     }
     
-    .request-table td[data-label="閫夋嫨"],
-    .admin-table td[data-label="閫夋嫨"] {
+    .request-table td[data-label="选择"],
+    .admin-table td[data-label="选择"] {
         position: absolute;
         top: 14px;
         right: 14px;
     }
     
-    .request-table td[data-label="閫夋嫨"]::before,
-    .admin-table td[data-label="閫夋嫨"]::before {
+    .request-table td[data-label="选择"]::before,
+    .admin-table td[data-label="选择"]::before {
         display: none;
     }
     
-    .request-table td[data-label="褰辩墖淇℃伅"]::before {
+    .request-table td[data-label="影片信息"]::before {
         display: none;
     }
     
-    .request-table td[data-label="褰辩墖淇℃伅"] {
+    .request-table td[data-label="影片信息"] {
         flex-direction: column;
         align-items: flex-start;
     }
     
-    .request-table td[data-label="鎿嶄綔"],
-    .admin-table td[data-label="鎿嶄綔"] {
+    .request-table td[data-label="操作"],
+    .admin-table td[data-label="操作"] {
         flex-direction: row;
         flex-wrap: wrap;
         align-items: center;
@@ -7652,23 +7647,22 @@ select.custom-select:focus,
         margin-top: 4px;
     }
     
-    .request-table td[data-label="鎿嶄綔"]::before,
-    .admin-table td[data-label="鎿嶄綔"]::before {
+    .request-table td[data-label="操作"]::before,
+    .admin-table td[data-label="操作"]::before {
         display: none;
     }
 
-    /* 鎿嶄綔鎸夐挳鍜?select 鍦ㄥ崱鐗囧簳閮ㄧ殑甯冨眬 */
-    .admin-table td[data-label="鎿嶄綔"] button,
-    .admin-table td[data-label="鎿嶄綔"] select,
-    .admin-table td[data-label="鎿嶄綔"] .btn,
-    .admin-table td[data-label="鎿嶄綔"] .btn-action {
+    .admin-table td[data-label="操作"] button,
+    .admin-table td[data-label="操作"] select,
+    .admin-table td[data-label="操作"] .btn,
+    .admin-table td[data-label="操作"] .btn-action {
         flex: 1;
         min-width: calc(50% - 6px);
         text-align: center;
         justify-content: center;
     }
 
-    .admin-table td[data-label="鎿嶄綔"] .level-select {
+    .admin-table td[data-label="操作"] .level-select {
         min-width: 100%;
     }
     
@@ -7689,12 +7683,11 @@ select.custom-select:focus,
         justify-content: center;
     }
     
-    /* 闅愯棌绉诲姩绔笉闇€瑕佺殑鍒?*/
     .hide-mobile {
         display: none !important;
     }
     
-    /* --- 鐢靛奖淇℃伅 --- */
+    /* --- 电影信息 --- */
     .movie-info {
         flex-direction: row;
         gap: 12px;
@@ -7716,7 +7709,7 @@ select.custom-select:focus,
         font-size: 11px;
     }
     
-    /* --- 鍒嗛〉 --- */
+    /* --- 分页 --- */
     .pagination {
         flex-wrap: wrap;
         justify-content: center;
@@ -7731,7 +7724,7 @@ select.custom-select:focus,
         text-align: center;
     }
     
-    /* --- 鎵归噺鎿嶄綔 --- */
+    /* --- 批量操作 --- */
     .batch-actions {
         flex-wrap: wrap;
         gap: 8px;
@@ -7752,7 +7745,6 @@ select.custom-select:focus,
         font-size: 13px;
     }
     
-    /* --- 涓嬭浇杩涘害鏉?--- */
     .download-progress {
         width: 100%;
         margin-top: 8px;
@@ -7769,7 +7761,7 @@ select.custom-select:focus,
         flex-wrap: wrap;
     }
     
-    /* --- 寮圭獥/妯℃€佹 --- */
+    /* --- 弹窗/模态框 --- */
     .modal-overlay {
         padding: 12px;
         align-items: flex-end;
@@ -7831,7 +7823,7 @@ select.custom-select:focus,
         padding: 12px 16px;
     }
     
-    /* --- 琛ㄥ崟鍏冪礌 --- */
+    /* --- 表单元素 --- */
     .form-group {
         margin-bottom: 16px;
     }
@@ -7851,7 +7843,6 @@ select.custom-select:focus,
         -webkit-appearance: none;
     }
 
-    /* 绉诲姩绔?checkbox/radio 淇濇寔鍘熺敓澶栬 */
     .form-group input[type="checkbox"],
     .form-group input[type="radio"] {
         width: auto;
@@ -7873,7 +7864,7 @@ select.custom-select:focus,
         font-size: 12px;
     }
     
-    /* --- 纭寮圭獥 --- */
+    /* --- 确认弹窗 --- */
     .confirm-overlay {
         padding: 12px;
         align-items: flex-end;
@@ -7897,7 +7888,6 @@ select.custom-select:focus,
         font-size: 15px;
     }
     
-    /* --- 鏍囩椤?--- */
     .tabs {
         display: flex;
         overflow-x: auto;
@@ -7917,7 +7907,7 @@ select.custom-select:focus,
         flex-shrink: 0;
     }
     
-    /* --- 宸ュ崟璇︽儏 --- */
+    /* --- 工单详情 --- */
     .ticket-detail-layout {
         grid-template-columns: 1fr;
         gap: 16px;
@@ -7957,7 +7947,7 @@ select.custom-select:focus,
         max-width: 95%;
     }
     
-    /* --- 鐢ㄦ埛璇︽儏寮圭獥 --- */
+    /* --- 用户详情弹窗 --- */
     .user-info-grid {
         grid-template-columns: 1fr;
         gap: 10px;
@@ -7972,19 +7962,17 @@ select.custom-select:focus,
         width: 100%;
     }
     
-    /* --- 閭€璇峰浘琛?--- */
     .invite-charts {
         grid-template-columns: 1fr;
         gap: 12px;
     }
     
-    /* --- 鎺掕姒?--- */
     .rank-item {
         padding: 10px 12px;
         margin-bottom: 8px;
     }
     
-    /* --- 鎾斁鐩戞帶 --- */
+    /* --- 播放监控 --- */
     .playback-admin-stats {
         grid-template-columns: repeat(3, 1fr);
         gap: 8px;
@@ -8038,7 +8026,7 @@ select.custom-select:focus,
         font-size: 12px;
     }
     
-    /* --- 鎿嶄綔鎸夐挳 --- */
+    /* --- 操作按钮 --- */
     .btn-action {
         padding: 8px 14px;
         font-size: 13px;
@@ -8071,13 +8059,12 @@ select.custom-select:focus,
         font-size: 12px;
     }
     
-    /* --- 绛夌骇涓嬫媺 --- */
+    /* --- 等级下拉 --- */
     .level-select {
         padding: 8px 12px;
         font-size: 13px;
     }
     
-    /* --- 渚ц竟鏍忓唴閮?--- */
     .sidebar-nav .nav-item {
         padding: 13px 16px;
         gap: 12px;
@@ -8092,14 +8079,14 @@ select.custom-select:focus,
         font-size: 15px;
     }
     
-    /* --- 瀵煎嚭鎸夐挳 --- */
+    /* --- 导出按钮 --- */
     .export-btn {
         width: 100%;
         text-align: center;
         padding: 12px 16px;
     }
     
-    /* --- 濂楅鐩稿叧 --- */
+    /* --- 套餐相关 --- */
     .section-actions {
         width: 100%;
     }
@@ -8109,7 +8096,6 @@ select.custom-select:focus,
         text-align: center;
     }
     
-    /* --- 鐭ヨ瘑搴?--- */
     .knowledge-item {
         padding: 14px;
     }
@@ -8136,14 +8122,13 @@ select.custom-select:focus,
         text-align: center;
     }
     
-    /* --- 鍒嗙被绠＄悊 --- */
+    /* --- 分类管理 --- */
     .category-item {
         flex-direction: column;
         gap: 8px;
         align-items: flex-start;
     }
     
-    /* --- 瀵艰埅鏍?(鍘熸湁) --- */
     .navbar {
         padding: 10px 14px;
         margin: 8px auto;
@@ -8160,14 +8145,14 @@ select.custom-select:focus,
         height: 28px;
     }
     
-    /* --- 瀹瑰櫒 --- */
+    /* --- 容器 --- */
     .container {
         padding: 0 8px;
         margin: 8px auto;
     }
 }
 
-/* ==================== 瓒呭皬灞忓箷 (max-width: 480px) ==================== */
+/* ==================== 超小屏幕 (max-width: 480px) ==================== */
 @media (max-width: 480px) {
     .mobile-header {
         height: 50px;
@@ -8201,7 +8186,7 @@ select.custom-select:focus,
         width: 260px;
     }
     
-    /* 蹇嵎鎿嶄綔 */
+    /* 快捷操作 */
     .quick-actions {
         grid-template-columns: 1fr 1fr;
         gap: 8px;
@@ -8230,7 +8215,7 @@ select.custom-select:focus,
         font-size: 11px;
     }
     
-    /* 缁熻鍗＄墖 */
+    /* 统计卡片 */
     .stats {
         grid-template-columns: repeat(2, 1fr);
         gap: 8px;
@@ -8253,7 +8238,7 @@ select.custom-select:focus,
         font-size: 10px;
     }
     
-    /* 鍥捐〃 */
+    /* 图表 */
     .chart-container {
         padding: 12px;
     }
@@ -8266,7 +8251,7 @@ select.custom-select:focus,
         max-height: 180px;
     }
     
-    /* 绔犺妭澶撮儴 */
+    /* 章节头部 */
     .section-header {
         padding: 12px;
         border-radius: 10px;
@@ -8276,7 +8261,7 @@ select.custom-select:focus,
         font-size: 16px;
     }
     
-    /* 琛ㄦ牸鍗＄墖 */
+    /* 表格卡片 */
     .request-table tr,
     .admin-table tr {
         padding: 12px;
@@ -8303,7 +8288,7 @@ select.custom-select:focus,
         font-size: 10px;
     }
     
-    /* 寮圭獥 */
+    /* 弹窗 */
     .modal-overlay {
         padding: 0;
     }
@@ -8317,7 +8302,7 @@ select.custom-select:focus,
         font-size: 15px;
     }
     
-    /* 鎾斁鐩戞帶 */
+    /* 播放监控 */
     .playback-admin-stats {
         grid-template-columns: repeat(3, 1fr);
         gap: 6px;
@@ -8356,7 +8341,7 @@ select.custom-select:focus,
         font-size: 18px;
     }
     
-    /* 鍒嗛〉 */
+    /* 分页 */
     .pagination {
         gap: 4px;
     }
@@ -8367,13 +8352,11 @@ select.custom-select:focus,
         min-width: 34px;
     }
     
-    /* 绛涢€夋爣绛?*/
     .filter-tabs button {
         padding: 7px 12px;
         font-size: 12px;
     }
     
-    /* 鐭ヨ瘑搴?*/
     .knowledge-item {
         padding: 12px;
     }
@@ -8382,19 +8365,18 @@ select.custom-select:focus,
         font-size: 14px;
     }
     
-    /* 璇锋眰鍖哄煙 */
+    /* 请求区域 */
     .requests-section {
         padding: 12px;
         border-radius: 10px;
     }
     
-    /* 鎺掕姒?*/
     .rank-item {
         padding: 8px 10px;
     }
 }
 
-/* ==================== 妯睆鎵嬫満閫傞厤 ==================== */
+/* ==================== 横屏手机适配 ==================== */
 @media (max-height: 500px) and (orientation: landscape) {
     .mobile-header {
         height: 44px;
@@ -8423,7 +8405,7 @@ select.custom-select:focus,
     }
 }
 
-/* ==================== 瑙︽懜璁惧浼樺寲 ==================== */
+/* ==================== 触摸设备优化 ==================== */
 @media (hover: none) and (pointer: coarse) {
     .action-item:hover {
         transform: none;
@@ -8464,7 +8446,7 @@ select.custom-select:focus,
         min-height: 40px;
     }
     
-    /* iOS瀹夊叏鍖哄煙 */
+    /* iOS安全区域 */
     .mobile-header {
         padding-top: env(safe-area-inset-top);
         height: calc(56px + env(safe-area-inset-top));
@@ -8480,7 +8462,7 @@ select.custom-select:focus,
     }
 }
 
-/* ==================== 閫氱煡 Tab 鍒囨崲鏍峰紡 ==================== */
+/* ==================== 通知 Tab 切换样式 ==================== */
 .notification-tabs {
     display: flex;
     gap: 8px;
@@ -8532,7 +8514,6 @@ select.custom-select:focus,
     }
 }
 
-/* ==================== 鐭ヨ瘑搴撶鐞?==================== */
 .knowledge-list {
     display: flex;
     flex-direction: column;
@@ -8622,7 +8603,7 @@ select.custom-select:focus,
     background: #fecaca;
 }
 
-/* 鍒嗙被绠＄悊 */
+/* 分类管理 */
 .category-list {
     display: flex;
     flex-direction: column;
@@ -8673,7 +8654,6 @@ select.custom-select:focus,
     background: #fecaca;
 }
 
-/* 鐭ヨ瘑搴撶┖鐘舵€?*/
 .knowledge-list .empty-state {
     text-align: center;
     padding: 60px 20px;
@@ -8691,10 +8671,8 @@ select.custom-select:focus,
     font-size: 16px;
 }
 
-/* ==================== 绉诲姩绔厓绱犻粯璁ゆ牱寮?==================== */
-/* 娉ㄦ剰: 姝ゅ涓嶅啀璁剧疆 mobile-header 鐨?display锛?   鍥犱负璇ヨ鍒欎細瑕嗙洊 @media 涓殑 display: flex銆?   mobile-header 鐨勯粯璁ら殣钘忓凡鍦?.mobile-header 鍘熷瀹氫箟涓鐞?*/
 
-/* ==================== 浠〃鐩樻€昏鏍峰紡 ==================== */
+/* ==================== 仪表盘总览样式 ==================== */
 
 .dashboard-header {
     display: flex;
@@ -8710,7 +8688,7 @@ select.custom-select:focus,
     margin: 0;
 }
 
-/* Tab 鍒囨崲 */
+/* Tab 切换 */
 .dash-tabs {
     display: flex;
     gap: 4px;
@@ -8738,7 +8716,7 @@ select.custom-select:focus,
 .dash-tab-content { display: none; }
 .dash-tab-content.active { display: block; }
 
-/* 鏍稿績鎸囨爣鍗＄墖 */
+/* 核心指标卡片 */
 .dashboard-highlights {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -8816,7 +8794,7 @@ select.custom-select:focus,
 
 .highlight-link:hover { text-decoration: underline; }
 
-/* 闈㈡澘閫氱敤 */
+/* 面板通用 */
 .dash-panel {
     background: #ffffff;
     border-radius: 12px;
@@ -8846,7 +8824,7 @@ select.custom-select:focus,
     color: #94a3b8;
 }
 
-/* 涓ゆ爮甯冨眬 */
+/* 两栏布局 */
 .dash-two-col {
     display: grid;
     grid-template-columns: 1.6fr 1fr;
@@ -8856,7 +8834,6 @@ select.custom-select:focus,
 
 .dash-two-col .dash-panel { margin-bottom: 0; }
 
-/* 鏀跺叆鏃堕棿閫夋嫨鍣?*/
 .dash-date-picker {
     display: flex;
     align-items: center;
@@ -8892,7 +8869,6 @@ select.custom-select:focus,
     color: #94a3b8;
 }
 
-/* 鏀跺叆姹囨€?*/
 .dash-revenue-summary {
     display: flex;
     gap: 32px;
@@ -8918,7 +8894,7 @@ select.custom-select:focus,
     color: #1e293b;
 }
 
-/* 鏀跺叆鍥捐〃瀹瑰櫒 */
+/* 收入图表容器 */
 .dash-chart-container {
     width: 100%;
     min-height: 240px;
@@ -8946,7 +8922,7 @@ select.custom-select:focus,
     font-size: 14px;
 }
 
-/* 浠婃棩鎾斁缁熻 */
+/* 今日播放统计 */
 .dash-play-stats {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -8983,7 +8959,6 @@ select.custom-select:focus,
     color: #94a3b8;
 }
 
-/* 鐑挱姒?*/
 .dash-play-top h4 {
     font-size: 14px;
     font-weight: 600;
@@ -9027,7 +9002,6 @@ select.custom-select:focus,
 .top-name { flex: 1; font-size: 13px; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .top-count { font-size: 12px; font-weight: 600; color: #64748b; flex-shrink: 0; }
 
-/* 鏈€杩戞椿鍔?*/
 .dash-activity-list {
     display: flex;
     flex-direction: column;
@@ -9084,7 +9058,6 @@ select.custom-select:focus,
     text-align: center;
 }
 
-/* 鏋勬垚鏉?*/
 .composition-bar {
     display: flex;
     height: 24px;
@@ -9123,7 +9096,6 @@ select.custom-select:focus,
     flex-shrink: 0;
 }
 
-/* 绯荤粺鐘舵€?*/
 .dash-system-stats {
     display: flex;
     flex-direction: column;
@@ -9184,7 +9156,7 @@ select.custom-select:focus,
     gap: 4px;
 }
 
-/* 浠〃鐩樺搷搴斿紡 */
+/* 仪表盘响应式 */
 @media (max-width: 1200px) {
     .dashboard-highlights {
         grid-template-columns: repeat(2, 1fr);
@@ -9215,7 +9187,7 @@ select.custom-select:focus,
     }
 }
 
-/* ==================== 浠〃鐩樼幆褰㈠浘缁熻 ==================== */
+/* ==================== 仪表盘环形图统计 ==================== */
 .dash-analytics-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -9358,7 +9330,7 @@ select.custom-select:focus,
     display: inline-block;
     flex-shrink: 0;
 }
-/* 鍒嗛〉鍥句緥 */
+/* 分页图例 */
 .donut-legend-paged {
     display: flex;
     flex-direction: column;
@@ -9394,7 +9366,6 @@ select.custom-select:focus,
     color: #3b82f6;
     border-color: #3b82f6;
 }
-/* 鍝嶅簲寮?*/
 @media (max-width: 900px) {
     .dash-analytics-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -9447,7 +9418,7 @@ select.custom-select:focus,
     }
 }
 
-/* ==================== 澶氱鐞嗗憳鏉冮檺绠＄悊鏍峰紡 ==================== */
+/* ==================== 多管理员权限管理样式 ==================== */
 .admin-list-table {
     overflow-x: auto;
 }
@@ -9478,7 +9449,7 @@ select.custom-select:focus,
     background: var(--bg-hover, #f5f5f5);
 }
 
-/* 鏉冮檺鏍囩 */
+/* 权限标签 */
 .perm-tags-wrap {
     display: flex;
     flex-wrap: wrap;
@@ -9503,7 +9474,6 @@ select.custom-select:focus,
     color: #999;
 }
 
-/* 瑙掕壊鍜岀姸鎬佹爣绛?*/
 .badge {
     display: inline-block;
     padding: 2px 8px;
@@ -9529,7 +9499,7 @@ select.custom-select:focus,
     color: #721c24;
 }
 
-/* 鏉冮檺澶嶉€夋缃戞牸 */
+/* 权限复选框网格 */
 .admin-perm-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
@@ -9562,7 +9532,6 @@ select.custom-select:focus,
     user-select: none;
 }
 
-/* 绠＄悊鍛樼紪杈戝脊绐?*/
 #adminModal .modal-content {
     max-width: 520px;
 }
@@ -9570,7 +9539,6 @@ select.custom-select:focus,
     margin-bottom: 14px;
 }
 
-/* 鎿嶄綔鎸夐挳缁?*/
 .admin-list-table .btn-sm {
     padding: 4px 8px;
     font-size: 12px;
@@ -9600,7 +9568,7 @@ select.custom-select:focus,
     color: #fff;
 }
 
-/* 瀵嗙爜鏄剧ず鏍峰紡 */
+/* 密码显示样式 */
 .admin-pwd-wrap {
     display: inline-flex;
     align-items: center;
@@ -9628,7 +9596,7 @@ select.custom-select:focus,
     opacity: 1;
 }
 
-/* 绉诲姩绔€傞厤 */
+/* 移动端适配 */
 @media (max-width: 768px) {
     .admin-perm-grid {
         grid-template-columns: repeat(2, 1fr);
@@ -9645,7 +9613,7 @@ select.custom-select:focus,
     }
 }
 
-/* ==================== 瀹¤鏃ュ織鏍峰紡 ==================== */
+/* ==================== 审计日志样式 ==================== */
 .audit-log-list {
     border-radius: 8px;
     overflow: hidden;
@@ -9670,7 +9638,7 @@ select.custom-select:focus,
     }
 }
 
-/* ==================== 鎾斁鎺掕 ==================== */
+/* ==================== 播放排行 ==================== */
 .rankings-header {
     display: flex;
     align-items: center;
@@ -9715,7 +9683,7 @@ select.custom-select:focus,
     color: #94a3b8;
 }
 
-/* 鎺掕鍖哄潡 */
+/* 排行区块 */
 .ranking-section {
     margin-bottom: 28px;
 }
@@ -9734,7 +9702,7 @@ select.custom-select:focus,
     font-size: 18px;
 }
 
-/* 鎺掕鍒楄〃 */
+/* 排行列表 */
 .ranking-list {
     display: flex;
     flex-direction: column;
@@ -9772,7 +9740,7 @@ select.custom-select:focus,
     border-color: #fdba74;
 }
 
-/* 濂栫墝 / 搴忓彿 */
+/* 奖牌 / 序号 */
 .rank-medal {
     font-size: 24px;
     min-width: 36px;
@@ -9793,7 +9761,6 @@ select.custom-select:focus,
     font-weight: 600;
 }
 
-/* 淇℃伅鍖?*/
 .rank-info {
     flex: 1;
     min-width: 0;
@@ -9829,7 +9796,6 @@ select.custom-select:focus,
     gap: 3px;
 }
 
-/* 鐢ㄦ埛鎺掕 鈥?杩涘害鏉?*/
 .rank-bar-wrap {
     height: 6px;
     background: #f1f5f9;
@@ -9853,7 +9819,6 @@ select.custom-select:focus,
     flex-shrink: 0;
 }
 
-/* 绌虹姸鎬?*/
 .ranking-empty {
     text-align: center;
     padding: 32px 16px;
@@ -9864,7 +9829,6 @@ select.custom-select:focus,
     border: 1px dashed #e2e8f0;
 }
 
-/* 鍝嶅簲寮?*/
 @media (max-width: 768px) {
     .rankings-header {
         flex-direction: column;
