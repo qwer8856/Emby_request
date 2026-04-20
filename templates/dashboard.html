@@ -384,7 +384,7 @@
                     <div class="invite-icon-big">🎁</div>
                     <div class="invite-info">
                         <h3>邀请好友，共享返利</h3>
-                        <p>好友通过您的邀请链接购买套餐，您将获得<strong>{{ invite_reward_percent }}%金额奖励</strong></p>
+                        <p>好友通过您的邀请链接购买套餐，您将获得<strong>购买时长 {{ invite_reward_percent }}% 返利</strong></p>
                     </div>
                     <button class="invite-action-btn" onclick="showInviteDialog()">
                         <span>立即邀请</span>
@@ -697,29 +697,44 @@
         
         <!-- 播放监控页面 -->
         <section class="content-section" id="section-playback">
-            <div class="section-header">
-                <h1>📺 播放监控</h1>
-                <p>查看您的设备、播放状态和观看历史</p>
+            <div class="section-header playback-header">
+                <div class="playback-header-main">
+                    <h1>📺 播放监控</h1>
+                    <p>实时查看播放状态、设备活跃情况和最近观看历史</p>
+                </div>
+                <div class="playback-header-tools">
+                    <div class="playback-live-pill is-loading" id="playbackLivePill">
+                        <span class="playback-live-dot"></span>
+                        <span id="playbackLiveStatus">等待同步</span>
+                    </div>
+                    <span class="playback-update-time" id="playbackLastUpdated">上次更新：--</span>
+                    <button class="playback-auto-btn on" id="playbackAutoRefreshBtn" onclick="togglePlaybackAutoRefresh()">自动刷新：开</button>
+                    <button class="refresh-btn playback-refresh-btn" id="playbackRefreshBtn" onclick="refreshPlaybackData()">
+                        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/></svg>
+                        手动刷新
+                    </button>
+                </div>
             </div>
             
-            <!-- 播放统计卡片 -->
-            <div class="playback-stats-grid">
+            <div class="playback-stats-grid playback-stats-grid-v2">
                 <div class="playback-stat-card stat-playing">
                     <div class="stat-icon">
                         <svg viewBox="0 0 24 24"><path fill="currentColor" d="M8,5.14V19.14L19,12.14L8,5.14Z"/></svg>
                     </div>
                     <div class="stat-content">
                         <div class="stat-value" id="playingCount">-</div>
-                        <div class="stat-label">播放中</div>
+                        <div class="stat-label">播放中设备</div>
+                        <div class="stat-subtext">当前正在播放的会话数</div>
                     </div>
                 </div>
-                <div class="playback-stat-card stat-online" style="display: none;">
+                <div class="playback-stat-card stat-online">
                     <div class="stat-icon">
-                        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6A6,6 0 0,0 6,12A6,6 0 0,0 12,18A6,6 0 0,0 18,12A6,6 0 0,0 12,6M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8Z"/></svg>
+                        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M3,5H21A1,1 0 0,1 22,6V16A1,1 0 0,1 21,17H14L16,20V21H8V20L10,17H3A1,1 0 0,1 2,16V6A1,1 0 0,1 3,5M4,7V15H20V7H4Z"/></svg>
                     </div>
                     <div class="stat-content">
                         <div class="stat-value" id="onlineDeviceCount">-</div>
-                        <div class="stat-label">在线设备</div>
+                        <div class="stat-label">设备总数</div>
+                        <div class="stat-subtext">账户下已记录设备数量</div>
                     </div>
                 </div>
                 <div class="playback-stat-card stat-history">
@@ -729,45 +744,50 @@
                     <div class="stat-content">
                         <div class="stat-value" id="historyCount">-</div>
                         <div class="stat-label">观看记录</div>
+                        <div class="stat-subtext">当前筛选下的历史条目</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="playback-main-grid">
+                <div class="playback-section playback-section-live">
+                    <div class="section-title-bar">
+                        <div class="playback-section-header">
+                            <h3>▶️ 实时播放</h3>
+                            <p class="playback-section-subtitle">展示当前正在播放的设备与进度</p>
+                        </div>
+                    </div>
+                    <div id="devicesContainer">
+                        <div class="loading-placeholder">
+                            <div class="loading-spinner"></div>
+                            <span>正在拉取实时会话...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="playback-section playback-section-device">
+                    <div class="section-title-bar">
+                        <div class="playback-section-header">
+                            <h3>📱 我的设备</h3>
+                            <p class="playback-section-subtitle">设备活跃信息与删除管理</p>
+                        </div>
+                        <span class="device-count-badge" id="myDeviceCount">0 个设备</span>
+                    </div>
+                    <div id="myDevicesContainer">
+                        <div class="loading-placeholder">
+                            <div class="loading-spinner"></div>
+                            <span>正在拉取设备列表...</span>
+                        </div>
                     </div>
                 </div>
             </div>
             
-            <!-- 正在播放 -->
-            <div class="playback-section">
+            <div class="playback-section playback-section-history">
                 <div class="section-title-bar">
-                    <h3>▶️ 正在播放</h3>
-                    <button class="refresh-btn" onclick="refreshPlaybackData()">
-                        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/></svg>
-                        刷新
-                    </button>
-                </div>
-                <div id="devicesContainer">
-                    <div class="loading-placeholder">
-                        <div class="loading-spinner"></div>
-                        <span>加载中...</span>
+                    <div class="playback-section-header">
+                        <h3>📜 最近观看</h3>
+                        <p class="playback-section-subtitle">按最近观看时间排序，可切换数量</p>
                     </div>
-                </div>
-            </div>
-            
-            <!-- 我的设备 -->
-            <div class="playback-section">
-                <div class="section-title-bar">
-                    <h3>📱 我的设备</h3>
-                    <span class="device-count-badge" id="myDeviceCount">0 个设备</span>
-                </div>
-                <div id="myDevicesContainer">
-                    <div class="loading-placeholder">
-                        <div class="loading-spinner"></div>
-                        <span>加载中...</span>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- 播放历史 -->
-            <div class="playback-section">
-                <div class="section-title-bar">
-                    <h3>📜 最近观看</h3>
                     <select class="history-limit-select" id="historyLimitSelect" onchange="changeHistoryLimit()">
                         <option value="10">最近 10 条</option>
                         <option value="20" selected>最近 20 条</option>
@@ -777,7 +797,7 @@
                 <div id="historyContainer">
                     <div class="loading-placeholder">
                         <div class="loading-spinner"></div>
-                        <span>加载中...</span>
+                        <span>正在拉取播放历史...</span>
                     </div>
                 </div>
             </div>
@@ -1340,7 +1360,7 @@
         <section class="content-section" id="section-invite">
             <div class="section-header">
                 <h1>🎁 邀请返利</h1>
-                <p>邀请好友注册并购买，获赠购买金额 {{ invite_reward_percent }}% 金额</p>
+                <p>邀请好友注册并购买，获赠购买时长 {{ invite_reward_percent }}% 的返利天数</p>
             </div>
             
             <div class="invite-container">
@@ -1375,7 +1395,7 @@
                             <div class="rule-content">
                                 <div class="rule-title">邀请返利</div>
                                 <div class="rule-desc">好友通过您的邀请码注册并购买套餐</div>
-                                <div class="rule-reward">获赠购买金额 {{ invite_reward_percent }}%</div>
+                                <div class="rule-reward">获赠购买时长 {{ invite_reward_percent }}%（按天返利）</div>
                             </div>
                         </div>
                         <div class="rule-item">

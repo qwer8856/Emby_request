@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.54'
+APP_VERSION = '2.2.55'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -9758,6 +9758,14 @@ def get_emby_sessions():
                 # 将数据库设备ID添加到会话数据中
                 s['db_device_id'] = device.id
                 s['is_blocked'] = device.is_blocked
+
+                # 设备被封禁：立即踢出该会话，不再继续记录播放
+                if device.is_blocked:
+                    sid = s.get('id')
+                    if sid:
+                        emby_client.stop_session(sid, reason='该设备已被封禁，无法继续登录或播放')
+                    db.session.commit()
+                    continue
                 
                 # 如果正在播放，记录播放记录
                 if s.get('is_playing') and s.get('now_playing'):
@@ -10038,7 +10046,7 @@ def delete_user_device(device_id):
 @app.route('/api/emby/devices/<int:device_id>/block', methods=['POST'])
 @login_required
 def block_user_device(device_id):
-    """禁用/启用用户设备"""
+    """按设备手动封禁功能已移除（请使用设备黑名单规则）。"""
     user = db.session.get(User, session['user_id'])
     if not user:
         return jsonify({'success': False, 'error': '用户不存在'}), 400
@@ -10046,19 +10054,11 @@ def block_user_device(device_id):
     device = UserDevice.query.filter_by(id=device_id, user_tg=user.tg).first()
     if not device:
         return jsonify({'success': False, 'error': '设备不存在'}), 404
-    
-    data = request.get_json(silent=True) or {}
-    block = data.get('block', True)
-    
-    try:
-        device.is_blocked = block
-        db.session.commit()
-        status = '已禁用' if block else '已启用'
-        return jsonify({'success': True, 'message': f'设备{status}', 'is_blocked': device.is_blocked})
-    except Exception as e:
-        db.session.rollback()
-        app.logger.error(f'更新设备状态失败: {e}')
-        return jsonify({'success': False, 'error': '操作失败'}), 500
+
+    return jsonify({
+        'success': False,
+        'error': '按设备手动封禁功能已移除，请使用“设备黑名单”按客户端规则封禁'
+    }), 410
 
 
 @app.route('/api/emby/local-history')
@@ -10141,6 +10141,14 @@ def admin_get_all_sessions():
                 device.client_version = s.get('app_version', device.client_version)
                 device.last_ip = s.get('remote_end_point', device.last_ip)
                 device.last_active = datetime.now()
+
+            # 设备被封禁：发现会话即踢下线，不继续记录该会话播放数据
+            if device.is_blocked:
+                sid = s.get('id')
+                if sid:
+                    emby_client.stop_session(sid, reason='该设备已被封禁，无法继续登录或播放')
+                db.session.commit()
+                continue
             
             # 如果正在播放，记录播放记录
             if s.get('is_playing') and s.get('now_playing'):
@@ -11241,22 +11249,15 @@ def admin_delete_device(device_id):
 @app.route('/api/admin/playback/devices/<int:device_id>/block', methods=['POST'])
 @admin_required
 def admin_block_device(device_id):
-    """管理员禁用/启用设备"""
+    """按设备手动封禁功能已移除（请使用设备黑名单规则）。"""
     device = db.session.get(UserDevice, device_id)
     if not device:
         return jsonify({'success': False, 'error': '设备不存在'}), 404
-    
-    data = request.get_json(silent=True) or {}
-    block = data.get('block', True)
-    
-    try:
-        device.is_blocked = block
-        db.session.commit()
-        status = '已禁用' if block else '已启用'
-        return jsonify({'success': True, 'message': f'设备{status}', 'is_blocked': device.is_blocked})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'error': '操作失败'}), 500
+
+    return jsonify({
+        'success': False,
+        'error': '按设备手动封禁功能已移除，请使用“设备黑名单”按客户端规则封禁'
+    }), 410
 
 
 @app.route('/api/emby/season-details')
@@ -13229,6 +13230,13 @@ def emby_playback_webhook():
             device.client = client or device.client
             device.last_ip = remote_ip or device.last_ip
             device.last_active = datetime.now()
+
+        # 手动设备封禁拦截：该设备任何会话登录/播放都会被立即踢下线
+        if device.is_blocked:
+            if session_id and emby_client.is_enabled():
+                emby_client.stop_session(session_id, reason='该设备已被封禁，无法继续登录或播放')
+            db.session.commit()
+            return jsonify({'success': False, 'blocked': True, 'reason': '设备已被封禁'}), 403
         
         # 记录播放历史（所有播放事件都记录）
         if emby_item_id:
@@ -17688,13 +17696,15 @@ def batch_subscriptions():
 @app.route('/api/admin/playback/devices/batch', methods=['POST'])
 @admin_required
 def batch_devices():
-    """批量设备操作：删除/禁用/解禁"""
+    """批量设备操作：仅删除。"""
     data = request.get_json(silent=True) or {}
     ids = data.get('ids', [])
     action = data.get('action', '')
     
     if not ids:
         return jsonify({'success': False, 'error': '未选择任何设备'}), 400
+    if action != 'delete':
+        return jsonify({'success': False, 'error': '按设备封禁/解禁已移除，请使用设备黑名单规则'}), 400
     
     success_count = 0
     fail_count = 0
@@ -17710,12 +17720,6 @@ def batch_devices():
                 PlaybackRecord.query.filter_by(device_id=device.id).delete()
                 db.session.delete(device)
                 success_count += 1
-            elif action == 'block':
-                device.is_blocked = True
-                success_count += 1
-            elif action == 'unblock':
-                device.is_blocked = False
-                success_count += 1
             else:
                 fail_count += 1
         except Exception as e:
@@ -17724,7 +17728,11 @@ def batch_devices():
     
     db.session.commit()
     app.logger.info(f'管理员批量{action}设备: 成功={success_count}, 失败={fail_count}')
-    return jsonify({'success': True, 'message': f'已处理 {success_count} 个设备', 'success_count': success_count})
+    return jsonify({
+        'success': True,
+        'message': f'已处理 {success_count} 个设备',
+        'success_count': success_count
+    })
 
 
 @app.route('/api/admin/playback/history/batch', methods=['POST'])

@@ -7040,7 +7040,7 @@ async function loadAdminDevices(page = 1) {
         tbody.innerHTML = devices.map(d => {
             const lastActive = d.last_active ? new Date(d.last_active).toLocaleString('zh-CN') : '-';
             const statusClass = d.is_blocked ? 'blocked' : 'active';
-            const statusText = d.is_blocked ? '已禁用' : '正常';
+            const statusText = d.is_blocked ? '黑名单拦截' : '正常';
             
             return `
                 <tr>
@@ -7052,9 +7052,6 @@ async function loadAdminDevices(page = 1) {
                     <td data-label="最后IP">${d.last_ip || '-'}</td>
                     <td data-label="状态"><span class="status-badge ${statusClass}">${statusText}</span></td>
                     <td data-label="操作" class="action-cell">
-                        <button class="btn btn-sm ${d.is_blocked ? 'btn-success' : 'btn-warning'}" onclick="toggleAdminDevice(${d.id}, ${d.is_blocked})">
-                            ${d.is_blocked ? '启用' : '禁用'}
-                        </button>
                         <button class="btn btn-sm btn-danger" onclick="deleteAdminDevice(${d.id})">删除</button>
                     </td>
                 </tr>
@@ -7076,28 +7073,6 @@ function searchAdminDevices() {
     window.deviceSearchTimer = setTimeout(() => {
         loadAdminDevices(1);
     }, 300);
-}
-
-async function toggleAdminDevice(deviceId, currentBlocked) {
-    try {
-        const response = await fetch(`/api/admin/playback/devices/${deviceId}/block`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ block: !currentBlocked })
-        });
-        
-        const data = await parseResponseData(response);
-        
-        if (data.success) {
-            showToast('成功', data.message, 'success');
-            loadAdminDevices(adminDevicesPage);
-        } else {
-            showToast('失败', data.error || '操作失败', 'error');
-        }
-    } catch (error) {
-        console.error('切换设备状态失败:', error);
-        showToast('错误', '操作失败', 'error');
-    }
 }
 
 async function deleteAdminDevice(deviceId) {
@@ -7837,45 +7812,6 @@ async function batchDeleteDevices() {
     await doBatchAction('/api/admin/playback/devices/batch', 'POST',
         { ids, action: 'delete' },
         `已删除 ${ids.length} 个设备`, '批量删除失败',
-        () => loadAdminDevices(adminDevicesPage)
-    );
-}
-
-async function batchBlockDevices() {
-    const ids = getSelectedValues('device').map(Number);
-    if (ids.length === 0) return showToast('提示', '请先选择设备', 'info');
-    
-    const confirmed = await showConfirm({
-        title: '批量禁用设备',
-        message: `确定要禁用 ${ids.length} 个设备吗？`,
-        confirmText: '确定禁用',
-        type: 'warning'
-    });
-    if (!confirmed) return;
-    
-    await doBatchAction('/api/admin/playback/devices/batch', 'POST',
-        { ids, action: 'block' },
-        `已禁用 ${ids.length} 个设备`, '批量禁用失败',
-        () => loadAdminDevices(adminDevicesPage)
-    );
-}
-
-// ===== 设备管理 - 批量解禁 =====
-async function batchUnblockDevices() {
-    const ids = getSelectedValues('device').map(Number);
-    if (ids.length === 0) return showToast('提示', '请先选择设备', 'info');
-    
-    const confirmed = await showConfirm({
-        title: '批量解禁设备',
-        message: `确定要解禁 ${ids.length} 个设备吗？`,
-        confirmText: '确定解禁',
-        type: 'info'
-    });
-    if (!confirmed) return;
-    
-    await doBatchAction('/api/admin/playback/devices/batch', 'POST',
-        { ids, action: 'unblock' },
-        `已解禁 ${ids.length} 个设备`, '批量解禁失败',
         () => loadAdminDevices(adminDevicesPage)
     );
 }
