@@ -3965,6 +3965,34 @@ async function loadSystemConfig() {
     }
 }
 
+function setSystemUpgradeStatus(text) {
+    const statusEl = document.getElementById('systemUpgradeStatus');
+    if (statusEl) {
+        statusEl.textContent = text;
+    }
+}
+
+async function checkSystemUpdate() {
+    setSystemUpgradeStatus('检查中');
+    const checkTimeEl = document.getElementById('systemUpdateCheckTime');
+    if (checkTimeEl) {
+        checkTimeEl.textContent = `上次检查：${new Date().toLocaleString('zh-CN')}`;
+    }
+
+    const currentVersion = document.getElementById('systemVersionValue')?.textContent || '--';
+    const latestVersionEl = document.getElementById('systemLatestVersion');
+    if (latestVersionEl) {
+        latestVersionEl.textContent = `最新版本：${currentVersion}`;
+    }
+
+    setSystemUpgradeStatus('待接入');
+    showToast('提示', '升级按钮入口已就位，下一步将接入真实在线升级接口。', 'info');
+}
+
+async function startSystemUpdate() {
+    showToast('提示', '在线升级执行逻辑正在接入中，当前先完成入口和状态位。', 'warning');
+}
+
 // Emby 配置
 async function saveEmbyConfig() {
     const embyUrl = document.getElementById('embyUrl').value.trim();

@@ -3417,7 +3417,7 @@
                             <div class="system-info-grid">
                                 <div class="info-item">
                                     <span class="info-label">系统版本</span>
-                                    <span class="info-value">v1.0.0</span>
+                                    <span class="info-value" id="systemVersionValue">v{{ app_version }}</span>
                                 </div>
                                 <div class="info-item">
                                     <span class="info-label">运行环境</span>
@@ -3426,6 +3426,20 @@
                                 <div class="info-item">
                                     <span class="info-label">数据库</span>
                                     <span class="info-value">MySQL</span>
+                                </div>
+                            </div>
+                            <div class="system-upgrade-panel">
+                                <div class="system-upgrade-header">
+                                    <div class="system-upgrade-title">在线升级</div>
+                                    <span class="system-upgrade-status" id="systemUpgradeStatus">待检查</span>
+                                </div>
+                                <div class="system-upgrade-actions">
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="checkSystemUpdate()">检查更新</button>
+                                    <button type="button" class="btn btn-primary btn-sm" onclick="startSystemUpdate()">开始升级</button>
+                                </div>
+                                <div class="system-upgrade-meta">
+                                    <span id="systemLatestVersion">最新版本：--</span>
+                                    <span id="systemUpdateCheckTime">上次检查：--</span>
                                 </div>
                             </div>
                         </div>

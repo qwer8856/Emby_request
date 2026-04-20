@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.60'
+APP_VERSION = '2.2.61'
 import time
 import threading
 from threading import Lock, Thread, Event
