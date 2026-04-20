@@ -3433,14 +3433,74 @@
                                     <div class="system-upgrade-title">在线升级</div>
                                     <span class="system-upgrade-status" id="systemUpgradeStatus">待检查</span>
                                 </div>
+                                <div class="system-upgrade-config">
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="upgradeMode">升级方式</label>
+                                            <select id="upgradeMode" class="form-input" onchange="toggleUpgradeModeFields()">
+                                                <option value="docker_webhook">Docker Webhook（推荐）</option>
+                                                <option value="command">命令执行（高级）</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="upgradeTimeoutSeconds">请求超时（秒）</label>
+                                            <input type="number" id="upgradeTimeoutSeconds" class="form-input" min="3" max="300" value="20">
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="upgradeCheckUrl">版本检查地址</label>
+                                        <input type="text" id="upgradeCheckUrl" class="form-input" placeholder="https://api.github.com/repos/qwer8856/Emby_request/releases/latest">
+                                        <span class="form-hint">默认使用 GitHub 最新发布 API，可改为你自己的版本接口</span>
+                                    </div>
+
+                                    <div id="upgradeWebhookFields">
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label for="upgradeWebhookMethod">Webhook 方法</label>
+                                                <select id="upgradeWebhookMethod" class="form-input">
+                                                    <option value="POST">POST</option>
+                                                    <option value="GET">GET</option>
+                                                    <option value="PUT">PUT</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="upgradeWebhookUrl">Docker 更新 Webhook 地址</label>
+                                                <input type="text" id="upgradeWebhookUrl" class="form-input" placeholder="https://your-updater/webhook">
+                                                <span class="form-hint">推荐对接 Watchtower / Portainer / CI Webhook，触发拉取新镜像并重启</span>
+                                            </div>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="upgradeWebhookHeaders">Webhook 请求头（可选）</label>
+                                            <textarea id="upgradeWebhookHeaders" class="form-input" rows="2" placeholder="Authorization: Bearer xxx"></textarea>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="upgradeWebhookBody">Webhook 请求体（可选，JSON）</label>
+                                            <textarea id="upgradeWebhookBody" class="form-input" rows="2" placeholder="{&quot;service&quot;:&quot;emby-request&quot;}"></textarea>
+                                        </div>
+                                    </div>
+
+                                    <div id="upgradeCommandField" style="display:none;">
+                                        <div class="form-group">
+                                            <label for="upgradeCommand">升级命令</label>
+                                            <input type="text" id="upgradeCommand" class="form-input" placeholder="docker compose pull && docker compose up -d">
+                                            <span class="form-hint">命令在当前容器内执行，仅建议高级场景使用</span>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="system-upgrade-actions">
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="saveUpgradeConfig()">保存升级配置</button>
                                     <button type="button" class="btn btn-secondary btn-sm" onclick="checkSystemUpdate()">检查更新</button>
                                     <button type="button" class="btn btn-primary btn-sm" onclick="startSystemUpdate()">开始升级</button>
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="loadSystemUpdateStatus()">刷新状态</button>
                                 </div>
                                 <div class="system-upgrade-meta">
                                     <span id="systemLatestVersion">最新版本：--</span>
                                     <span id="systemUpdateCheckTime">上次检查：--</span>
                                 </div>
+                                <pre class="system-upgrade-logs" id="systemUpgradeLogs">暂无日志</pre>
                             </div>
                         </div>
                     </div>

@@ -3449,6 +3449,7 @@ body.page-admin {
     display: flex;
     align-items: center;
     gap: 10px;
+    flex-wrap: wrap;
     margin-bottom: 10px;
 }
 
@@ -3460,6 +3461,38 @@ body.page-admin {
     flex-wrap: wrap;
     font-size: 12px;
     color: var(--text-secondary);
+}
+
+.system-upgrade-config {
+    margin-bottom: 12px;
+}
+
+.system-upgrade-config .form-row {
+    gap: 12px;
+}
+
+.system-upgrade-config .form-group {
+    margin-bottom: 10px;
+}
+
+.system-upgrade-config .form-group:last-child {
+    margin-bottom: 0;
+}
+
+.system-upgrade-logs {
+    margin: 10px 0 0;
+    padding: 10px;
+    min-height: 90px;
+    max-height: 220px;
+    overflow: auto;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 

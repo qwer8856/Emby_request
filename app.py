@@ -9,13 +9,14 @@ import requests
 import json
 import os
 import random
+import subprocess
 from functools import wraps
 import logging
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.61'
+APP_VERSION = '2.2.62'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -825,6 +826,7 @@ CONFIG_KEY_EMAIL = 'email'
 CONFIG_KEY_LOGIN_NOTIFY = 'login_notify'
 CONFIG_KEY_EXPIRE_REMIND = 'expire_remind'
 CONFIG_KEY_RANKING = 'ranking'
+CONFIG_KEY_UPGRADE = 'upgrade'
 
 # 易支付配置（支持环境变量或配置文件）
 EPAY_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'epay_config.json')
@@ -1690,6 +1692,16 @@ DEFAULT_SYSTEM_CONFIG = {
         'push_weekly_time': '21:00',   # 周榜推送时间 (HH:MM)
         'push_daily': True,            # 推送日榜
         'push_weekly': True,           # 推送周榜
+    },
+    'upgrade': {
+        'mode': 'docker_webhook',  # docker_webhook 或 command
+        'check_url': 'https://api.github.com/repos/qwer8856/Emby_request/releases/latest',
+        'webhook_url': '',         # Docker 更新触发地址（推荐）
+        'webhook_method': 'POST',  # GET/POST/PUT
+        'webhook_headers': '',     # 每行一个 Header: Value
+        'webhook_body': '',        # 可选 JSON 字符串
+        'command': '',             # 备用：容器内命令执行（高级）
+        'timeout_seconds': 20      # HTTP 请求超时
     }
 }
 
@@ -1831,6 +1843,10 @@ def load_system_config(use_cache=True):
             db_ranking = get_db_config(CONFIG_KEY_RANKING, use_cache=use_cache)
             if db_ranking:
                 config['ranking'] = db_ranking
+
+            db_upgrade = get_db_config(CONFIG_KEY_UPGRADE, use_cache=use_cache)
+            if db_upgrade:
+                config['upgrade'] = db_upgrade
     except Exception as e:
         print(f"[WARNING] 从数据库加载配置失败: {e}")
     
@@ -1897,7 +1913,8 @@ def get_default_system_config():
             'email': True,
             'telegram': True
         },
-        'ranking': DEFAULT_SYSTEM_CONFIG['ranking'].copy()
+        'ranking': DEFAULT_SYSTEM_CONFIG['ranking'].copy(),
+        'upgrade': DEFAULT_SYSTEM_CONFIG['upgrade'].copy()
     }
     config['telegram']['templates'] = DEFAULT_SYSTEM_CONFIG['telegram']['templates'].copy()
     return config
@@ -1967,6 +1984,7 @@ def save_system_config(config, sections=None):
         ('login_notify', CONFIG_KEY_LOGIN_NOTIFY, '登录通知配置'),
         ('expire_remind', CONFIG_KEY_EXPIRE_REMIND, '到期提醒配置'),
         ('ranking', CONFIG_KEY_RANKING, '播放排行配置'),
+        ('upgrade', CONFIG_KEY_UPGRADE, '在线升级配置'),
     ]
 
     target_sections = None
@@ -4653,6 +4671,7 @@ ADMIN_URL_PERMISSION_MAP = {
     '/api/admin/download-config': 'settings',
     '/api/admin/db-config': 'settings',
     '/api/admin/system-config': 'settings',
+    '/api/admin/system-update': 'settings',
     '/api/admin/default-benefits': 'settings',
     '/api/admin/register-telegram-commands': 'settings',
     '/api/admin/activity-logs': 'settings',
@@ -20267,6 +20286,10 @@ def get_db_config_status():
             'category': {
                 'in_db': CONFIG_KEY_CATEGORY in all_configs,
                 'has_data': bool(all_configs.get(CONFIG_KEY_CATEGORY))
+            },
+            'upgrade': {
+                'in_db': CONFIG_KEY_UPGRADE in all_configs,
+                'has_data': bool(all_configs.get(CONFIG_KEY_UPGRADE))
             }
         }
         
@@ -20320,6 +20343,9 @@ def migrate_config_to_db():
             if file_config.get('category'):
                 set_db_config(CONFIG_KEY_CATEGORY, file_config['category'], '二级分类策略')
                 migrated.append('category')
+            if file_config.get('upgrade'):
+                set_db_config(CONFIG_KEY_UPGRADE, file_config['upgrade'], '在线升级配置')
+                migrated.append('upgrade')
         except Exception as e:
             errors.append(f'系统配置迁移失败: {e}')
         
@@ -20443,6 +20469,379 @@ def clear_config_cache():
 
 
 # ==================== 系统配置 API (Emby、Telegram等) ====================
+SYSTEM_UPDATE_MAX_LOG_LINES = 300
+_system_update_lock = Lock()
+_system_update_state = {
+    'status': 'idle',            # idle / running / success / failed
+    'current_version': APP_VERSION,
+    'latest_version': '',
+    'has_update': None,
+    'message': '待检查',
+    'last_checked_at': '',
+    'started_at': '',
+    'finished_at': '',
+    'mode': '',
+    'logs': []
+}
+
+
+def _now_text():
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+
+def _update_system_update_state(**kwargs):
+    with _system_update_lock:
+        _system_update_state.update(kwargs)
+
+
+def _append_system_update_log(message: str):
+    line = f'[{_now_text()}] {message}'
+    with _system_update_lock:
+        logs = _system_update_state.get('logs', [])
+        logs.append(line)
+        if len(logs) > SYSTEM_UPDATE_MAX_LOG_LINES:
+            logs = logs[-SYSTEM_UPDATE_MAX_LOG_LINES:]
+        _system_update_state['logs'] = logs
+
+
+def _get_system_update_state():
+    with _system_update_lock:
+        state = dict(_system_update_state)
+        state['logs'] = list(_system_update_state.get('logs', []))
+    return state
+
+
+def _parse_version_tuple(version_text):
+    if not version_text:
+        return tuple()
+    nums = re.findall(r'\d+', str(version_text))
+    if not nums:
+        return tuple()
+    return tuple(int(n) for n in nums[:4])
+
+
+def _is_remote_newer(current_version, remote_version):
+    current_tuple = _parse_version_tuple(current_version)
+    remote_tuple = _parse_version_tuple(remote_version)
+    if not current_tuple or not remote_tuple:
+        return False
+    max_len = max(len(current_tuple), len(remote_tuple))
+    current_tuple += (0,) * (max_len - len(current_tuple))
+    remote_tuple += (0,) * (max_len - len(remote_tuple))
+    return remote_tuple > current_tuple
+
+
+def _normalize_upgrade_config(raw_cfg=None):
+    cfg = DEFAULT_SYSTEM_CONFIG['upgrade'].copy()
+    if isinstance(raw_cfg, dict):
+        cfg.update(raw_cfg)
+
+    mode = str(cfg.get('mode', 'docker_webhook')).strip()
+    if mode not in ('docker_webhook', 'command'):
+        mode = 'docker_webhook'
+    cfg['mode'] = mode
+
+    cfg['check_url'] = str(cfg.get('check_url', '')).strip() or DEFAULT_SYSTEM_CONFIG['upgrade']['check_url']
+    cfg['webhook_url'] = str(cfg.get('webhook_url', '')).strip()
+
+    method = str(cfg.get('webhook_method', 'POST')).strip().upper()
+    if method not in ('GET', 'POST', 'PUT'):
+        method = 'POST'
+    cfg['webhook_method'] = method
+
+    cfg['webhook_headers'] = str(cfg.get('webhook_headers', '') or '').strip()
+    cfg['webhook_body'] = str(cfg.get('webhook_body', '') or '').strip()
+    cfg['command'] = str(cfg.get('command', '') or '').strip()
+
+    try:
+        timeout_seconds = int(cfg.get('timeout_seconds', 20))
+    except Exception:
+        timeout_seconds = 20
+    cfg['timeout_seconds'] = max(3, min(300, timeout_seconds))
+    return cfg
+
+
+def _get_upgrade_config(use_cache=True):
+    system_config = load_system_config(use_cache=use_cache) or {}
+    upgrade_cfg = system_config.get('upgrade') or {}
+    return _normalize_upgrade_config(upgrade_cfg)
+
+
+def _parse_header_lines(header_text):
+    headers = {}
+    for raw_line in str(header_text or '').splitlines():
+        line = raw_line.strip()
+        if not line or ':' not in line:
+            continue
+        key, value = line.split(':', 1)
+        key = key.strip()
+        value = value.strip()
+        if key:
+            headers[key] = value
+    return headers
+
+
+def _check_latest_release(upgrade_cfg):
+    check_url = upgrade_cfg.get('check_url', '').strip()
+    if not check_url:
+        return {'success': False, 'error': '未配置版本检查地址'}
+
+    headers = {
+        'Accept': 'application/json',
+        'User-Agent': f'Emby-Request/{APP_VERSION}'
+    }
+
+    try:
+        response = PROXY_SESSION.get(check_url, headers=headers, timeout=upgrade_cfg.get('timeout_seconds', 20))
+    except Exception as e:
+        return {'success': False, 'error': f'请求检查地址失败: {e}'}
+
+    if response.status_code >= 400:
+        return {'success': False, 'error': f'检查地址返回错误: HTTP {response.status_code}'}
+
+    latest_version = ''
+    release_url = check_url
+    raw_text = response.text or ''
+
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            latest_version = (
+                str(payload.get('tag_name') or '').strip()
+                or str(payload.get('name') or '').strip()
+                or str(payload.get('version') or '').strip()
+            )
+            release_url = (
+                str(payload.get('html_url') or '').strip()
+                or str(payload.get('url') or '').strip()
+                or release_url
+            )
+    except Exception:
+        payload = None
+
+    if not latest_version:
+        tag_match = re.search(r'"tag_name"\s*:\s*"([^"]+)"', raw_text)
+        if tag_match:
+            latest_version = tag_match.group(1).strip()
+    if not latest_version:
+        first_line = raw_text.strip().splitlines()[0] if raw_text.strip() else ''
+        if first_line and len(first_line) <= 40:
+            latest_version = first_line.strip()
+
+    if not latest_version:
+        return {'success': False, 'error': '无法从检查结果解析最新版本号'}
+
+    has_update = _is_remote_newer(APP_VERSION, latest_version)
+    return {
+        'success': True,
+        'current_version': APP_VERSION,
+        'latest_version': latest_version,
+        'has_update': has_update,
+        'release_url': release_url
+    }
+
+
+def _execute_upgrade_task(upgrade_cfg):
+    try:
+        mode = upgrade_cfg.get('mode', 'docker_webhook')
+        _append_system_update_log(f'升级模式: {mode}')
+
+        if mode == 'docker_webhook':
+            webhook_url = upgrade_cfg.get('webhook_url', '').strip()
+            if not webhook_url:
+                raise RuntimeError('未配置 Docker 更新 Webhook 地址')
+
+            method = upgrade_cfg.get('webhook_method', 'POST')
+            timeout_seconds = upgrade_cfg.get('timeout_seconds', 20)
+            headers = _parse_header_lines(upgrade_cfg.get('webhook_headers', ''))
+            body_text = upgrade_cfg.get('webhook_body', '').strip()
+
+            request_kwargs = {'headers': headers, 'timeout': timeout_seconds}
+            if body_text:
+                try:
+                    request_kwargs['json'] = json.loads(body_text)
+                except Exception:
+                    request_kwargs['data'] = body_text
+
+            _append_system_update_log(f'调用 Webhook: {method} {webhook_url}')
+            resp = PROXY_SESSION.request(method, webhook_url, **request_kwargs)
+            preview = (resp.text or '').strip().replace('\n', ' ')
+            if len(preview) > 240:
+                preview = preview[:240] + '...'
+            _append_system_update_log(f'Webhook 返回: HTTP {resp.status_code} {preview}')
+            if resp.status_code >= 400:
+                raise RuntimeError(f'Webhook 调用失败 (HTTP {resp.status_code})')
+
+            _append_system_update_log('Webhook 已触发，容器将由外部系统执行拉取与重启。')
+
+        else:
+            command = upgrade_cfg.get('command', '').strip()
+            if not command:
+                raise RuntimeError('未配置升级命令')
+
+            workdir = os.path.dirname(os.path.abspath(__file__))
+            _append_system_update_log(f'执行命令: {command}')
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                cwd=workdir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                bufsize=1
+            )
+
+            if process.stdout:
+                for line in process.stdout:
+                    clean_line = line.rstrip()
+                    if clean_line:
+                        _append_system_update_log(clean_line)
+
+            return_code = process.wait()
+            if return_code != 0:
+                raise RuntimeError(f'升级命令执行失败，退出码 {return_code}')
+            _append_system_update_log('升级命令执行完成。')
+
+        _update_system_update_state(
+            status='success',
+            finished_at=_now_text(),
+            message='升级触发成功'
+        )
+    except Exception as e:
+        _append_system_update_log(f'升级失败: {e}')
+        _update_system_update_state(
+            status='failed',
+            finished_at=_now_text(),
+            message=str(e)
+        )
+
+
+@app.route('/api/admin/system-update/check', methods=['GET'])
+@admin_required
+def check_system_update_api():
+    """检查是否有新版本"""
+    try:
+        upgrade_cfg = _get_upgrade_config(use_cache=False)
+        result = _check_latest_release(upgrade_cfg)
+        now_text = _now_text()
+
+        state_patch = {
+            'current_version': APP_VERSION,
+            'last_checked_at': now_text
+        }
+        if result.get('success'):
+            state_patch.update({
+                'latest_version': result.get('latest_version', ''),
+                'has_update': bool(result.get('has_update')),
+                'message': '发现新版本' if result.get('has_update') else '已是最新版本'
+            })
+            _append_system_update_log(
+                f"版本检查完成: 当前 v{APP_VERSION}，最新 {result.get('latest_version')}，"
+                f"{'需要升级' if result.get('has_update') else '无需升级'}"
+            )
+        else:
+            state_patch.update({
+                'message': result.get('error', '版本检查失败')
+            })
+            _append_system_update_log(f"版本检查失败: {result.get('error', '未知错误')}")
+
+        current_state = _get_system_update_state()
+        if current_state.get('status') != 'running':
+            state_patch['status'] = 'idle'
+        _update_system_update_state(**state_patch)
+
+        return jsonify({
+            'success': bool(result.get('success')),
+            'current_version': APP_VERSION,
+            'latest_version': result.get('latest_version', ''),
+            'has_update': bool(result.get('has_update', False)),
+            'release_url': result.get('release_url', ''),
+            'message': result.get('error') if not result.get('success') else ('发现新版本' if result.get('has_update') else '已是最新版本'),
+            'checked_at': now_text
+        }), 200
+    except Exception as e:
+        app.logger.error(f'检查系统更新失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/system-update/start', methods=['POST'])
+@admin_required
+def start_system_update_api():
+    """开始执行在线升级"""
+    try:
+        req_data = request.get_json(silent=True) or {}
+        force = bool(req_data.get('force', False))
+        upgrade_cfg = _get_upgrade_config(use_cache=False)
+
+        with _system_update_lock:
+            if _system_update_state.get('status') == 'running':
+                return jsonify({'success': False, 'error': '已有升级任务正在执行'}), 409
+
+        if upgrade_cfg.get('mode') == 'docker_webhook' and not upgrade_cfg.get('webhook_url'):
+            return jsonify({'success': False, 'error': '请先配置 Docker 更新 Webhook 地址'}), 400
+        if upgrade_cfg.get('mode') == 'command' and not upgrade_cfg.get('command'):
+            return jsonify({'success': False, 'error': '请先配置升级命令'}), 400
+
+        check_result = _check_latest_release(upgrade_cfg)
+        if check_result.get('success'):
+            _update_system_update_state(
+                current_version=APP_VERSION,
+                latest_version=check_result.get('latest_version', ''),
+                has_update=bool(check_result.get('has_update')),
+                last_checked_at=_now_text()
+            )
+            if not force and not check_result.get('has_update'):
+                return jsonify({
+                    'success': False,
+                    'error': '当前已是最新版本；如需强制触发请传 force=true'
+                }), 400
+
+        _update_system_update_state(
+            status='running',
+            current_version=APP_VERSION,
+            started_at=_now_text(),
+            finished_at='',
+            mode=upgrade_cfg.get('mode', ''),
+            message='升级任务已启动',
+            logs=[]
+        )
+        _append_system_update_log('开始执行在线升级任务')
+
+        Thread(target=_execute_upgrade_task, args=(upgrade_cfg,), daemon=True).start()
+
+        log_admin_audit(
+            'config_change',
+            detail=f"触发在线升级: mode={upgrade_cfg.get('mode', '')}",
+            target_type='config'
+        )
+
+        return jsonify({
+            'success': True,
+            'message': '升级任务已启动',
+            'mode': upgrade_cfg.get('mode')
+        }), 200
+    except Exception as e:
+        app.logger.error(f'启动系统升级失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/system-update/status', methods=['GET'])
+@admin_required
+def get_system_update_status_api():
+    """获取在线升级状态和日志"""
+    try:
+        state = _get_system_update_state()
+        return jsonify({
+            'success': True,
+            'state': state
+        }), 200
+    except Exception as e:
+        app.logger.error(f'获取升级状态失败: {e}', exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/admin/system-config', methods=['GET'])
 @admin_required
 def get_system_config_api():
@@ -20465,11 +20864,13 @@ def get_system_config_api():
     login_notify_cfg = config.get('login_notify') or {}
     expire_remind_cfg = config.get('expire_remind') or {}
     ranking_cfg = config.get('ranking') or {}
+    upgrade_cfg = config.get('upgrade') or {}
 
     templates = telegram_cfg.get('templates') or {'request': '', 'completion': ''}
 
     return jsonify({
         'success': True,
+        'app_version': APP_VERSION,
         'config': {
             'emby': {
                 'url': emby_cfg.get('url', ''),
@@ -20581,6 +20982,16 @@ def get_system_config_api():
                 'push_weekly_time': ranking_cfg.get('push_weekly_time', '21:00'),
                 'push_daily': ranking_cfg.get('push_daily', True),
                 'push_weekly': ranking_cfg.get('push_weekly', True),
+            },
+            'upgrade': {
+                'mode': upgrade_cfg.get('mode', 'docker_webhook'),
+                'check_url': upgrade_cfg.get('check_url', DEFAULT_SYSTEM_CONFIG['upgrade']['check_url']),
+                'webhook_url': upgrade_cfg.get('webhook_url', ''),
+                'webhook_method': upgrade_cfg.get('webhook_method', 'POST'),
+                'webhook_headers': upgrade_cfg.get('webhook_headers', ''),
+                'webhook_body': upgrade_cfg.get('webhook_body', ''),
+                'command': upgrade_cfg.get('command', ''),
+                'timeout_seconds': upgrade_cfg.get('timeout_seconds', 20),
             }
         }
     }), 200
@@ -20877,13 +21288,48 @@ def save_system_config_api():
             if 'push_weekly' in rk:
                 current_config['ranking']['push_weekly'] = bool(rk['push_weekly'])
             app.logger.info(f'[CONFIG] 更新 ranking: {current_config["ranking"]}')
-        
+
+        # 更新在线升级配置
+        if 'upgrade' in data:
+            up = data['upgrade']
+            if 'upgrade' not in current_config:
+                current_config['upgrade'] = DEFAULT_SYSTEM_CONFIG['upgrade'].copy()
+
+            mode = str(up.get('mode', current_config['upgrade'].get('mode', 'docker_webhook'))).strip()
+            if mode not in ('docker_webhook', 'command'):
+                mode = 'docker_webhook'
+            current_config['upgrade']['mode'] = mode
+
+            if 'check_url' in up:
+                current_config['upgrade']['check_url'] = str(up.get('check_url', '')).strip() or DEFAULT_SYSTEM_CONFIG['upgrade']['check_url']
+            if 'webhook_url' in up:
+                current_config['upgrade']['webhook_url'] = str(up.get('webhook_url', '')).strip()
+
+            webhook_method = str(up.get('webhook_method', current_config['upgrade'].get('webhook_method', 'POST'))).strip().upper()
+            if webhook_method not in ('GET', 'POST', 'PUT'):
+                webhook_method = 'POST'
+            current_config['upgrade']['webhook_method'] = webhook_method
+
+            if 'webhook_headers' in up:
+                current_config['upgrade']['webhook_headers'] = str(up.get('webhook_headers', '')).strip()
+            if 'webhook_body' in up:
+                current_config['upgrade']['webhook_body'] = str(up.get('webhook_body', '')).strip()
+            if 'command' in up:
+                current_config['upgrade']['command'] = str(up.get('command', '')).strip()
+            if 'timeout_seconds' in up:
+                try:
+                    timeout_val = int(up.get('timeout_seconds', 20))
+                except Exception:
+                    timeout_val = 20
+                current_config['upgrade']['timeout_seconds'] = max(3, min(300, timeout_val))
+            app.logger.info(f'[CONFIG] 更新 upgrade: mode={current_config["upgrade"].get("mode")}')
+
         changed_sections = [
             key for key in data.keys()
             if key in {
                 'admin', 'emby', 'telegram', 'search', 'tmdb', 'request_limit',
                 'category', 'checkin', 'subscription_expire', 'invite_reward',
-                'email', 'login_notify', 'expire_remind', 'ranking'
+                'email', 'login_notify', 'expire_remind', 'ranking', 'upgrade'
             }
         ]
 

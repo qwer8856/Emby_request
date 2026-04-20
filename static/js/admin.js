@@ -3332,6 +3332,12 @@ async function loadPaymentConfig() {
         
         if (data.success && data.config) {
             const config = data.config;
+            const appVersion = data.app_version || '';
+
+            const systemVersionValue = document.getElementById('systemVersionValue');
+            if (systemVersionValue && appVersion) {
+                systemVersionValue.textContent = `v${appVersion}`;
+            }
             
             // 填充表单
             document.getElementById('epayUrl').value = config.epay_url || '';
@@ -3956,6 +3962,35 @@ async function loadSystemConfig() {
                 setRankingPlaybackTabVisibility(config.ranking.enabled === true);
             }
 
+            // 填充在线升级配置
+            if (config.upgrade) {
+                const up = config.upgrade;
+                const upgradeMode = document.getElementById('upgradeMode');
+                const upgradeCheckUrl = document.getElementById('upgradeCheckUrl');
+                const upgradeWebhookUrl = document.getElementById('upgradeWebhookUrl');
+                const upgradeWebhookMethod = document.getElementById('upgradeWebhookMethod');
+                const upgradeWebhookHeaders = document.getElementById('upgradeWebhookHeaders');
+                const upgradeWebhookBody = document.getElementById('upgradeWebhookBody');
+                const upgradeCommand = document.getElementById('upgradeCommand');
+                const upgradeTimeoutSeconds = document.getElementById('upgradeTimeoutSeconds');
+
+                if (upgradeMode) upgradeMode.value = up.mode || 'docker_webhook';
+                if (upgradeCheckUrl) upgradeCheckUrl.value = up.check_url || '';
+                if (upgradeWebhookUrl) upgradeWebhookUrl.value = up.webhook_url || '';
+                if (upgradeWebhookMethod) upgradeWebhookMethod.value = up.webhook_method || 'POST';
+                if (upgradeWebhookHeaders) upgradeWebhookHeaders.value = up.webhook_headers || '';
+                if (upgradeWebhookBody) upgradeWebhookBody.value = up.webhook_body || '';
+                if (upgradeCommand) upgradeCommand.value = up.command || '';
+                if (upgradeTimeoutSeconds) upgradeTimeoutSeconds.value = up.timeout_seconds || 20;
+
+                toggleUpgradeModeFields();
+            } else {
+                toggleUpgradeModeFields();
+            }
+
+            // 加载一次升级状态
+            loadSystemUpdateStatus(true);
+
             // 加载邮箱统计
             loadEmailStats();
         }
@@ -3972,25 +4007,197 @@ function setSystemUpgradeStatus(text) {
     }
 }
 
-async function checkSystemUpdate() {
-    setSystemUpgradeStatus('检查中');
-    const checkTimeEl = document.getElementById('systemUpdateCheckTime');
-    if (checkTimeEl) {
-        checkTimeEl.textContent = `上次检查：${new Date().toLocaleString('zh-CN')}`;
+let systemUpdateStatusTimer = null;
+
+function toggleUpgradeModeFields() {
+    const mode = document.getElementById('upgradeMode')?.value || 'docker_webhook';
+    const webhookFields = document.getElementById('upgradeWebhookFields');
+    const commandField = document.getElementById('upgradeCommandField');
+
+    if (webhookFields) {
+        webhookFields.style.display = mode === 'docker_webhook' ? '' : 'none';
+    }
+    if (commandField) {
+        commandField.style.display = mode === 'command' ? '' : 'none';
+    }
+}
+
+function buildUpgradeConfigPayload() {
+    return {
+        mode: document.getElementById('upgradeMode')?.value || 'docker_webhook',
+        check_url: document.getElementById('upgradeCheckUrl')?.value.trim() || '',
+        webhook_url: document.getElementById('upgradeWebhookUrl')?.value.trim() || '',
+        webhook_method: document.getElementById('upgradeWebhookMethod')?.value || 'POST',
+        webhook_headers: document.getElementById('upgradeWebhookHeaders')?.value.trim() || '',
+        webhook_body: document.getElementById('upgradeWebhookBody')?.value.trim() || '',
+        command: document.getElementById('upgradeCommand')?.value.trim() || '',
+        timeout_seconds: parseInt(document.getElementById('upgradeTimeoutSeconds')?.value || '20', 10)
+    };
+}
+
+async function saveUpgradeConfig() {
+    const payload = buildUpgradeConfigPayload();
+
+    if (payload.mode === 'docker_webhook' && !payload.webhook_url) {
+        showToast('提示', 'Docker Webhook 模式需要填写 Webhook 地址', 'warning');
+        return;
+    }
+    if (payload.mode === 'command' && !payload.command) {
+        showToast('提示', '命令模式需要填写升级命令', 'warning');
+        return;
     }
 
-    const currentVersion = document.getElementById('systemVersionValue')?.textContent || '--';
+    try {
+        const response = await fetch('/api/admin/system-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ upgrade: payload })
+        });
+        const data = await parseResponseData(response);
+        if (data.success) {
+            showToast('成功', '在线升级配置已保存', 'success');
+            setTimeout(() => loadSystemConfig(), 400);
+        } else {
+            showToast('失败', data.error || '保存失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', '保存失败: ' + error.message, 'error');
+    }
+}
+
+function stopSystemUpdatePolling() {
+    if (systemUpdateStatusTimer) {
+        clearInterval(systemUpdateStatusTimer);
+        systemUpdateStatusTimer = null;
+    }
+}
+
+function startSystemUpdatePolling() {
+    if (systemUpdateStatusTimer) return;
+    systemUpdateStatusTimer = setInterval(() => {
+        loadSystemUpdateStatus(true);
+    }, 3000);
+}
+
+function renderSystemUpdateState(state) {
+    const statusMap = {
+        idle: '待机',
+        running: '执行中',
+        success: '成功',
+        failed: '失败'
+    };
+    let statusText = statusMap[state.status] || state.status || '待机';
+    if (state.message && state.status !== 'running') {
+        statusText = state.message;
+    }
+    setSystemUpgradeStatus(statusText);
+
     const latestVersionEl = document.getElementById('systemLatestVersion');
     if (latestVersionEl) {
-        latestVersionEl.textContent = `最新版本：${currentVersion}`;
+        latestVersionEl.textContent = `最新版本：${state.latest_version || '--'}`;
     }
 
-    setSystemUpgradeStatus('待接入');
-    showToast('提示', '升级按钮入口已就位，下一步将接入真实在线升级接口。', 'info');
+    const checkTimeEl = document.getElementById('systemUpdateCheckTime');
+    if (checkTimeEl) {
+        checkTimeEl.textContent = `上次检查：${state.last_checked_at || '--'}`;
+    }
+
+    const currentVersion = document.getElementById('systemVersionValue');
+    if (currentVersion && state.current_version) {
+        currentVersion.textContent = `v${state.current_version}`;
+    }
+
+    const logsEl = document.getElementById('systemUpgradeLogs');
+    if (logsEl) {
+        const logs = Array.isArray(state.logs) ? state.logs : [];
+        logsEl.textContent = logs.length ? logs.join('\n') : '暂无日志';
+        if (state.status === 'running') {
+            logsEl.scrollTop = logsEl.scrollHeight;
+        }
+    }
+
+    if (state.status === 'running') {
+        startSystemUpdatePolling();
+    } else {
+        stopSystemUpdatePolling();
+    }
+}
+
+async function loadSystemUpdateStatus(silent = false) {
+    try {
+        const response = await fetch('/api/admin/system-update/status');
+        const data = await parseResponseData(response);
+        if (data.success && data.state) {
+            renderSystemUpdateState(data.state);
+        } else if (!silent) {
+            showToast('提示', data.error || '获取升级状态失败', 'warning');
+        }
+    } catch (error) {
+        if (!silent) {
+            showToast('错误', '获取升级状态失败: ' + error.message, 'error');
+        }
+    }
+}
+
+async function checkSystemUpdate() {
+    setSystemUpgradeStatus('检查中');
+    try {
+        const response = await fetch('/api/admin/system-update/check');
+        const data = await parseResponseData(response);
+
+        if (data.success) {
+            const latestVersionEl = document.getElementById('systemLatestVersion');
+            if (latestVersionEl) latestVersionEl.textContent = `最新版本：${data.latest_version || '--'}`;
+            const checkTimeEl = document.getElementById('systemUpdateCheckTime');
+            if (checkTimeEl) checkTimeEl.textContent = `上次检查：${data.checked_at || '--'}`;
+
+            setSystemUpgradeStatus(data.has_update ? '发现新版本' : '已是最新');
+            showToast('成功', data.has_update ? `发现新版本 ${data.latest_version}` : '当前已是最新版本', 'success');
+        } else {
+            setSystemUpgradeStatus('检查失败');
+            showToast('失败', data.message || data.error || '检查更新失败', 'error');
+        }
+    } catch (error) {
+        setSystemUpgradeStatus('检查失败');
+        showToast('错误', '检查更新失败: ' + error.message, 'error');
+    } finally {
+        loadSystemUpdateStatus(true);
+    }
 }
 
 async function startSystemUpdate() {
-    showToast('提示', '在线升级执行逻辑正在接入中，当前先完成入口和状态位。', 'warning');
+    let confirmed = true;
+    if (typeof showConfirm === 'function') {
+        confirmed = await showConfirm({
+            title: '确认升级',
+            message: '将触发在线升级流程，当前服务可能会被重启，确定继续吗？',
+            confirmText: '开始升级',
+            cancelText: '取消',
+            type: 'warning'
+        });
+    } else {
+        confirmed = window.confirm('将触发在线升级流程，当前服务可能会被重启，确定继续吗？');
+    }
+    if (!confirmed) return;
+
+    try {
+        const response = await fetch('/api/admin/system-update/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ force: false })
+        });
+        const data = await parseResponseData(response);
+        if (data.success) {
+            setSystemUpgradeStatus('执行中');
+            showToast('成功', data.message || '升级任务已启动', 'success');
+            startSystemUpdatePolling();
+            loadSystemUpdateStatus(true);
+        } else {
+            showToast('失败', data.error || '升级启动失败', 'error');
+        }
+    } catch (error) {
+        showToast('错误', '升级启动失败: ' + error.message, 'error');
+    }
 }
 
 // Emby 配置
