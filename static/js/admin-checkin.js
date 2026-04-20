@@ -252,7 +252,7 @@ function renderAvailablePlans() {
         
         const planOption = document.createElement('div');
         planOption.className = 'plan-option' + (isConfigured ? ' disabled' : '');
-        planOption.onclick = isConfigured ? null : () => selectPlan(plan);
+        planOption.onclick = isConfigured ? null : (evt) => selectPlan(plan, evt);
         
         planOption.innerHTML = `
             <input type="radio" name="selectedPlan" value="${plan.id}" ${isConfigured ? 'disabled' : ''}>
@@ -274,17 +274,20 @@ function renderAvailablePlans() {
 }
 
 // 选择套餐
-function selectPlan(plan) {
+function selectPlan(plan, evt) {
     selectedPlanForExchange = plan;
     
     // 更新选中状态
     document.querySelectorAll('.plan-option').forEach(option => {
         option.classList.remove('selected');
     });
-    event.currentTarget.classList.add('selected');
+    const currentTarget = (evt && evt.currentTarget) || null;
+    if (currentTarget) {
+        currentTarget.classList.add('selected');
+    }
     
     // 选中radio
-    const radio = event.currentTarget.querySelector('input[type="radio"]');
+    const radio = currentTarget ? currentTarget.querySelector('input[type="radio"]') : null;
     if (radio) radio.checked = true;
     
     // 自动填充建议积分（套餐价格 * 10）

@@ -1957,6 +1957,27 @@ function getOrderStatusText(status) {
     return texts[status] || status;
 }
 
+function getOrderDurationText(order) {
+    const planType = String(order?.plan_type || '').toLowerCase();
+    const planName = String(order?.plan_name || '');
+    const rawDurationText = String(order?.duration_text || '').trim();
+    const durationDays = Number(order?.duration_days || 0);
+    const durationMonths = Number(order?.duration_months || 0);
+
+    const isPermanent = (
+        planType === 'whitelist' ||
+        /白名单|永久/.test(planName) ||
+        /永久/.test(rawDurationText) ||
+        durationDays >= 36500 ||
+        durationMonths >= 1200
+    );
+
+    if (isPermanent) return '永久';
+    if (rawDurationText) return rawDurationText;
+    if (durationDays > 0) return `${durationDays} 天`;
+    return `${durationMonths > 0 ? durationMonths : 1} 个月`;
+}
+
 function updateOrderStats(stats) {
     document.getElementById('totalOrders').textContent = stats.total || 0;
     document.getElementById('pendingOrders').textContent = stats.pending || 0;
@@ -2040,7 +2061,7 @@ function viewOrder(orderNo) {
                     </div>
                     <div class="detail-item">
                         <span class="detail-label">订阅时长</span>
-                        <span class="detail-value">${order.duration_text || (order.duration_days ? order.duration_days + ' 天' : (order.duration_months || 1) + ' 个月')}</span>
+                        <span class="detail-value">${getOrderDurationText(order)}</span>
                     </div>
                 </div>
             </div>
@@ -3324,23 +3345,31 @@ async function savePaymentConfig() {
 async function testPaymentConfig() {
     const epayUrl = document.getElementById('epayUrl').value.trim();
     const epayPid = document.getElementById('epayPid').value.trim();
+    const epayKey = document.getElementById('epayKey').value.trim();
     
-    if (!epayUrl || !epayPid) {
-        showToast('提示', '请先填写易支付接口地址和商户ID', 'warning');
+    if (!epayUrl || !epayPid || !epayKey) {
+        showToast('提示', '请先填写易支付接口地址、商户ID和密钥', 'warning');
         return;
     }
     
     showToast('测试中', '正在测试易支付连接...', 'info');
     
     try {
-        // 检查当前配置状态
-        const response = await fetch('/api/admin/payment-config');
+        const response = await fetch('/api/admin/test-payment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                epay_url: epayUrl,
+                epay_pid: epayPid,
+                epay_key: epayKey
+            })
+        });
         const data = await parseResponseData(response);
         
-        if (data.success && data.config.configured) {
-            showToast('成功', '易支付已配置，配置有效', 'success');
+        if (data.success) {
+            showToast('成功', data.message || '易支付连接测试通过', 'success');
         } else {
-            showToast('警告', '配置尚未保存，请先保存配置', 'warning');
+            showToast('失败', data.error || '测试失败', 'error');
         }
     } catch (error) {
         showToast('错误', '测试失败: ' + error.message, 'error');
@@ -3586,14 +3615,6 @@ async function loadSystemConfig() {
             const requireBindTgEl = document.getElementById('requireBindTg');
             if (requireBindTgEl) requireBindTgEl.checked = config.telegram.require_bindtg || false;
             
-            // 填充 Telegram 通知模板配置
-            if (config.telegram.templates) {
-                const requestTemplateEl = document.getElementById('tgRequestTemplate');
-                const completionTemplateEl = document.getElementById('tgCompletionTemplate');
-                if (requestTemplateEl) requestTemplateEl.value = config.telegram.templates.request || '';
-                if (completionTemplateEl) completionTemplateEl.value = config.telegram.templates.completion || '';
-            }
-            
             // 填充求片通知配置（入库通知 - 求片Tab）
             if (config.telegram.request_notification) {
                 const notifConfig = config.telegram.request_notification;
@@ -3633,6 +3654,28 @@ async function loadSystemConfig() {
                 if (chatIdInput) chatIdInput.value = '';
                 if (botTokenInput) botTokenInput.value = '';
                 if (showPosterCheckbox) showPosterCheckbox.checked = true;
+            }
+
+            // 更新入库通知状态徽章（动态）
+            const libraryStatusBadge = document.getElementById('libraryNotificationStatus');
+            if (libraryStatusBadge) {
+                const requestEnabled = config.telegram.request_notification
+                    ? config.telegram.request_notification.enabled !== false
+                    : true;
+                const generalEnabled = config.telegram.library_notification
+                    ? config.telegram.library_notification.enabled === true
+                    : false;
+
+                if (requestEnabled && generalEnabled) {
+                    libraryStatusBadge.textContent = '已配置';
+                    libraryStatusBadge.classList.add('configured');
+                } else if (requestEnabled || generalEnabled) {
+                    libraryStatusBadge.textContent = '部分配置';
+                    libraryStatusBadge.classList.add('configured');
+                } else {
+                    libraryStatusBadge.textContent = '未配置';
+                    libraryStatusBadge.classList.remove('configured');
+                }
             }
             
             // 更新 Telegram 状态徽章
@@ -3840,6 +3883,7 @@ async function loadSystemConfig() {
 
                 toggleRankingConfig();
                 toggleRankingPushConfig();
+                setRankingPlaybackTabVisibility(config.ranking.enabled === true);
             }
 
             // 加载邮箱统计
@@ -4399,67 +4443,6 @@ async function checkTelegramMode() {
     }
 }
 
-// Telegram 通知模板配置
-async function saveTelegramTemplates() {
-    const requestTemplateEl = document.getElementById('tgRequestTemplate');
-    const completionTemplateEl = document.getElementById('tgCompletionTemplate');
-    if (!requestTemplateEl || !completionTemplateEl) {
-        showToast('错误', '通知模板表单未加载', 'error');
-        return;
-    }
-    const requestTemplate = requestTemplateEl.value;
-    const completionTemplate = completionTemplateEl.value;
-    
-    try {
-        const response = await fetch('/api/admin/system-config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                telegram: {
-                    templates: {
-                        request: requestTemplate,
-                        completion: completionTemplate
-                    }
-                }
-            })
-        });
-        
-        const data = await parseResponseData(response);
-        
-        if (data.success) {
-            showToast('成功', '通知模板已保存', 'success');
-        } else {
-            showToast('失败', data.error || '保存失败', 'error');
-        }
-    } catch (error) {
-        console.error('保存模板失败:', error);
-        showToast('错误', '保存失败: ' + error.message, 'error');
-    }
-}
-
-async function resetTelegramTemplates() {
-    const confirmed = await showConfirm({
-        title: '恢复默认模板',
-        message: '确定要恢复默认模板吗？这将清空您自定义的模板内容。',
-        confirmText: '确定恢复',
-        cancelText: '取消',
-        type: 'warning'
-    });
-    if (!confirmed) return;
-    
-    const requestTemplateEl = document.getElementById('tgRequestTemplate');
-    const completionTemplateEl = document.getElementById('tgCompletionTemplate');
-    if (!requestTemplateEl || !completionTemplateEl) {
-        showToast('错误', '通知模板表单未加载', 'error');
-        return;
-    }
-    requestTemplateEl.value = '';
-    completionTemplateEl.value = '';
-    
-    // 自动保存
-    saveTelegramTemplates();
-}
-
 // ==================== 入库通知配置 ====================
 // Tab 切换
 function switchNotificationTab(tabName) {
@@ -4612,15 +4595,19 @@ async function testTmdbConfig() {
     showToast('测试中', '正在测试 TMDB API...', 'info');
     
     try {
-        // 直接调用 TMDB API 测试
-        const response = await fetch(`https://api.themoviedb.org/3/configuration?api_key=${tmdbApiKey}`);
-        
-        if (response.ok) {
-            showToast('成功', 'TMDB API Key 有效！', 'success');
-        } else if (response.status === 401) {
-            showToast('失败', 'API Key 无效或已过期', 'error');
+        const response = await fetch('/api/admin/test-tmdb', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                api_key: tmdbApiKey
+            })
+        });
+        const data = await parseResponseData(response);
+
+        if (data.success) {
+            showToast('成功', data.message || 'TMDB API 测试通过', 'success');
         } else {
-            showToast('失败', `测试失败 (状态码: ${response.status})`, 'error');
+            showToast('失败', data.error || '测试失败', 'error');
         }
     } catch (error) {
         showToast('错误', '测试失败: ' + error.message, 'error');
@@ -6550,6 +6537,7 @@ let adminDevicesPage = 1;
 let adminHistoryPage = 1;
 
 async function loadAdminPlayback() {
+    await syncRankingPlaybackTabVisibility();
     loadAdminSessions();
     loadAdminDevices(1);
     loadAdminHistory(1);
@@ -6564,6 +6552,31 @@ async function loadAdminPlayback() {
             loadAdminSessions();
         }
     }, 5000);
+}
+
+function setRankingPlaybackTabVisibility(enabled) {
+    const tabBtn = document.getElementById('playbackRankingsTabBtn');
+    const tabPane = document.getElementById('playbackTabRankings');
+    const shouldShow = enabled === true;
+
+    if (tabBtn) tabBtn.style.display = shouldShow ? '' : 'none';
+    if (tabPane) tabPane.style.display = shouldShow ? '' : 'none';
+
+    if (!shouldShow && currentAdminSection === 'playback' && tabPane && tabPane.classList.contains('active')) {
+        switchPlaybackTab('sessions');
+    }
+}
+
+async function syncRankingPlaybackTabVisibility() {
+    try {
+        const response = await fetch('/api/admin/system-config');
+        const data = await parseResponseData(response);
+        const enabled = !!(data && data.success && data.config && data.config.ranking && data.config.ranking.enabled === true);
+        setRankingPlaybackTabVisibility(enabled);
+    } catch (error) {
+        // 网络异常时保持默认显示，避免误隐藏
+        setRankingPlaybackTabVisibility(true);
+    }
 }
 
 function refreshAdminPlayback() {
@@ -6611,13 +6624,15 @@ function switchPlaybackTab(tab) {
     document.querySelectorAll('.playback-tabs .tab-btn').forEach(btn => {
         btn.classList.remove('active');
     });
-    document.querySelector(`.playback-tabs .tab-btn[onclick*="${tab}"]`).classList.add('active');
+    const targetBtn = document.querySelector(`.playback-tabs .tab-btn[onclick*="${tab}"]`);
+    if (targetBtn) targetBtn.classList.add('active');
     
     // 切换内容
     document.querySelectorAll('.playback-tab-content').forEach(content => {
         content.classList.remove('active');
     });
-    document.getElementById(`playbackTab${tab.charAt(0).toUpperCase() + tab.slice(1)}`).classList.add('active');
+    const targetContent = document.getElementById(`playbackTab${tab.charAt(0).toUpperCase() + tab.slice(1)}`);
+    if (targetContent) targetContent.classList.add('active');
     
     // 根据标签页加载对应数据
     if (tab === 'blacklist') {
@@ -9258,9 +9273,9 @@ async function testEmailConfig() {
 
 // ==================== 播放排行配置 ====================
 function toggleRankingConfig() {
-    const enabled = document.getElementById('rankingEnabled')?.checked;
     const details = document.getElementById('rankingConfigDetails');
-    if (details) details.style.display = enabled ? 'block' : 'none';
+    // 排行配置项始终可见，便于提前配置；是否生效由“启用播放排行功能”控制
+    if (details) details.style.display = 'block';
 }
 
 function toggleRankingPushConfig() {
@@ -9302,6 +9317,7 @@ async function saveRankingConfig() {
                 badge.textContent = config.ranking.enabled ? '已开启' : '已关闭';
                 badge.className = 'status-badge ' + (config.ranking.enabled ? 'configured' : '');
             }
+            setRankingPlaybackTabVisibility(config.ranking.enabled === true);
             // 清除前端排行缓存以便下次用新配置加载
             if (typeof _rankingsCache !== 'undefined') _rankingsCache = {};
         } else {

@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import hashlib
 
 # 应用版本号
-APP_VERSION = '2.2.49'
+APP_VERSION = '2.2.50'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -1942,57 +1942,53 @@ def load_system_config_from_file():
     return config
 
 
-def save_system_config(config):
-    """保存系统配置 - 同时保存到数据库和文件"""
+def save_system_config(config, sections=None):
+    """保存系统配置 - 同时保存到数据库和文件
+
+    sections:
+        指定仅保存的配置分区列表（例如 ['telegram', 'emby']）。
+        为空时保持旧行为：尝试保存 config 中的全部已知分区。
+    """
     db_success = True
     file_success = True
     _save_failures = []
+    known_sections = [
+        ('admin', CONFIG_KEY_ADMIN, '管理员配置'),
+        ('emby', CONFIG_KEY_EMBY, 'Emby 服务器配置'),
+        ('telegram', CONFIG_KEY_TELEGRAM, 'Telegram BOT配置'),
+        ('search', CONFIG_KEY_SEARCH, '搜索策略配置'),
+        ('tmdb', CONFIG_KEY_TMDB, 'TMDB API 配置'),
+        ('request_limit', CONFIG_KEY_REQUEST_LIMIT, '求片限制配置'),
+        ('category', CONFIG_KEY_CATEGORY, '二级分类策略'),
+        ('checkin', CONFIG_KEY_CHECKIN, '签到系统配置'),
+        ('subscription_expire', CONFIG_KEY_SUBSCRIPTION_EXPIRE, '订阅过期管理配置'),
+        ('invite_reward', CONFIG_KEY_INVITE_REWARD, '邀请返利配置'),
+        ('email', CONFIG_KEY_EMAIL, '邮件SMTP配置'),
+        ('login_notify', CONFIG_KEY_LOGIN_NOTIFY, '登录通知配置'),
+        ('expire_remind', CONFIG_KEY_EXPIRE_REMIND, '到期提醒配置'),
+        ('ranking', CONFIG_KEY_RANKING, '播放排行配置'),
+    ]
+
+    target_sections = None
+    if sections:
+        requested = {
+            str(section).strip()
+            for section in sections
+            if isinstance(section, str) and section.strip()
+        }
+        if requested:
+            target_sections = requested
     
     # 保存到数据库
     try:
         if has_app_context():
-            if 'admin' in config:
-                if not set_db_config(CONFIG_KEY_ADMIN, config['admin'], '管理员配置'):
-                    _save_failures.append('admin')
-            if 'emby' in config:
-                if not set_db_config(CONFIG_KEY_EMBY, config['emby'], 'Emby 服务器配置'):
-                    _save_failures.append('emby')
-            if 'telegram' in config:
-                if not set_db_config(CONFIG_KEY_TELEGRAM, config['telegram'], 'Telegram BOT配置'):
-                    _save_failures.append('telegram')
-            if 'search' in config:
-                if not set_db_config(CONFIG_KEY_SEARCH, config['search'], '搜索策略配置'):
-                    _save_failures.append('search')
-            if 'tmdb' in config:
-                if not set_db_config(CONFIG_KEY_TMDB, config['tmdb'], 'TMDB API 配置'):
-                    _save_failures.append('tmdb')
-            if 'request_limit' in config:
-                if not set_db_config(CONFIG_KEY_REQUEST_LIMIT, config['request_limit'], '求片限制配置'):
-                    _save_failures.append('request_limit')
-            if 'category' in config:
-                if not set_db_config(CONFIG_KEY_CATEGORY, config['category'], '二级分类策略'):
-                    _save_failures.append('category')
-            if 'checkin' in config:
-                if not set_db_config(CONFIG_KEY_CHECKIN, config['checkin'], '签到系统配置'):
-                    _save_failures.append('checkin')
-            if 'subscription_expire' in config:
-                if not set_db_config(CONFIG_KEY_SUBSCRIPTION_EXPIRE, config['subscription_expire'], '订阅过期管理配置'):
-                    _save_failures.append('subscription_expire')
-            if 'invite_reward' in config:
-                if not set_db_config(CONFIG_KEY_INVITE_REWARD, config['invite_reward'], '邀请返利配置'):
-                    _save_failures.append('invite_reward')
-            if 'email' in config:
-                if not set_db_config(CONFIG_KEY_EMAIL, config['email'], '邮件SMTP配置'):
-                    _save_failures.append('email')
-            if 'login_notify' in config:
-                if not set_db_config(CONFIG_KEY_LOGIN_NOTIFY, config['login_notify'], '登录通知配置'):
-                    _save_failures.append('login_notify')
-            if 'expire_remind' in config:
-                if not set_db_config(CONFIG_KEY_EXPIRE_REMIND, config['expire_remind'], '到期提醒配置'):
-                    _save_failures.append('expire_remind')
-            if 'ranking' in config:
-                if not set_db_config(CONFIG_KEY_RANKING, config['ranking'], '播放排行配置'):
-                    _save_failures.append('ranking')
+            for section_name, config_key, description in known_sections:
+                if target_sections is not None and section_name not in target_sections:
+                    continue
+                if section_name not in config:
+                    continue
+                if not set_db_config(config_key, config[section_name], description):
+                    _save_failures.append(section_name)
             
             if _save_failures:
                 db_success = False
@@ -10282,6 +10278,8 @@ def admin_get_playback_rankings():
 
     # 读取排行配置
     ranking_config = load_system_config().get('ranking', {})
+    if not ranking_config.get('enabled'):
+        return jsonify({'success': False, 'error': '播放排行功能未开启'}), 400
     movie_limit = ranking_config.get('movie_limit', 10)
     episode_limit = ranking_config.get('episode_limit', 10)
     user_limit = ranking_config.get('user_limit', 10)
@@ -10895,6 +10893,10 @@ def _restart_ranking_scheduler(ranking_config):
             if t:
                 t.cancel()
 
+    if not ranking_config.get('enabled'):
+        app.logger.info('排行功能未开启，已停止排行定时推送')
+        return
+
     if not ranking_config.get('push_enabled'):
         app.logger.info('排行定时推送: 已关闭')
         return
@@ -10914,6 +10916,8 @@ def admin_push_ranking_now():
     days = 7 if days == 7 else 1
 
     ranking_config = load_system_config().get('ranking', {})
+    if not ranking_config.get('enabled'):
+        return jsonify({'success': False, 'error': '播放排行功能未开启'}), 400
 
     try:
         text = _build_ranking_text(days, ranking_config)
@@ -13751,73 +13755,42 @@ def _do_process_telegram_update(data):
                         del TELEGRAM_CHECKIN_CODES[telegram_user_id]
                         return jsonify({'ok': True})
                     
-                    # 获取签到配置
-                    checkin_config = get_db_config('checkin', {})
+                    checkin_config = _get_checkin_config()
                     coin_name = checkin_config.get('coin_name', '积分')
-                    
-                    # 再次检查今天是否已签到（防止并发）
-                    today = datetime.now().date()
-                    existing = CheckInRecord.query.filter_by(
-                        user_tg=user.tg,
-                        checkin_date=today
-                    ).first()
-                    
-                    if existing:
-                        send_telegram_reply(chat_id, "❌ 今天已经签到过了")
+                    eligibility = _check_user_checkin_eligibility(
+                        user,
+                        checkin_config,
+                        require_bot_enabled=True
+                    )
+                    if not eligibility['ok']:
+                        existing = eligibility.get('existing')
+                        if existing:
+                            send_telegram_reply(
+                                chat_id,
+                                _build_bot_checkin_already_reply(existing, user, coin_name)
+                            )
+                        else:
+                            send_telegram_reply(chat_id, f"❌ {eligibility['error']}")
                         del TELEGRAM_CHECKIN_CODES[telegram_user_id]
                         return jsonify({'ok': True})
-                    
-                    # 计算连续签到天数
-                    yesterday = today - timedelta(days=1)
-                    yesterday_record = CheckInRecord.query.filter_by(
-                        user_tg=user.tg,
-                        checkin_date=yesterday
-                    ).first()
-                    
-                    continuous_days = (yesterday_record.continuous_days + 1) if yesterday_record else 1
-                    
-                    # 随机生成签到积分
-                    coin_min = checkin_config.get('coin_min', 1)
-                    coin_max = checkin_config.get('coin_max', 10)
-                    coins_earned = random.randint(coin_min, coin_max)
-                    
-                    # 创建签到记录
-                    checkin_record = CheckInRecord(
-                        user_tg=user.tg,
-                        checkin_date=today,
-                        coins_earned=coins_earned,
-                        continuous_days=continuous_days
-                    )
-                    db.session.add(checkin_record)
-                    
-                    # 更新用户积分和签到时间
-                    user.coins = (user.coins or 0) + coins_earned
-                    user.ch = datetime.now()
-                    
-                    # 创建积分交易记录
-                    coin_trans = CoinTransaction(
-                        user_tg=user.tg,
-                        amount=coins_earned,
-                        balance_after=user.coins,
-                        trans_type='checkin',
-                        description=f'BOT签到，连续{continuous_days}天',
-                        related_id=checkin_record.id
-                    )
-                    db.session.add(coin_trans)
-                    
-                    db.session.commit()
+
+                    checkin_result = _execute_user_checkin(user, checkin_config)
                     
                     # 删除验证码
                     del TELEGRAM_CHECKIN_CODES[telegram_user_id]
                     
-                    app.logger.info(f'用户BOT签到成功: {user.name}, 获得积分: {coins_earned}, 连续{continuous_days}天')
-                    
-                    # embyboss 风格的签到成功文案
-                    today_str = datetime.now().strftime('%Y-%m-%d')
-                    reply = f"""🎉 <b>签到成功</b> | +{coins_earned} {coin_name}
-💴 <b>当前持有</b> | {user.coins} {coin_name}
-📅 <b>连续签到</b> | {continuous_days} 天
-⏳ <b>签到日期</b> | {today_str}"""
+                    app.logger.info(
+                        f'用户BOT签到成功: {user.name}, 获得积分: {checkin_result["coins_earned"]}, '
+                        f'连续{checkin_result["continuous_days"]}天'
+                    )
+
+                    reply = _build_bot_checkin_success_reply(
+                        checkin_result['coins_earned'],
+                        checkin_result['total_coins'],
+                        checkin_result['continuous_days'],
+                        checkin_result['coin_name'],
+                        checkin_result.get('checkin_date')
+                    )
                     send_telegram_reply(chat_id, reply)
                     return jsonify({'ok': True})
                     
@@ -14138,53 +14111,26 @@ def _do_process_telegram_update(data):
                 send_telegram_reply(chat_id, reply + "\n\n请私聊机器人发送 /checkin")
             return jsonify({'ok': True})
         
-        # 获取签到配置
-        checkin_config = get_db_config('checkin', {})
+        checkin_config = _get_checkin_config()
         coin_name = checkin_config.get('coin_name', '积分')
-        
-        # 检查签到功能是否启用
-        if not checkin_config.get('enabled', False):
-            send_telegram_reply(chat_id, "❌ 签到功能未开启")
-            return jsonify({'ok': True})
-        
-        # 检查BOT签到功能是否启用
-        if not checkin_config.get('bot_enabled', False):
-            send_telegram_reply(chat_id, "❌ 管理员未开启BOT签到")
-            return jsonify({'ok': True})
         
         # 查找用户
         user = User.query.filter_by(telegram_id=telegram_user_id).first()
         if not user:
             send_telegram_reply(chat_id, "❌ 您还未绑定账号\n\n请先使用 /bind 命令绑定账号")
             return jsonify({'ok': True})
-        
-        # 签到权限检查
-        checkin_perm = checkin_config.get('checkin_permission', 'all')
-        if checkin_perm == 'none':
-            send_telegram_reply(chat_id, "❌ 管理员已关闭签到功能")
-            return jsonify({'ok': True})
-        if checkin_perm == 'subscribed':
-            if not user.ex or user.ex < datetime.now():
-                send_telegram_reply(chat_id, "❌ 仅限有订阅的用户签到，请先订阅后再来签到")
-                return jsonify({'ok': True})
-        
-        # 检查今天是否已签到
-        today = datetime.now().date()
-        existing = CheckInRecord.query.filter_by(
-            user_tg=user.tg,
-            checkin_date=today
-        ).first()
-        
-        if existing:
-            # embyboss 风格文案
-            reply = f"""⭕ <b>您今天已经签到过了！</b>
 
-🎉 <b>今日获得</b> | {existing.coins_earned} {coin_name}
-💴 <b>当前持有</b> | {user.coins or 0} {coin_name}
-📅 <b>连续签到</b> | {existing.continuous_days} 天
-
-签到是无聊的活动哦，明天再来吧~"""
-            send_telegram_reply(chat_id, reply)
+        eligibility = _check_user_checkin_eligibility(
+            user,
+            checkin_config,
+            require_bot_enabled=True
+        )
+        if not eligibility['ok']:
+            existing = eligibility.get('existing')
+            if existing:
+                send_telegram_reply(chat_id, _build_bot_checkin_already_reply(existing, user, coin_name))
+            else:
+                send_telegram_reply(chat_id, f"❌ {eligibility['error']}")
             return jsonify({'ok': True})
         
         # 生成算术验证码
@@ -14703,33 +14649,26 @@ def handle_start_panel_callback(callback_id, callback_data, chat_id, message_id,
             delete_telegram_message(chat_id, message_id)
             answer_callback_query(callback_id, "正在签到...")
             
-            checkin_config = get_db_config('checkin', {})
+            checkin_config = _get_checkin_config()
             coin_name = checkin_config.get('coin_name', '积分')
-            
-            if not checkin_config.get('enabled', False) or not checkin_config.get('bot_enabled', False):
-                send_telegram_reply(chat_id, "❌ 签到功能未开启")
-                return jsonify({'ok': True})
             
             user = User.query.filter_by(telegram_id=user_id).first()
             if not user:
                 send_telegram_reply(chat_id, "❌ 请先绑定账号")
                 return jsonify({'ok': True})
-            
-            # 检查今天是否已签到
-            today = datetime.now().date()
-            existing = CheckInRecord.query.filter_by(user_tg=user.tg, checkin_date=today).first()
-            
-            if existing:
-                # 和 /checkin 命令一样，发送完整的已签到信息
-                answer_callback_query(callback_id, "⭕ 今天已经签到过了")
-                reply = f"""⭕ <b>您今天已经签到过了！</b>
 
-🎉 <b>今日获得</b> | {existing.coins_earned} {coin_name}
-💴 <b>当前持有</b> | {user.coins or 0} {coin_name}
-📅 <b>连续签到</b> | {existing.continuous_days} 天
-
-签到是无聊的活动哦，明天再来吧~"""
-                send_telegram_reply(chat_id, reply)
+            eligibility = _check_user_checkin_eligibility(
+                user,
+                checkin_config,
+                require_bot_enabled=True
+            )
+            if not eligibility['ok']:
+                existing = eligibility.get('existing')
+                if existing:
+                    answer_callback_query(callback_id, "⭕ 今天已经签到过了")
+                    send_telegram_reply(chat_id, _build_bot_checkin_already_reply(existing, user, coin_name))
+                else:
+                    send_telegram_reply(chat_id, f"❌ {eligibility['error']}")
                 return jsonify({'ok': True})
             
             # 生成算术验证码
@@ -19910,6 +19849,70 @@ def save_payment_config_api():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/admin/test-payment', methods=['POST'])
+@admin_required
+def test_payment_connection():
+    """测试易支付网关连通性"""
+    try:
+        data = request.get_json(silent=True) or {}
+        epay_url = str(data.get('epay_url', '')).strip().rstrip('/')
+        epay_pid = str(data.get('epay_pid', '')).strip()
+        epay_key = str(data.get('epay_key', '')).strip()
+
+        if not epay_url:
+            return jsonify({'success': False, 'error': '易支付接口地址不能为空'}), 400
+        if not epay_pid:
+            return jsonify({'success': False, 'error': '商户ID不能为空'}), 400
+        if not epay_key:
+            return jsonify({'success': False, 'error': '商户密钥不能为空'}), 400
+
+        parsed = urlparse(epay_url)
+        if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+            return jsonify({'success': False, 'error': '接口地址格式错误，请填写完整的 http(s) URL'}), 400
+
+        test_session = requests.Session()
+        test_session.headers.update({'User-Agent': 'EmbyRequest/1.0'})
+        if PROXY_URL:
+            test_session.proxies = http_session.proxies
+
+        # 依次测试常见网关入口；返回 4xx 也可视为网关可达（通常代表参数校验失败而非网络不可达）
+        test_urls = [
+            f'{epay_url}/submit.php',
+            f'{epay_url}/api.php',
+            epay_url
+        ]
+        reachable_result = None
+
+        for test_url in test_urls:
+            try:
+                resp = test_session.get(test_url, timeout=10, allow_redirects=True)
+                if resp.status_code < 500 and resp.status_code != 404:
+                    reachable_result = (test_url, resp.status_code)
+                    break
+            except requests.exceptions.RequestException:
+                continue
+
+        if not reachable_result:
+            return jsonify({
+                'success': False,
+                'error': '无法连接易支付网关，请检查地址、网络或代理设置'
+            }), 400
+
+        tested_url, status_code = reachable_result
+        return jsonify({
+            'success': True,
+            'message': f'网关连通测试通过（{tested_url}，状态码: {status_code}）'
+        }), 200
+
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': '连接超时，请检查网络或代理设置'}), 400
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': '连接失败，请检查地址和网络'}), 400
+    except Exception as e:
+        app.logger.error(f'测试易支付连接失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ==================== 前端配置 API ====================
 @app.route('/api/admin/site-config', methods=['GET'])
 @admin_required
@@ -20861,8 +20864,18 @@ def save_system_config_api():
                 current_config['ranking']['push_weekly'] = bool(rk['push_weekly'])
             app.logger.info(f'[CONFIG] 更新 ranking: {current_config["ranking"]}')
         
-        # 保存到文件（必须在重启调度器之前，确保DB中是最新配置）
-        if save_system_config(current_config):
+        changed_sections = [
+            key for key in data.keys()
+            if key in {
+                'admin', 'emby', 'telegram', 'search', 'tmdb', 'request_limit',
+                'category', 'checkin', 'subscription_expire', 'invite_reward',
+                'email', 'login_notify', 'expire_remind', 'ranking'
+            }
+        ]
+
+        # 保存配置（仅写入本次改动分区，减少写库次数）
+        # 必须在重启调度器之前，确保DB中是最新配置
+        if save_system_config(current_config, sections=changed_sections):
             # 更新全局变量
             update_global_system_config()
             
@@ -20916,8 +20929,8 @@ def save_system_config_api():
                 ).start()
             
             # 记录配置变更的审计日志
-            changed_sections = [k for k in data.keys() if k not in ('_',)]
-            log_admin_audit('config_change', detail=f'修改系统配置: {", ".join(changed_sections)}', target_type='config')
+            changed_for_log = changed_sections or [k for k in data.keys() if k not in ('_',)]
+            log_admin_audit('config_change', detail=f'修改系统配置: {", ".join(changed_for_log)}', target_type='config')
             
             return jsonify({
                 'success': True,
@@ -21211,6 +21224,49 @@ def reset_category_config_api():
             
     except Exception as e:
         app.logger.error(f'重置分类策略失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/test-tmdb', methods=['POST'])
+@admin_required
+def test_tmdb_connection():
+    """测试 TMDB API 连接（服务端）"""
+    try:
+        data = request.get_json(silent=True) or {}
+        api_key = str(data.get('api_key', '')).strip()
+
+        if not api_key:
+            return jsonify({'success': False, 'error': 'TMDB API Key 不能为空'}), 400
+
+        response = PROXY_SESSION.get(
+            f'{TMDB_BASE_URL}/configuration',
+            params={'api_key': api_key},
+            timeout=10
+        )
+
+        if response.status_code == 200:
+            config_data = response.json() or {}
+            images = config_data.get('images') or {}
+            secure_base_url = images.get('secure_base_url', '')
+            msg = 'TMDB API Key 有效，服务端访问正常'
+            if secure_base_url:
+                msg += f'（图片地址: {secure_base_url}）'
+            return jsonify({'success': True, 'message': msg}), 200
+
+        if response.status_code == 401:
+            return jsonify({'success': False, 'error': 'API Key 无效或已过期'}), 400
+
+        return jsonify({
+            'success': False,
+            'error': f'TMDB 接口返回异常状态码: {response.status_code}'
+        }), 400
+
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': '连接超时，请检查网络或代理设置'}), 400
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': '无法连接 TMDB，请检查网络或代理设置'}), 400
+    except Exception as e:
+        app.logger.error(f'测试 TMDB 连接失败: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -22564,6 +22620,154 @@ def _verify_captcha(captcha_answer):
     return True, ''
 
 
+def _get_checkin_config():
+    """获取签到配置（统一入口）"""
+    config = SystemConfig.get_config(SystemConfig.KEY_CHECKIN, {})
+    return config if isinstance(config, dict) else {}
+
+
+def _get_user_checkin_record(user, target_date):
+    """获取用户指定日期签到记录"""
+    return CheckInRecord.query.filter_by(
+        user_tg=user.tg,
+        checkin_date=target_date
+    ).first()
+
+
+def _check_user_checkin_eligibility(user, checkin_config=None, require_bot_enabled=False):
+    """统一签到资格校验（网页/Bot 共用）"""
+    cfg = checkin_config or _get_checkin_config()
+
+    if not cfg.get('enabled', False):
+        return {
+            'ok': False,
+            'status': 400,
+            'error': '签到功能未开启',
+            'checkin_config': cfg
+        }
+
+    if require_bot_enabled and not cfg.get('bot_enabled', False):
+        return {
+            'ok': False,
+            'status': 400,
+            'error': '管理员未开启BOT签到',
+            'checkin_config': cfg
+        }
+
+    checkin_perm = cfg.get('checkin_permission', 'all')
+    if checkin_perm == 'none':
+        return {
+            'ok': False,
+            'status': 403,
+            'error': '管理员已关闭签到功能',
+            'checkin_config': cfg
+        }
+    if checkin_perm == 'subscribed' and (not user.ex or user.ex < datetime.now()):
+        return {
+            'ok': False,
+            'status': 403,
+            'error': '仅限有订阅的用户签到，请先订阅后再来签到',
+            'checkin_config': cfg
+        }
+
+    today = datetime.now().date()
+    existing = _get_user_checkin_record(user, today)
+    if existing:
+        return {
+            'ok': False,
+            'status': 400,
+            'error': '今天已经签到过了',
+            'existing': existing,
+            'checkin_config': cfg
+        }
+
+    return {
+        'ok': True,
+        'status': 200,
+        'checkin_config': cfg
+    }
+
+
+def _execute_user_checkin(user, checkin_config=None):
+    """统一执行签到入账（网页/Bot 共用）"""
+    cfg = checkin_config or _get_checkin_config()
+    today = datetime.now().date()
+
+    # 计算连续签到天数
+    yesterday = today - timedelta(days=1)
+    yesterday_record = _get_user_checkin_record(user, yesterday)
+    continuous_days = (yesterday_record.continuous_days + 1) if yesterday_record else 1
+
+    # 随机生成签到积分（兼容错误配置）
+    raw_min = cfg.get('coin_min', 1)
+    raw_max = cfg.get('coin_max', 10)
+    try:
+        coin_min = int(raw_min)
+    except (TypeError, ValueError):
+        coin_min = 1
+    try:
+        coin_max = int(raw_max)
+    except (TypeError, ValueError):
+        coin_max = 10
+    if coin_min > coin_max:
+        coin_min, coin_max = coin_max, coin_min
+    coins_earned = random.randint(coin_min, coin_max)
+
+    # 创建签到记录
+    checkin_record = CheckInRecord(
+        user_tg=user.tg,
+        checkin_date=today,
+        coins_earned=coins_earned,
+        continuous_days=continuous_days
+    )
+    db.session.add(checkin_record)
+    db.session.flush()
+
+    # 更新用户积分和签到时间
+    user.coins = (user.coins or 0) + coins_earned
+    user.ch = datetime.now()
+
+    # 创建积分交易记录（与网页一致）
+    coin_trans = CoinTransaction(
+        user_tg=user.tg,
+        amount=coins_earned,
+        balance_after=user.coins,
+        trans_type='checkin',
+        description=f'每日签到，连续{continuous_days}天',
+        related_id=checkin_record.id
+    )
+    db.session.add(coin_trans)
+    db.session.commit()
+
+    return {
+        'coins_earned': coins_earned,
+        'continuous_days': continuous_days,
+        'total_coins': user.coins,
+        'coin_name': cfg.get('coin_name', '积分'),
+        'checkin_date': today,
+        'record': checkin_record
+    }
+
+
+def _build_bot_checkin_already_reply(existing, user, coin_name):
+    return f"""⭕ <b>您今天已经签到过了！</b>
+
+🎉 <b>今日获得</b> | {existing.coins_earned} {coin_name}
+💴 <b>当前持有</b> | {user.coins or 0} {coin_name}
+📅 <b>连续签到</b> | {existing.continuous_days} 天
+
+签到是无聊的活动哦，明天再来吧~"""
+
+
+def _build_bot_checkin_success_reply(coins_earned, total_coins, continuous_days, coin_name, checkin_date=None):
+    date_obj = checkin_date or datetime.now().date()
+    date_text = date_obj.strftime('%Y-%m-%d')
+    return f"""🎉 <b>签到成功</b> | +{coins_earned} {coin_name}
+💴 <b>当前持有</b> | {total_coins} {coin_name}
+📅 <b>连续签到</b> | {continuous_days} 天
+⏳ <b>签到日期</b> | {date_text}"""
+
+
 @app.route('/api/user/checkin', methods=['POST'])
 @login_required
 def user_checkin():
@@ -22580,83 +22784,34 @@ def user_checkin():
         if not user:
             return jsonify({'success': False, 'error': '用户未找到'}), 404
         
-        # 获取签到配置
-        checkin_config = SystemConfig.get_config(SystemConfig.KEY_CHECKIN, {})
-        if not checkin_config.get('enabled', False):
-            return jsonify({'success': False, 'error': '签到功能未开启'}), 400
-        
-        # 签到权限检查
-        checkin_perm = checkin_config.get('checkin_permission', 'all')
-        if checkin_perm == 'none':
-            return jsonify({'success': False, 'error': '管理员已关闭签到功能'}), 403
-        if checkin_perm == 'subscribed':
-            if not user.ex or user.ex < datetime.now():
-                return jsonify({'success': False, 'error': '仅限有订阅的用户签到，请先订阅后再来签到'}), 403
-        
-        # 检查今天是否已签到
-        today = datetime.now().date()
-        existing = CheckInRecord.query.filter_by(
-            user_tg=user.tg,
-            checkin_date=today
-        ).first()
-        
-        if existing:
+        checkin_config = _get_checkin_config()
+        eligibility = _check_user_checkin_eligibility(user, checkin_config, require_bot_enabled=False)
+        if not eligibility['ok']:
+            existing = eligibility.get('existing')
+            if existing:
+                return jsonify({
+                    'success': False,
+                    'error': '今天已经签到过了',
+                    'coins_earned': existing.coins_earned,
+                    'continuous_days': existing.continuous_days
+                }), 400
             return jsonify({
                 'success': False,
-                'error': '今天已经签到过了',
-                'coins_earned': existing.coins_earned,
-                'continuous_days': existing.continuous_days
-            }), 400
-        
-        # 计算连续签到天数
-        yesterday = today - timedelta(days=1)
-        yesterday_record = CheckInRecord.query.filter_by(
-            user_tg=user.tg,
-            checkin_date=yesterday
-        ).first()
-        
-        continuous_days = (yesterday_record.continuous_days + 1) if yesterday_record else 1
-        
-        # 随机生成签到积分
-        coin_min = checkin_config.get('coin_min', 1)
-        coin_max = checkin_config.get('coin_max', 10)
-        coins_earned = random.randint(coin_min, coin_max)
-        
-        # 创建签到记录
-        checkin_record = CheckInRecord(
-            user_tg=user.tg,
-            checkin_date=today,
-            coins_earned=coins_earned,
-            continuous_days=continuous_days
+                'error': eligibility['error']
+            }), eligibility.get('status', 400)
+
+        result = _execute_user_checkin(user, checkin_config)
+        app.logger.info(
+            f'用户签到成功: {user.name}, 获得积分: {result["coins_earned"]}, 连续{result["continuous_days"]}天'
         )
-        db.session.add(checkin_record)
-        
-        # 更新用户积分和签到时间
-        user.coins = (user.coins or 0) + coins_earned
-        user.ch = datetime.now()
-        
-        # 创建积分交易记录
-        coin_trans = CoinTransaction(
-            user_tg=user.tg,
-            amount=coins_earned,
-            balance_after=user.coins,
-            trans_type='checkin',
-            description=f'每日签到，连续{continuous_days}天',
-            related_id=checkin_record.id
-        )
-        db.session.add(coin_trans)
-        
-        db.session.commit()
-        
-        app.logger.info(f'用户签到成功: {user.name}, 获得积分: {coins_earned}, 连续{continuous_days}天')
         
         return jsonify({
             'success': True,
-            'message': f'签到成功！获得 {coins_earned} {checkin_config.get("coin_name", "积分")}',
-            'coins_earned': coins_earned,
-            'coin_name': checkin_config.get('coin_name', '积分'),
-            'continuous_days': continuous_days,
-            'total_coins': user.coins
+            'message': f'签到成功！获得 {result["coins_earned"]} {result["coin_name"]}',
+            'coins_earned': result['coins_earned'],
+            'coin_name': result['coin_name'],
+            'continuous_days': result['continuous_days'],
+            'total_coins': result['total_coins']
         }), 200
     except Exception as e:
         app.logger.error(f'签到失败: {e}')

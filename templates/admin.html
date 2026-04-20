@@ -1098,7 +1098,7 @@
                         <button class="tab-btn" onclick="switchPlaybackTab('devices')">设备管理</button>
                         <button class="tab-btn" onclick="switchPlaybackTab('blacklist')">设备黑名单</button>
                         <button class="tab-btn" onclick="switchPlaybackTab('history')">播放历史</button>
-                        <button class="tab-btn" onclick="switchPlaybackTab('rankings')">🏆 播放排行</button>
+                        <button class="tab-btn" id="playbackRankingsTabBtn" onclick="switchPlaybackTab('rankings')">🏆 播放排行</button>
                     </div>
 
                     <!-- 实时会话 -->
@@ -3060,7 +3060,7 @@
                                 <span class="collapse-icon">▶</span>
                                 <h3>🔔 入库通知设置</h3>
                             </div>
-                            <span class="status-badge configured" id="libraryNotificationStatus">已配置</span>
+                            <span class="status-badge" id="libraryNotificationStatus">加载中</span>
                         </div>
                         <div class="settings-card-body collapsible-content">
                             <p class="settings-desc">配置媒体入库时发送到 Telegram 的通知内容和样式。</p>
@@ -3120,19 +3120,6 @@
                                         <span class="form-hint">支持变量：{title}、{year}、{user}、{admin}、{overview}、{poster}</span>
                                     </div>
 
-                                    <div class="form-group">
-                                        <label for="tgRequestTemplate">求片通知模板</label>
-                                        <textarea id="tgRequestTemplate" class="form-input" rows="6"
-                                            placeholder="留空则使用默认模板"></textarea>
-                                        <span class="form-hint">支持变量：{title}、{year}、{user}、{admin}、{overview}、{poster}</span>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="tgCompletionTemplate">入库完成模板</label>
-                                        <textarea id="tgCompletionTemplate" class="form-input" rows="6"
-                                            placeholder="留空则使用默认模板"></textarea>
-                                        <span class="form-hint">支持变量：{title}、{year}、{user}、{admin}、{overview}、{poster}</span>
-                                    </div>
                                 </div>
                             </div>
 
@@ -3279,7 +3266,7 @@
                                     </div>
                                 </div>
 
-                                <div id="rankingConfigDetails" style="display:none;">
+                                <div id="rankingConfigDetails">
                                     <!-- 排行数量 -->
                                     <div class="form-row">
                                         <div class="form-group">
