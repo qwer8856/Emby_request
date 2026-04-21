@@ -3885,15 +3885,136 @@ async function unbindTelegramId() {
         }
 
         // ==================== 订阅信息功能 ====================
-        
-        async function loadSubscriptionInfo() {
+        const SUBSCRIPTION_HISTORY_PAGE_SIZE = 6;
+        let subscriptionHistoryRecords = [];
+        let subscriptionHistoryCurrentPage = 1;
+
+        function buildSubscriptionHistoryItem(sub) {
+            const price = parseFloat(sub.price) || 0;
+            const source = sub.source || (price === 0 ? 'gift' : 'purchase');
+            let sourceTag = '';
+            let sourceClass = '';
+
+            switch(source) {
+                case 'gift':
+                    sourceTag = '<span class="source-tag gift">🎁 赠送</span>';
+                    sourceClass = 'gift';
+                    break;
+                case 'redeem':
+                    sourceTag = '<span class="source-tag redeem">🎟️ 兑换</span>';
+                    sourceClass = 'redeem';
+                    break;
+                case 'manual':
+                    sourceTag = '<span class="source-tag manual">⚙️ 系统</span>';
+                    sourceClass = 'manual';
+                    break;
+                case 'purchase':
+                default:
+                    sourceTag = '<span class="source-tag purchase">💳 购买</span>';
+                    sourceClass = 'purchase';
+                    break;
+            }
+
+            const priceText = price > 0 ? `¥${price}` : '免费';
+
+            let durationText = '';
+            const recordStartDate = new Date(sub.start_date);
+            const recordEndDate = new Date(sub.end_date);
+            const actualDays = Math.ceil((recordEndDate - recordStartDate) / (1000 * 60 * 60 * 24));
+            if (actualDays > 0 && actualDays < 30) {
+                durationText = `${actualDays}天`;
+            } else if (source === 'gift' && sub.duration_months === 0) {
+                durationText = `${actualDays}天`;
+            } else if (sub.duration_months > 0) {
+                durationText = `${sub.duration_months}个月`;
+            } else {
+                const days = Math.ceil((recordEndDate - recordStartDate) / (1000 * 60 * 60 * 24));
+                durationText = `${days}天`;
+            }
+
+            return `
+                <div class="history-item-new ${sourceClass}-item">
+                    <div class="history-dot ${sourceClass}"></div>
+                    <div class="history-item-content">
+                        <div class="history-item-header">
+                            <div class="history-item-title">${sub.plan_name}</div>
+                            ${sourceTag}
+                        </div>
+                        <div class="history-item-meta">
+                            ${new Date(sub.start_date).toLocaleDateString('zh-CN')} ~ ${new Date(sub.end_date).toLocaleDateString('zh-CN')}
+                            <span class="duration-tag">${durationText}</span>
+                            <span class="price-tag">${priceText}</span>
+                            <span class="status-tag ${sub.status}">${sub.status === 'active' ? '有效' : (sub.status === 'pending' ? '待生效' : '已过期')}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSubscriptionHistoryPagination(page, pages, total) {
+            const container = document.getElementById('subscriptionHistoryPagination');
+            if (!container) return;
+
+            if (!total || total <= 0) {
+                container.innerHTML = '';
+                return;
+            }
+
+            if (pages <= 1) {
+                container.innerHTML = `<div class="pagination-info">共 ${total} 条记录</div>`;
+                return;
+            }
+
+            let html = `<div class="pagination-info">共 ${total} 条记录</div>`;
+            html += '<div class="pagination-controls">';
+            html += `<button class="page-btn" onclick="changeSubscriptionHistoryPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>上一页</button>`;
+            html += `<span class="page-current">第 ${page} / ${pages} 页</span>`;
+            html += `<button class="page-btn" onclick="changeSubscriptionHistoryPage(${page + 1})" ${page >= pages ? 'disabled' : ''}>下一页</button>`;
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function renderSubscriptionHistoryPage(page = 1) {
             const historyList = document.getElementById('subscriptionHistory');
+            if (!historyList) return;
+
+            const total = subscriptionHistoryRecords.length;
+            if (total <= 0) {
+                subscriptionHistoryCurrentPage = 1;
+                historyList.innerHTML = `
+                    <div class="history-empty">
+                        <div class="empty-icon">🗂️</div>
+                        <p>暂无订阅记录</p>
+                        <span>购买套餐后记录将显示在这里</span>
+                    </div>
+                `;
+                renderSubscriptionHistoryPagination(1, 1, 0);
+                return;
+            }
+
+            const pages = Math.max(1, Math.ceil(total / SUBSCRIPTION_HISTORY_PAGE_SIZE));
+            const safePage = Math.min(Math.max(1, page), pages);
+            subscriptionHistoryCurrentPage = safePage;
+
+            const start = (safePage - 1) * SUBSCRIPTION_HISTORY_PAGE_SIZE;
+            const pageRecords = subscriptionHistoryRecords.slice(start, start + SUBSCRIPTION_HISTORY_PAGE_SIZE);
+            historyList.innerHTML = pageRecords.map(buildSubscriptionHistoryItem).join('');
+            historyList.scrollTop = 0;
+
+            renderSubscriptionHistoryPagination(safePage, pages, total);
+        }
+
+        function changeSubscriptionHistoryPage(page) {
+            renderSubscriptionHistoryPage(page);
+        }
+
+        async function loadSubscriptionInfo() {
             const countdownProgress = document.getElementById('countdownProgress');
             const countdownDays = document.getElementById('countdownDays');
             const badgeText = document.getElementById('subscriptionBadgeText');
             const startDate = document.getElementById('subscriptionStartDate');
             const endDate = document.getElementById('subscriptionEndDate');
-            
+
             try {
                 const requestSnapshot = await fetchMyRequestsSnapshot().catch(() => null);
                 if (requestSnapshot) {
@@ -3903,32 +4024,23 @@ async function unbindTelegramId() {
                 // 获取当前订阅
                 const response = await fetch('/api/subscription/current');
                 const data = await parseResponseData(response);
-                
-                let planType = null;
-                let planName = null;
-                
+
                 if (data.success && data.subscription) {
                     const sub = data.subscription;
-                    planType = sub.plan_type;
-                    planName = sub.plan_name;
-                    
+
                     // 白名单用户特殊显示
                     if (sub.is_whitelist || sub.plan_type === 'whitelist') {
                         if (badgeText) badgeText.textContent = '白名单用户';
                         if (countdownDays) countdownDays.textContent = '∞';
                         if (startDate) startDate.textContent = '永久有效';
                         if (endDate) endDate.textContent = '永不过期';
-                        // 设置进度条为满
-                        if (countdownProgress) {
-                            countdownProgress.style.strokeDashoffset = '0';
-                        }
+                        if (countdownProgress) countdownProgress.style.strokeDashoffset = '0';
                     } else {
                         if (badgeText) badgeText.textContent = sub.status === 'active' ? '订阅用户' : '已过期';
                         if (countdownDays) countdownDays.textContent = sub.days_remaining || '0';
                         if (startDate) startDate.textContent = new Date(sub.start_date).toLocaleDateString('zh-CN');
                         if (endDate) endDate.textContent = new Date(sub.end_date).toLocaleDateString('zh-CN');
-                        
-                        // 计算进度条 (假设最大周期为365天)
+
                         if (countdownProgress && sub.days_remaining !== undefined) {
                             const maxDays = 365;
                             const progress = Math.min(sub.days_remaining / maxDays, 1);
@@ -3941,98 +4053,25 @@ async function unbindTelegramId() {
                     if (countdownDays) countdownDays.textContent = '0';
                     if (startDate) startDate.textContent = '--';
                     if (endDate) endDate.textContent = '--';
-                    if (countdownProgress) {
-                        countdownProgress.style.strokeDashoffset = '283';
-                    }
+                    if (countdownProgress) countdownProgress.style.strokeDashoffset = '283';
                 }
-                
+
                 // ===== 渲染保号信息 =====
                 renderRetentionInfo(data.retention);
-                
+
                 // 获取订阅历史
                 const historyResponse = await fetch('/api/subscription/history');
                 const historyData = await parseResponseData(historyResponse);
                 const historyCount = document.getElementById('subscriptionHistoryCount');
-                
+
                 if (historyData.success && historyData.subscriptions.length > 0) {
-                    if (historyCount) historyCount.textContent = `${historyData.subscriptions.length} 条记录`;
-                    historyList.innerHTML = historyData.subscriptions.map((sub, index) => {
-                        // 判断来源类型 - 兼容旧数据
-                        const price = parseFloat(sub.price) || 0;
-                        const source = sub.source || (price === 0 ? 'gift' : 'purchase');
-                        let sourceTag = '';
-                        let sourceClass = '';
-                        
-                        switch(source) {
-                            case 'gift':
-                                sourceTag = '<span class="source-tag gift">🎁 赠送</span>';
-                                sourceClass = 'gift';
-                                break;
-                            case 'redeem':
-                                sourceTag = '<span class="source-tag redeem">🎟️ 兑换</span>';
-                                sourceClass = 'redeem';
-                                break;
-                            case 'manual':
-                                sourceTag = '<span class="source-tag manual">⚙️ 系统</span>';
-                                sourceClass = 'manual';
-                                break;
-                            case 'purchase':
-                            default:
-                                sourceTag = '<span class="source-tag purchase">💳 购买</span>';
-                                sourceClass = 'purchase';
-                                break;
-                        }
-                        
-                        const priceText = price > 0 ? `¥${price}` : '免费';
-                        
-                        // 计算持续时间：赠送类型显示天数，其他显示月数
-                        let durationText = '';
-                        // 优先根据实际日期计算天数
-                        const subStartDate = new Date(sub.start_date);
-                        const subEndDate = new Date(sub.end_date);
-                        const actualDays = Math.ceil((subEndDate - subStartDate) / (1000 * 60 * 60 * 24));
-                        if (actualDays > 0 && actualDays < 30) {
-                            durationText = `${actualDays}天`;
-                        } else if (source === 'gift' && sub.duration_months === 0) {
-                            durationText = `${actualDays}天`;
-                        } else if (sub.duration_months > 0) {
-                            durationText = `${sub.duration_months}个月`;
-                        } else {
-                            // 其他情况也计算天数
-                            const startDate = new Date(sub.start_date);
-                            const endDate = new Date(sub.end_date);
-                            const days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
-                            durationText = `${days}天`;
-                        }
-                        
-                        return `
-                            <div class="history-item-new ${sourceClass}-item">
-                                <div class="history-dot ${sourceClass}"></div>
-                                <div class="history-item-content">
-                                    <div class="history-item-header">
-                                        <div class="history-item-title">${sub.plan_name}</div>
-                                        ${sourceTag}
-                                    </div>
-                                    <div class="history-item-meta">
-                                        ${new Date(sub.start_date).toLocaleDateString('zh-CN')} ~ ${new Date(sub.end_date).toLocaleDateString('zh-CN')}
-                                        <span class="duration-tag">${durationText}</span>
-                                        <span class="price-tag">${priceText}</span>
-                                        <span class="status-tag ${sub.status}">${sub.status === 'active' ? '有效' : (sub.status === 'pending' ? '待生效' : '已过期')}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        `;
-                    }).join('');
+                    subscriptionHistoryRecords = historyData.subscriptions;
+                    if (historyCount) historyCount.textContent = `${subscriptionHistoryRecords.length} 条记录`;
+                    renderSubscriptionHistoryPage(1);
                 } else {
-                    const historyCountEl = document.getElementById('subscriptionHistoryCount');
-                    if (historyCountEl) historyCountEl.textContent = '0 条记录';
-                    historyList.innerHTML = `
-                        <div class="history-empty">
-                            <div class="empty-icon">🗂️</div>
-                            <p>暂无订阅记录</p>
-                            <span>购买套餐后记录将显示在这里</span>
-                        </div>
-                    `;
+                    subscriptionHistoryRecords = [];
+                    if (historyCount) historyCount.textContent = '0 条记录';
+                    renderSubscriptionHistoryPage(1);
                 }
             } catch (error) {
                 console.error('加载订阅信息失败:', error);

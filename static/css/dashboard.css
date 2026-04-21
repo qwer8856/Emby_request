@@ -7767,9 +7767,11 @@
    ============================================ */
 #section-subscription {
     --sub-accent: #1d4ed8;
+    --sub-accent-soft: #dbeafe;
     --sub-text: #0f172a;
     --sub-muted: #64748b;
     --sub-border: #e2e8f0;
+    --sub-surface: #f8fafc;
 }
 
 #section-subscription .subscription-section-header {
@@ -7779,8 +7781,8 @@
     padding: 16px 18px;
     border-radius: 14px;
     border: 1px solid var(--sub-border);
-    background: #fff;
-    box-shadow: none;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
 }
 
 #section-subscription .subscription-header-main h1 {
@@ -7820,14 +7822,14 @@
 }
 
 #section-subscription .subscription-page-container {
-    gap: 14px;
+    gap: 16px;
 }
 
 #section-subscription .subscription-hero-card {
     border-radius: 14px;
     border: 1px solid var(--sub-border);
-    background: #fff;
-    box-shadow: none;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
     padding: 18px;
 }
 
@@ -7842,10 +7844,10 @@
 
 #section-subscription .hero-badge {
     margin-bottom: 10px;
-    background: #f8fafc;
+    background: #f1f5f9;
     border: 1px solid var(--sub-border);
-    color: #334155;
-    box-shadow: none;
+    color: #1e3a8a;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
     padding: 6px 12px;
     font-size: 12px;
 }
@@ -7917,13 +7919,13 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    min-height: 0;
+    min-height: 104px;
     padding: 12px 14px;
     border-radius: 12px;
     border: 1px solid var(--sub-border);
-    background: #fff;
-    box-shadow: none;
-    transition: border-color 0.2s ease;
+    background: #ffffff;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 #section-subscription .detail-card::before {
@@ -7932,8 +7934,8 @@
 
 #section-subscription .detail-card:hover {
     transform: none;
-    border-color: #cbd5e1;
-    box-shadow: none;
+    border-color: #bfdbfe;
+    box-shadow: 0 6px 14px rgba(37, 99, 235, 0.08);
 }
 
 #section-subscription .detail-card-head {
@@ -7984,7 +7986,7 @@
 #section-subscription .subscription-benefits {
     border: 1px solid var(--sub-border);
     border-radius: 14px;
-    box-shadow: none;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
 }
 
 #section-subscription .subscription-action-group {
@@ -7995,7 +7997,7 @@
     min-width: 0;
     border-radius: 12px;
     padding: 12px 14px;
-    box-shadow: none;
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.05);
 }
 
 #section-subscription .sub-action-btn::before {
@@ -8003,24 +8005,24 @@
 }
 
 #section-subscription .sub-action-btn.primary {
-    background: #1f2937;
+    background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%);
 }
 
 #section-subscription .sub-action-btn.primary:hover {
-    background: #111827;
+    background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
     transform: none;
-    box-shadow: none;
+    box-shadow: 0 6px 14px rgba(30, 64, 175, 0.22);
 }
 
 #section-subscription .sub-action-btn.secondary {
-    background: #fff;
+    background: #ffffff;
     border: 1px solid var(--sub-border);
 }
 
 #section-subscription .sub-action-btn.secondary:hover {
     background: #f8fafc;
     transform: none;
-    box-shadow: none;
+    box-shadow: 0 6px 12px rgba(15, 23, 42, 0.08);
 }
 
 #section-subscription .sub-action-btn .btn-icon {
@@ -8052,6 +8054,7 @@
 #section-subscription .subscription-history-section {
     padding: 16px;
     min-height: 0;
+    background: #ffffff;
 }
 
 #section-subscription .history-header h3,
@@ -8068,11 +8071,31 @@
 }
 
 #section-subscription .history-count {
-    background: #f8fafc;
+    background: #eef2ff;
     border-color: var(--sub-border);
-    color: var(--sub-muted);
+    color: #1d4ed8;
     font-size: 12px;
     padding: 4px 10px;
+}
+
+#section-subscription .history-timeline {
+    max-height: 430px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+#section-subscription .history-timeline::-webkit-scrollbar {
+    width: 8px;
+}
+
+#section-subscription .history-timeline::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+}
+
+#section-subscription .history-timeline::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 999px;
 }
 
 #section-subscription .history-empty {
@@ -8106,15 +8129,17 @@
 }
 
 #section-subscription .history-item-new {
-    border: 1px solid transparent;
+    border: 1px solid #e2e8f0;
     border-radius: 10px;
     padding: 12px;
     gap: 12px;
+    background: #ffffff;
+    margin-bottom: 10px;
 }
 
 #section-subscription .history-item-new:hover {
-    border-color: #e5e7eb;
-    background: #f8fafc;
+    border-color: #bfdbfe;
+    background: #f8fbff;
 }
 
 #section-subscription .history-dot {
@@ -8139,6 +8164,7 @@
 
 #section-subscription .subscription-benefits {
     padding: 16px;
+    background: #ffffff;
 }
 
 #section-subscription .benefits-grid {
@@ -8149,14 +8175,14 @@
 #section-subscription .benefit-item {
     padding: 10px 12px;
     border-radius: 10px;
-    background: #f8fafc;
+    background: var(--sub-surface);
     border-color: var(--sub-border);
 }
 
 #section-subscription .benefit-item:hover {
-    border-color: #cbd5e1;
+    border-color: #bfdbfe;
     transform: none;
-    box-shadow: none;
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.08);
 }
 
 #section-subscription .benefit-icon {
@@ -8167,6 +8193,41 @@
 }
 
 #section-subscription .benefit-text {
+    font-size: 13px;
+}
+
+#section-subscription .subscription-history-pagination {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e2e8f0;
+    gap: 10px;
+}
+
+#section-subscription .subscription-history-pagination .pagination-info {
+    color: #64748b;
+}
+
+#section-subscription .subscription-history-pagination .pagination-controls {
+    gap: 8px;
+}
+
+#section-subscription .subscription-history-pagination .page-btn {
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid #dbe3ef;
+    background: #fff;
+    color: #334155;
+    font-size: 13px;
+}
+
+#section-subscription .subscription-history-pagination .page-btn:hover:not([disabled]) {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+}
+
+#section-subscription .subscription-history-pagination .page-current {
+    color: #64748b;
     font-size: 13px;
 }
 
@@ -8221,6 +8282,7 @@
 
     #section-subscription .detail-card {
         padding: 10px;
+        min-height: 96px;
     }
 
     #section-subscription .detail-value {
@@ -8246,6 +8308,10 @@
         display: flex;
         justify-content: flex-end;
     }
+
+    #section-subscription .history-timeline {
+        max-height: 360px;
+    }
 }
 
 @media (max-width: 480px) {
@@ -8261,6 +8327,19 @@
     #section-subscription .benefits-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
+    }
+
+    #section-subscription .history-timeline {
+        max-height: 320px;
+    }
+
+    #section-subscription .subscription-history-pagination .pagination-controls {
+        gap: 6px;
+    }
+
+    #section-subscription .subscription-history-pagination .page-btn {
+        padding: 7px 10px;
+        font-size: 12px;
     }
 }
 
