@@ -1162,12 +1162,7 @@
             <div class="section-header subscription-section-header">
                 <div class="subscription-header-main">
                     <h1><span class="subscription-header-icon">💳</span><span>我的订阅</span></h1>
-                    <p>集中查看套餐状态、有效期和权益信息，数据会随系统状态自动更新</p>
-                </div>
-                <div class="subscription-header-meta">
-                    <span class="subscription-header-chip">⚡ 实时状态</span>
-                    <span class="subscription-header-chip">🔁 支持续费与兑换</span>
-                    <span class="subscription-header-chip">🛡️ 记录完整可追溯</span>
+                    <p>查看当前套餐、到期时间与订阅记录</p>
                 </div>
             </div>
             
@@ -1184,11 +1179,7 @@
                             <div class="hero-title">
                                 <h2 id="subscriptionUserName">{{ user.name or '用户' }}</h2>
                                 <span class="hero-level" id="subscriptionLevelName">{{ level_name }}</span>
-                                <p class="hero-subtitle">当前状态与到期时间会在本页自动同步，可直接续费或手动刷新。</p>
-                            </div>
-                            <div class="hero-tags">
-                                <span class="hero-tag">🔔 过期提醒</span>
-                                <span class="hero-tag">📈 数据同步</span>
+                                <p class="hero-subtitle">状态与有效期会自动同步，支持续费和手动刷新。</p>
                             </div>
                         </div>
                         <div class="hero-right">
@@ -1270,14 +1261,7 @@
                     </div>
                     <div class="history-timeline" id="subscriptionHistory">
                         <div class="history-empty">
-                            <div class="empty-illustration">
-                                <svg viewBox="0 0 200 150" fill="none">
-                                    <rect x="40" y="30" width="120" height="90" rx="8" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="2"/>
-                                    <path d="M60 60h80M60 80h60M60 100h40" stroke="#cbd5e1" stroke-width="3" stroke-linecap="round"/>
-                                    <circle cx="160" cy="110" r="25" fill="#667eea" opacity="0.1"/>
-                                    <path d="M155 105l5 5 10-10" stroke="#667eea" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </div>
+                            <div class="empty-icon">🗂️</div>
                             <p>暂无订阅记录</p>
                             <span>购买套餐后记录将显示在这里</span>
                         </div>

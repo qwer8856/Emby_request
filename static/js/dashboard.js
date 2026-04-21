@@ -4028,14 +4028,7 @@ async function unbindTelegramId() {
                     if (historyCountEl) historyCountEl.textContent = '0 条记录';
                     historyList.innerHTML = `
                         <div class="history-empty">
-                            <div class="empty-illustration">
-                                <svg viewBox="0 0 200 150" fill="none">
-                                    <rect x="40" y="30" width="120" height="90" rx="8" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="2"/>
-                                    <path d="M60 60h80M60 80h60M60 100h40" stroke="#cbd5e1" stroke-width="3" stroke-linecap="round"/>
-                                    <circle cx="160" cy="110" r="25" fill="#667eea" opacity="0.1"/>
-                                    <path d="M155 105l5 5 10-10" stroke="#667eea" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </div>
+                            <div class="empty-icon">🗂️</div>
                             <p>暂无订阅记录</p>
                             <span>购买套餐后记录将显示在这里</span>
                         </div>
