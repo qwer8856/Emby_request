@@ -5431,6 +5431,11 @@ function getPlanConfigId(plan) {
     return normalizePlanConfigId(plan.id);
 }
 
+function getPlanExpandKey(plan, index) {
+    const planId = getPlanConfigId(plan);
+    return planId ? `id:${planId}` : `idx:${index}`;
+}
+
 // 记录套餐卡片展开状态
 let expandedPlanCards = new Set();
 
@@ -5657,6 +5662,14 @@ async function loadPlansConfig() {
 function renderPlansConfig() {
     const container = document.getElementById('plansConfigList');
     if (!container) return;
+
+    // 清理已经失效的展开键，避免删除/重排后展开状态错乱
+    const validExpandKeys = new Set(plansConfigData.map((plan, index) => getPlanExpandKey(plan, index)));
+    expandedPlanCards.forEach((key) => {
+        if (!validExpandKeys.has(key)) {
+            expandedPlanCards.delete(key);
+        }
+    });
     
     if (plansConfigData.length === 0) {
         container.innerHTML = '<div class="empty-placeholder">暂无套餐配置，请点击上方按钮添加套餐</div>';
@@ -5664,7 +5677,7 @@ function renderPlansConfig() {
     }
     
     container.innerHTML = plansConfigData.map((plan, index) => `
-        <div class="plan-config-item collapsible-card ${expandedPlanCards.has(index) ? 'expanded' : ''}" data-index="${index}">
+        <div class="plan-config-item collapsible-card ${expandedPlanCards.has(getPlanExpandKey(plan, index)) ? 'expanded' : ''}" data-index="${index}">
             <div class="plan-config-header collapsible-header" onclick="togglePlanCard(${index}, event)">
                 <div class="header-left">
                     <span class="collapse-icon">▶</span>
@@ -5724,6 +5737,22 @@ function renderPlansConfig() {
                             <span>👑 白名单套餐</span>
                         </label>
                         <span class="field-hint">勾选后自动使用系统内置白名单时长（无需手动填写999天）</span>
+                    </div>
+                    <div class="plan-config-field full-width">
+                        <label>前端显示控制</label>
+                        <div class="plan-frontend-toggle">
+                            <button type="button"
+                                    class="btn-sm ${plan.show_in_frontend === false ? 'btn-secondary' : 'btn-primary'}"
+                                    onclick="setPlanFrontendVisibility(${index}, true)">
+                                显示前端
+                            </button>
+                            <button type="button"
+                                    class="btn-sm ${plan.show_in_frontend === false ? 'btn-danger' : 'btn-secondary'}"
+                                    onclick="setPlanFrontendVisibility(${index}, false)">
+                                不显示前端
+                            </button>
+                        </div>
+                        <span class="field-hint">不显示前端后，用户购买页将隐藏该套餐（管理员后台仍可分配该套餐）</span>
                     </div>
                 </div>
                 
@@ -5821,19 +5850,24 @@ function renderPlansConfig() {
     });
 }
 
+function setPlanFrontendVisibility(index, visible) {
+    updatePlanField(index, 'show_in_frontend', !!visible);
+}
+
 // 切换套餐卡片展开/折叠
 function togglePlanCard(index, event) {
-    // 阻止事件冒泡，防止点击按钮时也触发
-    if (event.target.closest('.btn-icon')) return;
+    // 防止点击交互元素时误触发折叠
+    if (event && event.target && event.target.closest('.btn-icon, button, input, textarea, select, label, a')) return;
     
     const card = document.querySelector(`.plan-config-item[data-index="${index}"]`);
     if (card) {
+        const expandKey = getPlanExpandKey(plansConfigData[index], index);
         card.classList.toggle('expanded');
         // 记录展开状态
         if (card.classList.contains('expanded')) {
-            expandedPlanCards.add(index);
+            expandedPlanCards.add(expandKey);
         } else {
-            expandedPlanCards.delete(index);
+            expandedPlanCards.delete(expandKey);
         }
     }
 }
@@ -5853,12 +5887,14 @@ function autoCalcPrices(index) {
     plan.price_6m = Math.round(monthlyPrice * 5 * 100) / 100;     // 约83折
     plan.price_12m = Math.round(monthlyPrice * 9 * 100) / 100;    // 约75折
     
+    expandedPlanCards.add(getPlanExpandKey(plan, index));
     renderPlansConfig();
     showToast('成功', '已自动计算优惠价格', 'success');
 }
 
 function updatePlanField(index, field, value) {
     if (plansConfigData[index]) {
+        expandedPlanCards.add(getPlanExpandKey(plansConfigData[index], index));
         plansConfigData[index][field] = value;
         
         // 同步更新 price 字段（兼容旧数据）
@@ -5898,6 +5934,10 @@ function updatePlanField(index, field, value) {
         if (field === 'popular') {
             renderPlansConfig();
         }
+        // 前端显示开关切换后，立即刷新按钮高亮状态
+        if (field === 'show_in_frontend') {
+            renderPlansConfig();
+        }
         if (field === 'is_whitelist') {
             if (value) {
                 plansConfigData[index].duration_days = PLAN_WHITELIST_INTERNAL_DAYS;
@@ -5915,6 +5955,7 @@ function updatePlanField(index, field, value) {
 function updatePlanDuration(index, days) {
     if (!plansConfigData[index]) return;
     if (plansConfigData[index].is_whitelist) return;
+    expandedPlanCards.add(getPlanExpandKey(plansConfigData[index], index));
     plansConfigData[index].duration_days = days;
     // 同步更新 duration（月数），用于购买流程兼容
     plansConfigData[index].duration = Math.max(1, Math.round(days / 30));
@@ -5959,6 +6000,7 @@ function addNewPlan() {
         is_whitelist: false
     };
     plansConfigData.push(newPlan);
+    expandedPlanCards.add(getPlanExpandKey(newPlan, plansConfigData.length - 1));
     renderPlansConfig();
     
     // 滚动到新添加的套餐
@@ -5984,6 +6026,7 @@ async function deletePlan(index) {
         type: 'danger'
     });
     if (confirmed) {
+        expandedPlanCards.delete(getPlanExpandKey(plansConfigData[index], index));
         plansConfigData.splice(index, 1);
         renderPlansConfig();
         showToast('提示', '套餐已删除，请保存以生效', 'info');

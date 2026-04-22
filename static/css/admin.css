@@ -3798,7 +3798,7 @@ body.page-admin {
 }
 
 .plan-config-item.collapsible-card.expanded .plan-config-body {
-    max-height: 800px;
+    max-height: 5000px;
     padding: 0 20px 20px 20px;
     border-top: 1px solid #e2e8f0;
 }
@@ -3949,6 +3949,21 @@ body.page-admin {
     height: 16px;
     cursor: pointer;
     accent-color: #667eea;
+}
+
+.plan-frontend-toggle {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.plan-frontend-toggle .btn-sm {
+    width: 100%;
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .checkbox-group {
@@ -8188,6 +8203,54 @@ select.custom-select:focus,
     
     .form-hint {
         font-size: 12px;
+    }
+
+    /* --- 套餐默认权益移动端布局 --- */
+    .default-benefits-card .benefits-config-list,
+    .benefit-collapsible-body .benefits-config-list {
+        grid-template-columns: 1fr;
+    }
+
+    .benefit-config-item {
+        min-width: 0;
+    }
+
+    .benefit-config-text {
+        min-width: 0;
+    }
+
+    /* --- 系统设置按钮移动端修复 --- */
+    .settings-actions {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .settings-actions .btn-primary,
+    .settings-actions .btn-secondary {
+        flex: 1 1 calc(50% - 4px);
+        min-width: 0;
+        max-width: 100%;
+        min-height: 42px;
+        padding: 10px 12px;
+        font-size: 13px;
+        justify-content: center;
+        white-space: nowrap;
+    }
+
+    .settings-actions > .btn-primary:only-child,
+    .settings-actions > .btn-secondary:only-child {
+        flex-basis: 100%;
+    }
+
+    .settings-actions.bot-actions-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: stretch;
+    }
+
+    .settings-actions.bot-actions-grid .btn-primary,
+    .settings-actions.bot-actions-grid .btn-secondary {
+        width: 100%;
     }
     
     /* --- 确认弹窗 --- */

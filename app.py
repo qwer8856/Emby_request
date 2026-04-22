@@ -17,7 +17,7 @@ import hashlib
 import ipaddress
 
 # 应用版本号
-APP_VERSION = '2.2.71'
+APP_VERSION = '2.2.74'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -942,7 +942,8 @@ DEFAULT_PLANS = [
         'price_1m': 15,
         'original_price': None,
         'features': ['1080P 画质', '1 个设备', '每日 1 次求片', '标准支持'],
-        'popular': True
+        'popular': True,
+        'show_in_frontend': True
     }
 ]
 
@@ -18775,7 +18776,10 @@ def get_subscription_history():
 @login_required
 def get_plans():
     """获取可购买的套餐列表"""
-    plans = load_plans_config()
+    plans = [
+        plan for plan in load_plans_config()
+        if isinstance(plan, dict) and bool(plan.get('show_in_frontend', True))
+    ]
     
     return jsonify({
         'success': True,
@@ -18817,6 +18821,8 @@ def create_order():
         
         if not plan_config:
             return jsonify({'error': '无效的套餐'}), 400
+        if not bool(plan_config.get('show_in_frontend', True)):
+            return jsonify({'error': '该套餐暂不开放购买'}), 400
 
         normalized_plan_type = coerce_plan_key(plan_config.get('id')) or requested_plan_type
         
@@ -22169,6 +22175,13 @@ def save_plans_config_api():
                 'price_12m': _float_or_none(plan.get('price_12m')),
                 # 订阅权益
                 'benefits': plan.get('benefits', []) if isinstance(plan.get('benefits'), list) else [],
+                # 前端购买页显示控制
+                'show_in_frontend': bool(
+                    plan.get(
+                        'show_in_frontend',
+                        (existing_plan.get('show_in_frontend', True) if existing_plan else True)
+                    )
+                ),
             }
             preserved_type = incoming_type or (coerce_plan_key(existing_plan.get('type')) if existing_plan else '')
             if preserved_type:
