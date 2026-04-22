@@ -131,9 +131,10 @@ docs/
 # Telegram 教程文档（内部使用，不公开）
 TG_TUTORIAL.md
 
-# 一次性迁移脚本（排除主迁移工具）
+# 一次性迁移/发布文件（不入库）
 migrate_*.py
-!migrate_from_embyboss.py
+migrate_from_embyboss.py
+.release_work/
 
 # Node modules (如果使用前端构建工具)
 node_modules/

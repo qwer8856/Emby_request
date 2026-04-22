@@ -2245,14 +2245,23 @@ function renderTickets(tickets) {
 }
 
 function getCategoryText(category) {
+    const raw = String(category ?? '').trim();
+    const normalized = raw.toLowerCase();
+    if (!raw || normalized === 'undefined' || normalized === 'null') {
+        return '其他问题';
+    }
+
     const texts = {
         'account': '账户问题',
+        'payment': '支付问题',
+        'technical': '技术问题',
+        'content': '内容反馈',
         'playback': '播放问题',
         'request': '求片问题',
         'subscription': '订阅问题',
         'other': '其他问题'
     };
-    return texts[category] || category;
+    return texts[normalized] || raw;
 }
 
 function getPriorityText(priority) {
@@ -9817,7 +9826,8 @@ function switchDashTab(tab) {
     if (tab === 'system') loadSystemStats();
 }
 
-async function loadDashboardStats() {
+async function loadDashboardStats(options = {}) {
+    const showSuccessToast = !!(options && options.showSuccessToast);
     try {
         const response = await fetch('/api/admin/dashboard-stats');
         const data = await parseResponseData(response);
@@ -9851,6 +9861,10 @@ async function loadDashboardStats() {
         loadRevenueChart();
         // 加载统计分析环形图
         loadDashboardAnalytics();
+
+        if (showSuccessToast) {
+            showToast('成功', '仪表盘数据已刷新', 'success');
+        }
     } catch (error) {
         console.error('加载仪表盘数据失败:', error);
         showToast('错误', '加载仪表盘数据失败', 'error');

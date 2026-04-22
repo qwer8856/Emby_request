@@ -17,7 +17,7 @@ import hashlib
 import ipaddress
 
 # 应用版本号
-APP_VERSION = '2.2.74'
+APP_VERSION = '2.2.77'
 import time
 import threading
 from threading import Lock, Thread, Event
@@ -5563,6 +5563,7 @@ class SupportTicket(db.Model):
             'ticket_no': self.ticket_no,
             'user_tg': self.user_tg,
             'user_name': (user.emby_name or user.name) if user else str(self.user_tg),
+            'category': (self.category or 'other'),
             'subject': self.subject,
             'description': self.description,
             'status': self.status,
